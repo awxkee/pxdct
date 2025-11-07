@@ -50,13 +50,12 @@ fn avx_mul_fastf(a: Complex<f32>, b: Complex<f32>) -> Complex<f32> {
 #[inline]
 #[target_feature(enable = "avx")]
 fn _mm_unzip_ps(a: __m128, b: __m128) -> (__m128, __m128) {
-    let t0 = _mm_permute_ps::<{ shuffle(3, 1, 2, 0) }>(a);
-    let t1 = _mm_permute_ps::<{ shuffle(3, 1, 2, 0) }>(b);
+    let v2 = _mm_unpacklo_ps(a, b); // a0 a2 b0 b2
+    let v3 = _mm_unpackhi_ps(a, b); // a1 a3 b1 b3
 
-    // Now combine even and odd lanes:
-    let o0 = _mm_castpd_ps(_mm_unpacklo_pd(_mm_castps_pd(t0), _mm_castps_pd(t1)));
-    let o1 = _mm_castpd_ps(_mm_unpackhi_pd(_mm_castps_pd(t0), _mm_castps_pd(t1)));
-    (o0, o1)
+    let va = _mm_unpacklo_ps(v2, v3); // a0 a1 a2 a3
+    let vb = _mm_unpackhi_ps(v2, v3); // b0 b1 ab b3
+    (va, vb)
 }
 
 #[inline]
