@@ -35,6 +35,8 @@
 mod avx;
 mod dct2;
 mod dct3;
+mod dst2;
+mod dst3;
 mod mla;
 #[cfg(all(target_arch = "aarch64", feature = "neon"))]
 mod neon;
@@ -45,6 +47,8 @@ mod util;
 
 use crate::dct2::Dct2Fft;
 use crate::dct3::Dct3Fft;
+use crate::dst2::Dst2Fft;
+use crate::dst3::Dst3Fft;
 pub use pxdct_error::PxdctError;
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
@@ -83,6 +87,34 @@ impl Pxdct {
     ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         Dct3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
     }
+
+    /// Creates a single-precision (f32) DST-II executor.
+    pub fn make_dst2_f32(
+        length: usize,
+    ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Dst2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
+    }
+
+    /// Creates a double-precision (f64) DST-II executor.
+    pub fn make_dst2_f64(
+        length: usize,
+    ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Dst2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
+    }
+
+    /// Creates a single-precision (f32) DST-III executor.
+    pub fn make_dst3_f32(
+        length: usize,
+    ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Dst3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
+    }
+
+    /// Creates a double-precision (f64) DST-III executor.
+    pub fn make_dst3_f64(
+        length: usize,
+    ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Dst3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
+    }
 }
 
 /// Trait implemented by all PXDCT executors.
@@ -118,8 +150,32 @@ mod tests {
                 *k = *k / (i as f32) * 2.;
             }
 
-            working_array.iter().zip(array.iter()).enumerate().for_each(|(i, (&x, &c))| {
-                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {i} for size {i}");
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst2_roundtrip() {
+        for i in 4..250 {
+            let mut array = vec![0f32; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f32;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dst3_f32(array.len()).unwrap();
+
+            dct_forward.execute(&mut working_array).unwrap();
+            dct_inverse.execute(&mut working_array).unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
             });
         }
     }

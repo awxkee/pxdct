@@ -30,7 +30,7 @@ use crate::PxdctError;
 use crate::twiddles::FftTrigonometry;
 use num_traits::{Float, MulAdd};
 use std::fmt::Debug;
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Neg};
 use zaft::{FftDirection, FftExecutor, Zaft};
 
 pub(crate) trait DctSample:
@@ -47,6 +47,7 @@ pub(crate) trait DctSample:
     + Mul<Self, Output = Self>
     + FftSpectrumMulFactory<Self>
     + Half
+    + Neg<Output = Self>
 {
 }
 

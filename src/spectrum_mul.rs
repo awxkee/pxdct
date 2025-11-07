@@ -34,7 +34,9 @@ use std::sync::{Arc, OnceLock};
 
 pub(crate) trait DctSpectrumMul<T> {
     fn mul_spectrum_to_real(&self, a: &[Complex<T>], b: &[Complex<T>], out: &mut [T]);
+    fn mul_spectrum_to_real_rev(&self, a: &[Complex<T>], b: &[Complex<T>], out: &mut [T]);
     fn mul_spectrum_and_half(&self, a: &[T], b: &[Complex<T>], out: &mut [Complex<T>]);
+    fn mul_spectrum_and_half_rev(&self, a: &[T], b: &[Complex<T>], out: &mut [Complex<T>]);
 }
 
 pub(crate) struct FftSpectrumMul<T> {
@@ -44,6 +46,12 @@ pub(crate) struct FftSpectrumMul<T> {
 impl<T: DctSample> DctSpectrumMul<T> for FftSpectrumMul<T> {
     fn mul_spectrum_to_real(&self, a: &[Complex<T>], b: &[Complex<T>], out: &mut [T]) {
         for ((fft_entry, twiddle), out) in a.iter().zip(b.iter()).zip(out.iter_mut()) {
+            *out = c_mul_fast(*fft_entry, *twiddle).re;
+        }
+    }
+
+    fn mul_spectrum_to_real_rev(&self, a: &[Complex<T>], b: &[Complex<T>], out: &mut [T]) {
+        for ((fft_entry, twiddle), out) in a.iter().zip(b.iter()).zip(out.iter_mut().rev()) {
             *out = c_mul_fast(*fft_entry, *twiddle).re;
         }
     }
@@ -61,6 +69,25 @@ impl<T: DctSample> DctSpectrumMul<T> for FftSpectrumMul<T> {
             let c = Complex {
                 re: *c_forward,
                 im: *c_backward,
+            };
+            *entry = c_mul_fast(c, *twiddle) * T::HALF;
+        }
+    }
+
+    fn mul_spectrum_and_half_rev(&self, a: &[T], b: &[Complex<T>], out: &mut [Complex<T>]) {
+        let len_m1 = a.len() - 1;
+        out[0] = Complex::from(a[len_m1] * T::HALF);
+
+        for (((entry, twiddle), c_forward), c_backward) in out
+            .iter_mut()
+            .skip(1)
+            .zip(b.iter().skip(1))
+            .zip(a.iter())
+            .zip(a.iter().rev().skip(1))
+        {
+            let c = Complex {
+                re: *c_backward,
+                im: *c_forward,
             };
             *entry = c_mul_fast(c, *twiddle) * T::HALF;
         }

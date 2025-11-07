@@ -54,6 +54,12 @@ pub(crate) unsafe fn reverse_f32(v: float32x4_t) -> float32x4_t {
 pub(crate) struct DctSpectrumMulF32 {}
 
 impl DctSpectrumMul<f32> for DctSpectrumMulF32 {
+    fn mul_spectrum_to_real_rev(&self, a: &[Complex<f32>], b: &[Complex<f32>], out: &mut [f32]) {
+        for ((fft, twiddle), out) in a.iter().zip(b.iter()).zip(out.iter_mut().rev()) {
+            *out = f32::mul_add(fft.re, twiddle.re, -fft.im * twiddle.im);
+        }
+    }
+
     fn mul_spectrum_to_real(&self, a: &[Complex<f32>], b: &[Complex<f32>], out: &mut [f32]) {
         for ((fft, twiddle), out) in a
             .chunks_exact(8)
@@ -167,6 +173,25 @@ impl DctSpectrumMul<f32> for DctSpectrumMulF32 {
                 *out.get_unchecked_mut(i) = c_mul_fast(c, *b.get_unchecked(i)) * f32::HALF;
                 i += 1;
             }
+        }
+    }
+
+    fn mul_spectrum_and_half_rev(&self, a: &[f32], b: &[Complex<f32>], out: &mut [Complex<f32>]) {
+        let len_m1 = a.len() - 1;
+        out[0] = Complex::from(a[len_m1] * f32::HALF);
+
+        for (((entry, twiddle), c_forward), c_backward) in out
+            .iter_mut()
+            .skip(1)
+            .zip(b.iter().skip(1))
+            .zip(a.iter())
+            .zip(a.iter().rev().skip(1))
+        {
+            let c = Complex {
+                re: *c_backward,
+                im: *c_forward,
+            };
+            *entry = c_mul_fast(c, *twiddle) * f32::HALF;
         }
     }
 }
