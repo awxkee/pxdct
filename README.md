@@ -10,14 +10,14 @@ a mutable data slice.
 
 ---
 
-## ✨ Features
+## Features
 
 - Supports **DCT-II**, **DCT-III**, **DST-II**, and **DST-III**
 - Works with both `f32` and `f64`
 
 ---
 
-## 🧱 Example
+## Example
 
 ```rust
 use pxdct::Pxdct;
