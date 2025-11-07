@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 
 #[derive(Debug)]
 pub enum PxdctError {
@@ -35,6 +35,7 @@ pub enum PxdctError {
     CantCreateUnderlyingFft(String),
     InvalidSizeMultiplier(usize, usize),
     FftError(String),
+    ZeroSizedDct,
 }
 
 impl Error for PxdctError {}
@@ -50,6 +51,7 @@ impl Display for PxdctError {
                 "Size {s0} is assumed to be multiplier of {s1} to execute many DFT, but it wasn't"
             )),
             PxdctError::FftError(s) => f.write_fmt(format_args!("Underlying fft error {s}")),
+            PxdctError::ZeroSizedDct => f.write_str("Zero sized DCT is not allowed"),
         }
     }
 }

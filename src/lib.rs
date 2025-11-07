@@ -64,6 +64,9 @@ impl Pxdct {
     pub fn make_dct2_f32(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dct2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -71,6 +74,9 @@ impl Pxdct {
     pub fn make_dct2_f64(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dct2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
@@ -78,6 +84,9 @@ impl Pxdct {
     pub fn make_dct3_f32(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dct3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -85,6 +94,9 @@ impl Pxdct {
     pub fn make_dct3_f64(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dct3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
@@ -92,6 +104,9 @@ impl Pxdct {
     pub fn make_dst2_f32(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dst2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -99,6 +114,9 @@ impl Pxdct {
     pub fn make_dst2_f64(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dst2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
@@ -106,6 +124,9 @@ impl Pxdct {
     pub fn make_dst3_f32(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dst3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -113,6 +134,9 @@ impl Pxdct {
     pub fn make_dst3_f64(
         length: usize,
     ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
         Dst3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 }
