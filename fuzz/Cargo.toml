@@ -13,6 +13,7 @@ arbitrary = { version = "1.4.2", features = ["derive"] }
 
 [dependencies.pxdct]
 path = ".."
+default-features = false
 
 [[bin]]
 name = "dct"
@@ -20,3 +21,9 @@ path = "dct/dct.rs"
 test = false
 doc = false
 bench = false
+
+[features]
+default = []
+avx = ["pxdct/avx"]
+neon = ["pxdct/neon"]
+fcma = ["pxdct/fcma"]
