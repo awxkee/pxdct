@@ -1,0 +1,27 @@
+[package]
+name = "pxdct"
+version = "0.1.0"
+edition = "2024"
+description = "Discrete cosine transform"
+readme = "README.md"
+keywords = ["dct", "discrete", "fourier"]
+license = "BSD-3-Clause OR Apache-2.0"
+authors = ["Radzivon Bartoshyk"]
+documentation = "https://github.com/awxkee/pxdct"
+categories = ["algorithms", "science"]
+homepage = "https://github.com/awxkee/pxdct"
+repository = "https://github.com/awxkee/pxdct"
+exclude = ["*.jpg", "/assets", "*.png", "*.sh", "/assets/*"]
+rust-version = "1.87.0"
+
+[dependencies]
+num-traits = "0.2.19"
+num-complex = "0.4.6"
+pxfm = "0.1.25"
+zaft = "0.1.8"
+
+[features]
+default = ["avx", "neon"]
+avx = ["zaft/avx"]
+neon = ["zaft/neon"]
+fcma = ["neon", "zaft/fcma"]
