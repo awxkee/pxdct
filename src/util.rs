@@ -31,6 +31,7 @@ use crate::twiddles::FftTrigonometry;
 use num_traits::{Float, MulAdd};
 use std::fmt::Debug;
 use std::ops::{Add, Mul, Neg};
+use std::sync::Arc;
 use zaft::{FftDirection, FftExecutor, Zaft};
 
 pub(crate) trait DctSample:
@@ -71,14 +72,14 @@ pub(crate) trait FftProvider<T> {
     fn make_fft(
         n: usize,
         direction: FftDirection,
-    ) -> Result<Box<dyn FftExecutor<T> + Send + Sync>, PxdctError>;
+    ) -> Result<Arc<dyn FftExecutor<T> + Send + Sync>, PxdctError>;
 }
 
 impl FftProvider<f32> for f32 {
     fn make_fft(
         n: usize,
         direction: FftDirection,
-    ) -> Result<Box<dyn FftExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn FftExecutor<f32> + Send + Sync>, PxdctError> {
         match direction {
             FftDirection::Forward => Zaft::make_forward_fft_f32(n)
                 .map_err(|x| PxdctError::CantCreateUnderlyingFft(x.to_string())),
@@ -92,7 +93,7 @@ impl FftProvider<f64> for f64 {
     fn make_fft(
         n: usize,
         direction: FftDirection,
-    ) -> Result<Box<dyn FftExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn FftExecutor<f64> + Send + Sync>, PxdctError> {
         match direction {
             FftDirection::Forward => Zaft::make_forward_fft_f64(n)
                 .map_err(|x| PxdctError::CantCreateUnderlyingFft(x.to_string())),

@@ -50,6 +50,7 @@ use crate::dct3::Dct3Fft;
 use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
 pub use pxdct_error::PxdctError;
+use std::sync::Arc;
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
 ///
@@ -63,81 +64,81 @@ impl Pxdct {
     /// Creates a single-precision (f32) DCT-II executor.
     pub fn make_dct2_f32(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dct2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
+        Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
     /// Creates a double-precision (f64) DCT-II executor.
     pub fn make_dct2_f64(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dct2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
+        Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
     /// Creates a single-precision (f32) DCT-III executor.
     pub fn make_dct3_f32(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dct3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
+        Dct3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
     /// Creates a double-precision (f64) DCT-III executor.
     pub fn make_dct3_f64(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dct3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
+        Dct3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
     /// Creates a single-precision (f32) DST-II executor.
     pub fn make_dst2_f32(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dst2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
+        Dst2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
     /// Creates a double-precision (f64) DST-II executor.
     pub fn make_dst2_f64(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dst2Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
+        Dst2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
     /// Creates a single-precision (f32) DST-III executor.
     pub fn make_dst3_f32(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dst3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f32> + Send + Sync>)
+        Dst3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
     /// Creates a double-precision (f64) DST-III executor.
     pub fn make_dst3_f64(
         length: usize,
-    ) -> Result<Box<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        Dst3Fft::new(length).map(|x| Box::new(x) as Box<dyn PxdctExecutor<f64> + Send + Sync>)
+        Dst3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 }
 

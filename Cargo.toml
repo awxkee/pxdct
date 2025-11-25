@@ -4,7 +4,7 @@ exclude = ["fuzz"]
 
 [package]
 name = "pxdct"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "Discrete cosine transform"
 readme = "README.md"
@@ -22,7 +22,7 @@ rust-version = "1.87.0"
 num-traits = "0.2.19"
 num-complex = "0.4.6"
 pxfm = "0.1.25"
-zaft = "0.1.8"
+zaft = "0.2"
 
 [features]
 default = ["avx", "neon"]

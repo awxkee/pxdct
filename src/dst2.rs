@@ -37,7 +37,7 @@ use zaft::{FftDirection, FftExecutor};
 
 pub(crate) struct Dst2Fft<T> {
     twiddles: Vec<Complex<T>>,
-    fft_executor: Box<dyn FftExecutor<T> + Send + Sync>,
+    fft_executor: Arc<dyn FftExecutor<T> + Send + Sync>,
     length: usize,
     spectrum_mul: Arc<dyn DctSpectrumMul<T> + Send + Sync>,
 }
