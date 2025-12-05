@@ -57,7 +57,8 @@ use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
 use crate::split_radix::SplitRadixDct2;
 pub use pxdct_error::PxdctError;
-use std::sync::{Arc, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
 ///
@@ -166,6 +167,13 @@ macro_rules! make_avx_dct2_butterflies {
     };
 }
 
+static DCT2_SPLIT_RADIX_CACHE_F32: OnceLock<
+    RwLock<HashMap<usize, Arc<dyn PxdctExecutor<f32> + Send + Sync>>>,
+> = OnceLock::new();
+static DCT2_SPLIT_RADIX_CACHE_F64: OnceLock<
+    RwLock<HashMap<usize, Arc<dyn PxdctExecutor<f64> + Send + Sync>>>,
+> = OnceLock::new();
+
 impl Pxdct {
     /// Creates a single-precision (f32) DCT-II executor.
     pub fn make_dct2_f32(
@@ -181,11 +189,35 @@ impl Pxdct {
         make_dct2_butterflies!(length, f32);
 
         if length.is_power_of_two() && length > 2 {
-            return Ok(Arc::new(SplitRadixDct2::new(
-                length,
-                Pxdct::make_dct2_f32(length / 2)?,
-                Pxdct::make_dct2_f32(length / 4)?,
-            )?));
+            return if length < 16384 {
+                let rw_lock =
+                    DCT2_SPLIT_RADIX_CACHE_F32.get_or_init(|| RwLock::new(HashMap::new()));
+                match rw_lock.write() {
+                    Ok(mut v) => {
+                        if let Some(a) = v.get(&length) {
+                            return Ok(a.clone());
+                        }
+                        let new_arc = Arc::new(SplitRadixDct2::new(
+                            length,
+                            Pxdct::make_dct2_f32(length / 2)?,
+                            Pxdct::make_dct2_f32(length / 4)?,
+                        )?);
+                        v.insert(length, new_arc.clone());
+                        Ok(new_arc)
+                    }
+                    Err(_) => Ok(Arc::new(SplitRadixDct2::new(
+                        length,
+                        Pxdct::make_dct2_f32(length / 2)?,
+                        Pxdct::make_dct2_f32(length / 4)?,
+                    )?)),
+                }
+            } else {
+                Ok(Arc::new(SplitRadixDct2::new(
+                    length,
+                    Pxdct::make_dct2_f32(length / 2)?,
+                    Pxdct::make_dct2_f32(length / 4)?,
+                )?))
+            };
         }
 
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
@@ -205,11 +237,35 @@ impl Pxdct {
         make_dct2_butterflies!(length, f64);
 
         if length.is_power_of_two() && length > 2 {
-            return Ok(Arc::new(SplitRadixDct2::new(
-                length,
-                Pxdct::make_dct2_f64(length / 2)?,
-                Pxdct::make_dct2_f64(length / 4)?,
-            )?));
+            return if length < 16384 {
+                let rw_lock =
+                    DCT2_SPLIT_RADIX_CACHE_F64.get_or_init(|| RwLock::new(HashMap::new()));
+                match rw_lock.write() {
+                    Ok(mut v) => {
+                        if let Some(a) = v.get(&length) {
+                            return Ok(a.clone());
+                        }
+                        let new_arc = Arc::new(SplitRadixDct2::new(
+                            length,
+                            Pxdct::make_dct2_f64(length / 2)?,
+                            Pxdct::make_dct2_f64(length / 4)?,
+                        )?);
+                        v.insert(length, new_arc.clone());
+                        Ok(new_arc)
+                    }
+                    Err(_) => Ok(Arc::new(SplitRadixDct2::new(
+                        length,
+                        Pxdct::make_dct2_f64(length / 2)?,
+                        Pxdct::make_dct2_f64(length / 4)?,
+                    )?)),
+                }
+            } else {
+                Ok(Arc::new(SplitRadixDct2::new(
+                    length,
+                    Pxdct::make_dct2_f64(length / 2)?,
+                    Pxdct::make_dct2_f64(length / 4)?,
+                )?))
+            };
         }
 
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
