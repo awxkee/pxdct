@@ -329,7 +329,11 @@ where
                 self.twiddle0.re,
                 differences[1] * self.twiddle0.im,
             ),
-            differences[2] * self.twiddle1.re + differences[3] * self.twiddle1.im,
+            fmla(
+                differences[2],
+                self.twiddle1.re,
+                differences[3] * self.twiddle1.im,
+            ),
         ]);
         let dct4_odd_buffer = Dst2Butterfly2::exec(&[
             fmla(
