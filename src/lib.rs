@@ -225,6 +225,7 @@ impl Pxdct {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
         if std::arch::is_x86_feature_detected!("avx") && std::arch::is_x86_feature_detected!("fma")
         {
+            #[allow(clippy::collapsible_if)]
             if length == 4 {
                 use crate::avx::AvxDst2Butterfly4;
                 static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
@@ -264,6 +265,7 @@ impl Pxdct {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
         if std::arch::is_x86_feature_detected!("avx") && std::arch::is_x86_feature_detected!("fma")
         {
+            #[allow(clippy::collapsible_if)]
             if length == 4 {
                 use crate::avx::AvxDst2Butterfly4;
                 static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();

@@ -126,9 +126,6 @@ where
 
         let [v0, v2] = Dct2Butterfly2::exec(&[u0 + u3, u2 + u1]);
 
-        let v0 = v0;
-        let v2 = v2;
-
         let v1 = fma(lower_dct4, self.twiddle.re, -upper_dct4 * self.twiddle.im);
         let v3 = fma(upper_dct4, self.twiddle.re, lower_dct4 * self.twiddle.im);
         [v0, v1, v2, v3]
