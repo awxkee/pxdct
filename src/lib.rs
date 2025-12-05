@@ -57,8 +57,7 @@ use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
 use crate::split_radix::SplitRadixDct2;
 pub use pxdct_error::PxdctError;
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
 ///
