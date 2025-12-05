@@ -43,6 +43,7 @@ mod mla;
 mod neon;
 mod pxdct_error;
 mod spectrum_mul;
+mod split_radix;
 mod twiddles;
 mod util;
 
@@ -54,6 +55,7 @@ use crate::dct2::Dct2Fft;
 use crate::dct3::Dct3Fft;
 use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
+use crate::split_radix::SplitRadixDct2;
 pub use pxdct_error::PxdctError;
 use std::sync::{Arc, OnceLock};
 
@@ -177,6 +179,15 @@ impl Pxdct {
             make_avx_dct2_butterflies!(length, f32);
         }
         make_dct2_butterflies!(length, f32);
+
+        if length.is_power_of_two() {
+            return Ok(Arc::new(SplitRadixDct2::new(
+                length,
+                Pxdct::make_dct2_f32(length / 2)?,
+                Pxdct::make_dct2_f32(length / 4)?,
+            )?));
+        }
+
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -192,6 +203,15 @@ impl Pxdct {
             make_avx_dct2_butterflies!(length, f64);
         }
         make_dct2_butterflies!(length, f64);
+
+        if length.is_power_of_two() {
+            return Ok(Arc::new(SplitRadixDct2::new(
+                length,
+                Pxdct::make_dct2_f64(length / 2)?,
+                Pxdct::make_dct2_f64(length / 4)?,
+            )?));
+        }
+
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 

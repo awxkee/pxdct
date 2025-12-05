@@ -530,7 +530,7 @@ where
     }
 
     fn length(&self) -> usize {
-        8
+        16
     }
 }
 
