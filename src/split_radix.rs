@@ -91,7 +91,7 @@ where
             let (input_dct2, input_dct4) = scratch.split_at_mut(half_len);
             let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(quarter_len);
 
-            for i in 0..quarter_len {
+            for (i, twiddle) in self.twiddles.iter().enumerate() {
                 let input_bottom = unsafe { *chunk.get_unchecked(i) };
                 let input_top = unsafe { *chunk.get_unchecked(len - i - 1) };
 
@@ -108,7 +108,6 @@ where
                 //prepare the inner DCT4 - which consists of two DCT2s of half size
                 let lower_dct4 = input_bottom - input_top;
                 let upper_dct4 = input_half_bottom - input_half_top;
-                let twiddle = unsafe { self.twiddles.get_unchecked(i) };
 
                 let cos_input = fmla(lower_dct4, twiddle.re, upper_dct4 * twiddle.im);
                 let sin_input = fmla(upper_dct4, twiddle.re, -lower_dct4 * twiddle.im);

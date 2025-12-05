@@ -180,7 +180,7 @@ impl Pxdct {
         }
         make_dct2_butterflies!(length, f32);
 
-        if length.is_power_of_two() {
+        if length.is_power_of_two() && length > 2 {
             return Ok(Arc::new(SplitRadixDct2::new(
                 length,
                 Pxdct::make_dct2_f32(length / 2)?,
@@ -204,7 +204,7 @@ impl Pxdct {
         }
         make_dct2_butterflies!(length, f64);
 
-        if length.is_power_of_two() {
+        if length.is_power_of_two() && length > 2 {
             return Ok(Arc::new(SplitRadixDct2::new(
                 length,
                 Pxdct::make_dct2_f64(length / 2)?,
