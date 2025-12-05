@@ -29,7 +29,7 @@
 use crate::mla::c_mul_fast;
 use crate::neon::mul_f32::reverse_f32;
 use crate::spectrum_mul::DctSpectrumMul;
-use crate::util::Half;
+use crate::util::DctConstants;
 use num_complex::Complex;
 use std::arch::aarch64::*;
 

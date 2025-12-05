@@ -33,6 +33,7 @@
 
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 mod avx;
+mod butterflies;
 mod dct2;
 mod dct3;
 mod dst2;
@@ -45,12 +46,16 @@ mod spectrum_mul;
 mod twiddles;
 mod util;
 
+use crate::butterflies::{
+    Dct2Butterfly2, Dct2Butterfly3, Dct2Butterfly4, Dct2Butterfly8, Dct2Butterfly16,
+    Dst2Butterfly2, Dst2Butterfly4,
+};
 use crate::dct2::Dct2Fft;
 use crate::dct3::Dct3Fft;
 use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
 pub use pxdct_error::PxdctError;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
 ///
@@ -60,6 +65,105 @@ use std::sync::Arc;
 /// trait and can be used to perform an in-place DCT transform on a data slice.
 pub struct Pxdct {}
 
+macro_rules! make_dct2_butterflies {
+    ($length: expr, $f_type: ident) => {
+        if $length == 2 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dct2Butterfly2::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if $length == 3 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dct2Butterfly3::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if $length == 4 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dct2Butterfly4::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if $length == 8 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dct2Butterfly8::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if $length == 16 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dct2Butterfly16::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        }
+    };
+}
+
+#[cfg(all(target_arch = "x86_64", feature = "avx"))]
+macro_rules! make_avx_dct2_butterflies {
+    ($length: expr, $f_type: ident) => {
+        if std::arch::is_x86_feature_detected!("avx") && std::arch::is_x86_feature_detected!("fma")
+        {
+            use crate::avx::{
+                AvxDct2Butterfly3, AvxDct2Butterfly4, AvxDct2Butterfly8, AvxDct2Butterfly16,
+            };
+            if $length == 2 {
+                static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(Dct2Butterfly2::default())
+                            as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                    })
+                    .clone());
+            } else if $length == 3 {
+                static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(AvxDct2Butterfly3::default())
+                            as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                    })
+                    .clone());
+            } else if $length == 4 {
+                static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(AvxDct2Butterfly4::default())
+                            as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                    })
+                    .clone());
+            } else if $length == 8 {
+                static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(AvxDct2Butterfly8::default())
+                            as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                    })
+                    .clone());
+            } else if $length == 16 {
+                static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(AvxDct2Butterfly16::default())
+                            as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                    })
+                    .clone());
+            }
+        }
+    };
+}
+
 impl Pxdct {
     /// Creates a single-precision (f32) DCT-II executor.
     pub fn make_dct2_f32(
@@ -68,6 +172,11 @@ impl Pxdct {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        {
+            make_avx_dct2_butterflies!(length, f32);
+        }
+        make_dct2_butterflies!(length, f32);
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -78,6 +187,11 @@ impl Pxdct {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        {
+            make_avx_dct2_butterflies!(length, f64);
+        }
+        make_dct2_butterflies!(length, f64);
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
@@ -108,6 +222,35 @@ impl Pxdct {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if std::arch::is_x86_feature_detected!("avx") && std::arch::is_x86_feature_detected!("fma")
+        {
+            if length == 4 {
+                use crate::avx::AvxDst2Butterfly4;
+                static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(AvxDst2Butterfly4::default())
+                            as Arc<dyn PxdctExecutor<f32> + Send + Sync>
+                    })
+                    .clone());
+            }
+        }
+        if length == 2 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst2Butterfly2::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
+                })
+                .clone());
+        } else if length == 4 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst2Butterfly4::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
+                })
+                .clone());
+        }
         Dst2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
     }
 
@@ -117,6 +260,35 @@ impl Pxdct {
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if std::arch::is_x86_feature_detected!("avx") && std::arch::is_x86_feature_detected!("fma")
+        {
+            if length == 4 {
+                use crate::avx::AvxDst2Butterfly4;
+                static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
+                return Ok(Q
+                    .get_or_init(|| {
+                        Arc::new(AvxDst2Butterfly4::default())
+                            as Arc<dyn PxdctExecutor<f64> + Send + Sync>
+                    })
+                    .clone());
+            }
+        }
+        if length == 2 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst2Butterfly2::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
+                })
+                .clone());
+        } else if length == 4 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst2Butterfly4::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
+                })
+                .clone());
         }
         Dst2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
@@ -156,6 +328,40 @@ pub trait PxdctExecutor<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    pub(crate) fn naive_dct2(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let cos_inner =
+                    (output_index as f64) * (input_index as f64 + 0.5) * std::f64::consts::PI
+                        / (input.len() as f64);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+
+        result
+    }
+
+    pub(crate) fn naive_dst2(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f64 + 1.0) * (input_index as f64 + 0.5) * std::f64::consts::PI
+                        / (input.len() as f64);
+                let twiddle = sin_inner.sin();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+        result
+    }
 
     #[test]
     fn dct2_roundtrip() {

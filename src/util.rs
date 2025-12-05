@@ -47,7 +47,7 @@ pub(crate) trait DctSample:
     + Add<Self, Output = Self>
     + Mul<Self, Output = Self>
     + FftSpectrumMulFactory<Self>
-    + Half
+    + DctConstants
     + Neg<Output = Self>
 {
 }
@@ -56,16 +56,19 @@ impl DctSample for f32 {}
 
 impl DctSample for f64 {}
 
-pub(crate) trait Half {
+pub(crate) trait DctConstants {
     const HALF: Self;
+    const FRAC_1_SQRT_2: Self;
 }
 
-impl Half for f32 {
+impl DctConstants for f32 {
     const HALF: Self = 0.5;
+    const FRAC_1_SQRT_2: Self = std::f32::consts::FRAC_1_SQRT_2;
 }
 
-impl Half for f64 {
+impl DctConstants for f64 {
     const HALF: Self = 0.5;
+    const FRAC_1_SQRT_2: Self = std::f64::consts::FRAC_1_SQRT_2;
 }
 
 pub(crate) trait FftProvider<T> {

@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::spectrum_mul::DctSpectrumMul;
-use crate::util::Half;
+use crate::util::DctConstants;
 use num_complex::Complex;
 use std::arch::x86_64::*;
 

@@ -26,6 +26,10 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+mod butterflies;
 mod mul_f32;
 
+pub(crate) use butterflies::{
+    AvxDct2Butterfly3, AvxDct2Butterfly4, AvxDct2Butterfly8, AvxDct2Butterfly16, AvxDst2Butterfly4,
+};
 pub(crate) use mul_f32::AvxDctSpectrumMulF32;
