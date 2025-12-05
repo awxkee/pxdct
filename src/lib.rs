@@ -167,9 +167,12 @@ macro_rules! make_avx_dct2_butterflies {
     };
 }
 
+#[allow(clippy::type_complexity)]
 static DCT2_SPLIT_RADIX_CACHE_F32: OnceLock<
     RwLock<HashMap<usize, Arc<dyn PxdctExecutor<f32> + Send + Sync>>>,
 > = OnceLock::new();
+
+#[allow(clippy::type_complexity)]
 static DCT2_SPLIT_RADIX_CACHE_F64: OnceLock<
     RwLock<HashMap<usize, Arc<dyn PxdctExecutor<f64> + Send + Sync>>>,
 > = OnceLock::new();
