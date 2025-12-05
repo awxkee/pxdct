@@ -192,7 +192,7 @@ impl Pxdct {
         make_dct2_butterflies!(length, f32);
 
         if length.is_power_of_two() && length > 2 {
-            return if length < 16384 {
+            return if length <= 16384 {
                 let rw_lock =
                     DCT2_SPLIT_RADIX_CACHE_F32.get_or_init(|| RwLock::new(HashMap::new()));
                 match rw_lock.write() {
@@ -240,7 +240,7 @@ impl Pxdct {
         make_dct2_butterflies!(length, f64);
 
         if length.is_power_of_two() && length > 2 {
-            return if length < 16384 {
+            return if length <= 16384 {
                 let rw_lock =
                     DCT2_SPLIT_RADIX_CACHE_F64.get_or_init(|| RwLock::new(HashMap::new()));
                 match rw_lock.write() {
