@@ -120,8 +120,9 @@ where
             }
 
             self.half_dct.execute(input_dct2)?;
-            self.quarter_dct.execute(input_dct4_even)?;
-            self.quarter_dct.execute(input_dct4_odd)?;
+            self.quarter_dct.execute(input_dct4)?;
+
+            let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(quarter_len);
 
             unsafe {
                 //post process the 3 DCT2 outputs. the first few and the last will be done outside the loop
@@ -157,11 +158,71 @@ where
     }
 }
 
+#[allow(unused)]
+pub(crate) struct SplitRadixDst2<T: DctSample> {
+    split_radix_dct2: SplitRadixDct2<T>,
+    execution_length: usize,
+}
+
+impl<T: DctSample> SplitRadixDst2<T>
+where
+    f64: AsPrimitive<T>,
+{
+    #[allow(unused)]
+    pub(crate) fn new(
+        len: usize,
+        half_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+        quarter_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    ) -> Result<SplitRadixDst2<T>, PxdctError> {
+        assert_eq!(
+            half_dct.length(),
+            quarter_dct.length() * 2,
+            "Invalid DCT was received, quarter size is not multiple of half in DST-II"
+        );
+
+        Ok(SplitRadixDst2 {
+            split_radix_dct2: SplitRadixDct2::new(len, half_dct, quarter_dct)?,
+            execution_length: len,
+        })
+    }
+}
+
+impl<T: DctSample> PxdctExecutor<T> for SplitRadixDst2<T>
+where
+    f64: AsPrimitive<T>,
+{
+    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        if !data.len().is_multiple_of(self.execution_length) {
+            return Err(PxdctError::InvalidSizeMultiplier(
+                data.len(),
+                self.execution_length,
+            ));
+        }
+
+        for chunk in data.chunks_exact_mut(self.execution_length) {
+            for dst in chunk.chunks_exact_mut(2) {
+                dst[1] = dst[1].neg();
+            }
+
+            self.split_radix_dct2.execute(chunk)?;
+
+            chunk.reverse();
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    fn length(&self) -> usize {
+        self.execution_length
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::butterflies::{Dct2Butterfly8, Dct2Butterfly16};
-    use crate::tests::naive_dct2;
+    use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
+    use crate::tests::{naive_dct2, naive_dst2};
     use rand::Rng;
 
     #[test]
@@ -173,6 +234,35 @@ mod tests {
         let reference_input = input.clone();
         let reference_input = naive_dct2(&reference_input);
         let bf = SplitRadixDct2::new(
+            32,
+            Arc::new(Dct2Butterfly16::default()),
+            Arc::new(Dct2Butterfly8::default()),
+        )
+        .unwrap();
+        bf.execute(&mut input).unwrap();
+        input
+            .iter()
+            .zip(reference_input.iter())
+            .enumerate()
+            .for_each(|(i, (&src, &r0))| {
+                assert!(
+                    (src - r0).abs() < 1e-7,
+                    "Difference must be < {}, but it was {}, at position {i}",
+                    1e-7,
+                    (src - r0).abs()
+                )
+            });
+    }
+
+    #[test]
+    fn test_split_dst2() {
+        let mut input = vec![0.; 32];
+        for z in input.iter_mut() {
+            *z = rand::rng().random_range(1.0..2.0);
+        }
+        let reference_input = input.clone();
+        let reference_input = naive_dst2(&reference_input);
+        let bf = SplitRadixDst2::new(
             32,
             Arc::new(Dct2Butterfly16::default()),
             Arc::new(Dct2Butterfly8::default()),

@@ -26,9 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::dct2::create_dct2_3;
 use crate::spectrum_mul::DctSpectrumMul;
-use crate::util::{DctSample, try_vec};
+use crate::util::{DctSample, create_dct2_3, try_vec};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -38,7 +37,7 @@ use zaft::{FftDirection, FftExecutor};
 pub(crate) struct Dst2Fft<T> {
     twiddles: Vec<Complex<T>>,
     fft_executor: Arc<dyn FftExecutor<T> + Send + Sync>,
-    length: usize,
+    execution_length: usize,
     spectrum_mul: Arc<dyn DctSpectrumMul<T> + Send + Sync>,
 }
 
@@ -49,15 +48,18 @@ where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.length) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length));
+        if !data.len().is_multiple_of(self.execution_length) {
+            return Err(PxdctError::InvalidSizeMultiplier(
+                data.len(),
+                self.execution_length,
+            ));
         }
 
-        let mut scratch = try_vec![Complex::<T>::default(); data.len()];
+        let mut scratch = try_vec![Complex::<T>::default(); self.execution_length];
 
-        let even_end = data.len().div_ceil(2);
+        let even_end = self.execution_length.div_ceil(2);
 
-        for chunk in data.chunks_exact_mut(self.length) {
+        for chunk in data.chunks_exact_mut(self.execution_length) {
             for (dst, src) in scratch
                 .iter_mut()
                 .zip(chunk.iter().step_by(2))
@@ -67,14 +69,14 @@ where
             }
 
             // the second half is the odd elements, in reverse order
-            if self.length > 1 {
-                let odd_end = self.length() - self.length() % 2;
-                let buffer = &mut scratch[even_end..even_end + self.length / 2];
+            if self.execution_length > 1 {
+                let odd_end = self.execution_length - self.execution_length % 2;
+                let buffer = &mut scratch[even_end..even_end + self.execution_length / 2];
                 let data_cutoff = &chunk[..odd_end];
                 for (dst, src) in buffer
                     .iter_mut()
                     .zip(data_cutoff.iter().rev().step_by(2))
-                    .take(self.length / 2)
+                    .take(self.execution_length / 2)
                 {
                     *dst = Complex::from(-*src);
                 }
@@ -92,7 +94,7 @@ where
     }
 
     fn length(&self) -> usize {
-        self.length
+        self.execution_length
     }
 }
 

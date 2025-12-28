@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::avx::storef::AvxStoreF;
 use crate::spectrum_mul::DctSpectrumMul;
 use crate::util::DctConstants;
 use num_complex::Complex;
@@ -48,7 +49,7 @@ fn avx_mul_fastf(a: Complex<f32>, b: Complex<f32>) -> Complex<f32> {
 }
 
 #[inline]
-#[target_feature(enable = "avx")]
+#[target_feature(enable = "avx2")]
 fn _mm_unzip_ps(a: __m128, b: __m128) -> (__m128, __m128) {
     let v2 = _mm_unpacklo_ps(a, b); // a0 a2 b0 b2
     let v3 = _mm_unpackhi_ps(a, b); // a1 a3 b1 b3
@@ -59,21 +60,7 @@ fn _mm_unzip_ps(a: __m128, b: __m128) -> (__m128, __m128) {
 }
 
 #[inline]
-#[target_feature(enable = "avx2")]
-fn _mm256_unzip_ps(a: __m256, b: __m256) -> (__m256, __m256) {
-    let t0 = _mm256_permute_ps::<{ shuffle(3, 1, 2, 0) }>(a);
-    let t1 = _mm256_permute_ps::<{ shuffle(3, 1, 2, 0) }>(b);
-
-    // Now combine even and odd lanes:
-    let o0 = _mm256_unpacklo_pd(_mm256_castps_pd(t0), _mm256_castps_pd(t1));
-    let o1 = _mm256_unpackhi_pd(_mm256_castps_pd(t0), _mm256_castps_pd(t1));
-    let u0 = _mm256_castpd_ps(_mm256_permute4x64_pd::<{ shuffle(3, 1, 2, 0) }>(o0));
-    let u1 = _mm256_castpd_ps(_mm256_permute4x64_pd::<{ shuffle(3, 1, 2, 0) }>(o1));
-    (u0, u1)
-}
-
-#[inline]
-#[target_feature(enable = "avx", enable = "fma")]
+#[target_feature(enable = "avx2", enable = "fma")]
 pub(crate) unsafe fn _mm256_fcmul_ps(a: __m256, b: __m256) -> __m256 {
     // Extract real and imag parts from a
     let ar = _mm256_moveldup_ps(a); // duplicate even lanes (re parts)
@@ -101,68 +88,73 @@ impl AvxDctSpectrumMulF32 {
     }
 
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn mul_spectrum_to_real_impl(&self, a: &[Complex<f32>], b: &[Complex<f32>], out: &mut [f32]) {
-        for ((fft, twiddle), out) in a
-            .chunks_exact(8)
-            .zip(b.chunks_exact(8))
-            .zip(out.chunks_exact_mut(8))
-        {
-            unsafe {
-                let a = _mm256_loadu_ps(fft.as_ptr().cast());
-                let b = _mm256_loadu_ps(twiddle.as_ptr().cast());
+    fn mul_spectrum_to_real_impl(
+        &self,
+        complex_input: &[Complex<f32>],
+        twiddles: &[Complex<f32>],
+        out: &mut [f32],
+    ) {
+        let len = out.len();
+        let half = out.len() / 2;
+        let complex_length = complex_input.len();
 
-                let a2 = _mm256_loadu_ps(fft.get_unchecked(4..).as_ptr().cast());
-                let b2 = _mm256_loadu_ps(twiddle.get_unchecked(4..).as_ptr().cast());
+        assert!(twiddles.len() >= len);
+        assert!(!complex_input.is_empty());
+        assert!(complex_input.len() >= half);
+        assert!(out.len() >= len);
 
-                let a_z0 = _mm256_unzip_ps(a, a2);
-                let b_z0 = _mm256_unzip_ps(b, b2);
-                let a_re0 = a_z0.0;
-                let a_im0 = a_z0.1;
-                let b_re0 = b_z0.0;
-                let b_im0 = b_z0.1;
-
-                let real0 = _mm256_fnmadd_ps(a_im0, b_im0, _mm256_mul_ps(a_re0, b_re0));
-
-                _mm256_storeu_ps(out.as_mut_ptr(), real0);
+        unsafe {
+            *out.get_unchecked_mut(0) =
+                twiddles.get_unchecked(0).re * complex_input.get_unchecked(0).re;
+            if len.is_multiple_of(2) {
+                *out.get_unchecked_mut(half) =
+                    twiddles.get_unchecked(half).re * complex_input.get_unchecked(half).re;
             }
         }
 
-        let a = a.chunks_exact(8).remainder();
-        let b = b.chunks_exact(8).remainder();
-        let out = out.chunks_exact_mut(8).into_remainder();
+        let v_conj = AvxStoreF::set_values8(0.0, -0.0, 0.0, -0.0, 0.0, -0.0, 0.0, -0.0);
 
-        for ((fft, twiddle), out) in a
-            .chunks_exact(4)
-            .zip(b.chunks_exact(4))
-            .zip(out.chunks_exact_mut(4))
-        {
+        let mut i = 1usize;
+
+        while i + 8 < complex_length {
             unsafe {
-                let a = _mm256_loadu_ps(fft.as_ptr().cast());
-                let b = _mm256_loadu_ps(twiddle.as_ptr().cast());
+                let c0 = AvxStoreF::load_complex(complex_input.get_unchecked(i..));
+                let c1 = AvxStoreF::load_complex(complex_input.get_unchecked(i + 4..));
+                let twiddle0 = AvxStoreF::load_complex(twiddles.get_unchecked(i..));
+                let twiddle1 = AvxStoreF::load_complex(twiddles.get_unchecked(i + 4..));
+                let twiddle0_rev =
+                    AvxStoreF::load_complex(twiddles.get_unchecked(len - i - 3..)).swap_complex();
+                let twiddle1_rev =
+                    AvxStoreF::load_complex(twiddles.get_unchecked(len - i - 7..)).swap_complex();
 
-                let ka = _mm256_castps256_ps128(a);
-                let kah = _mm256_extractf128_ps::<1>(a);
-
-                let kb = _mm256_castps256_ps128(b);
-                let kbh = _mm256_extractf128_ps::<1>(b);
-
-                let a_z0 = _mm_unzip_ps(ka, kah);
-                let b_z0 = _mm_unzip_ps(kb, kbh);
-                let a_re0 = a_z0.0;
-                let a_im0 = a_z0.1;
-                let b_re0 = b_z0.0;
-                let b_im0 = b_z0.1;
-                let real = _mm_fnmadd_ps(a_im0, b_im0, _mm_mul_ps(a_re0, b_re0));
-                _mm_storeu_ps(out.as_mut_ptr(), real);
+                let real_forward =
+                    AvxStoreF::mul_by_complex_unpack_real(c0, c1, twiddle0, twiddle1);
+                let real_backward = AvxStoreF::mul_by_complex_unpack_real(
+                    c0.xor(v_conj),
+                    c1.xor(v_conj),
+                    twiddle0_rev,
+                    twiddle1_rev,
+                );
+                real_forward.write(out.get_unchecked_mut(i..));
+                real_backward
+                    .reverse()
+                    .write(out.get_unchecked_mut(len - i - 7..));
             }
+
+            i += 8;
         }
 
-        let a = a.chunks_exact(4).remainder();
-        let b = b.chunks_exact(4).remainder();
-        let out = out.chunks_exact_mut(4).into_remainder();
-
-        for ((fft, twiddle), out) in a.iter().zip(b.iter()).zip(out.iter_mut()) {
-            *out = f32::mul_add(fft.re, twiddle.re, -fft.im * twiddle.im);
+        for i in i..complex_length {
+            unsafe {
+                let twiddle = *twiddles.get_unchecked(i);
+                let twiddle_rev = *twiddles.get_unchecked(len - i);
+                let fft_value = *complex_input.get_unchecked(i);
+                *out.get_unchecked_mut(i) =
+                    f32::mul_add(fft_value.re, twiddle.re, -fft_value.im * twiddle.im);
+                let conj_fft = fft_value.conj();
+                *out.get_unchecked_mut(len - i) =
+                    f32::mul_add(conj_fft.re, twiddle_rev.re, -conj_fft.im * twiddle_rev.im);
+            }
         }
     }
 

@@ -1,0 +1,271 @@
+/*
+ * // Copyright (c) Radzivon Bartoshyk 12/2025. All rights reserved.
+ * //
+ * // Redistribution and use in source and binary forms, with or without modification,
+ * // are permitted provided that the following conditions are met:
+ * //
+ * // 1.  Redistributions of source code must retain the above copyright notice, this
+ * // list of conditions and the following disclaimer.
+ * //
+ * // 2.  Redistributions in binary form must reproduce the above copyright notice,
+ * // this list of conditions and the following disclaimer in the documentation
+ * // and/or other materials provided with the distribution.
+ * //
+ * // 3.  Neither the name of the copyright holder nor the names of its
+ * // contributors may be used to endorse or promote products derived from
+ * // this software without specific prior written permission.
+ * //
+ * // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * // IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * // DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * // FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * // DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * // SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+use crate::solver::solve_expression;
+use num_complex::Complex;
+use pxfm::f_sincospi;
+use std::ops::Add;
+
+#[inline]
+pub(crate) fn compute_twiddle(index: usize, fft_len: usize) -> Complex<f64> {
+    let angle = -2. * index as f64 / fft_len as f64;
+    let (v_sin, v_cos) = f_sincospi(angle);
+    Complex {
+        re: v_cos,
+        im: v_sin,
+    }
+}
+
+pub(crate) fn almost_eq(a0: f64, b0: f64) -> bool {
+    (a0.abs() - b0.abs()).abs() < 1e-7
+}
+
+pub(crate) fn almost_eq_exact(a0: f64, b0: f64) -> bool {
+    (a0 - b0).abs() < 1e-7
+}
+
+pub(crate) fn generate_dct3(len: usize) -> (String, Vec<String>) {
+    let mut result = Vec::new();
+
+    let mut twiddles = Vec::new();
+
+    let mut builder = String::new();
+
+    for output_index in 0..len {
+        twiddles.push(compute_twiddle(output_index + 1, len * 4).conj());
+    }
+
+    let is_odd = !len.is_multiple_of(2);
+
+    for output_index in 0..len {
+        if output_index == 0 {
+            builder = builder
+                .add(format!("let x{} = data[{output_index}] * T::HALF;\n", output_index).as_str());
+        } else {
+            builder =
+                builder.add(format!("let x{} = data[{output_index}];\n", output_index).as_str());
+        }
+    }
+
+    builder = builder.add("\n");
+    let mut lanes = Vec::new();
+
+    let fma_cutoff = 9;
+    let fuse_first = false;
+
+    for output_index in 0..len {
+        let mut entry = 0.0;
+
+        let mut line_builder = String::new();
+
+        let mut need_to_close = 0usize;
+
+        if !is_odd || output_index != len / 2 {
+            if fuse_first {
+                line_builder = line_builder.add(format!("let y{} = fmla(", output_index).as_str());
+                need_to_close = 1;
+            } else {
+                line_builder = line_builder.add(format!("let y{} = ", output_index).as_str());
+            }
+        } else {
+            line_builder = line_builder.add(format!("let y{} = x0", output_index).as_str());
+        }
+
+        for input_index in 0..len {
+            let cos_inner =
+                (output_index as f64 + 0.5) * (input_index as f64) * std::f64::consts::PI
+                    / (len as f64);
+            let cos_twiddle = cos_inner.cos();
+
+            let mut twiddle_idx: Option<usize> = None;
+            let mut twiddle_img = false;
+            let mut neg_twiddle = false;
+
+            if (!is_odd || output_index != len / 2) && input_index >= 1 {
+                for (i, twiddle) in twiddles.iter().enumerate() {
+                    if almost_eq(twiddle.re, cos_twiddle) {
+                        if almost_eq_exact(twiddle.re, -cos_twiddle) {
+                            neg_twiddle = true;
+                        }
+                        twiddle_idx = Some(i);
+                        twiddle_img = false;
+                        break;
+                    } else if almost_eq(twiddle.im, cos_twiddle) {
+                        if almost_eq_exact(twiddle.im, -cos_twiddle) {
+                            neg_twiddle = true;
+                        }
+                        twiddle_idx = Some(i);
+                        twiddle_img = true;
+                        break;
+                    }
+                }
+
+                if twiddle_idx.is_none() {
+                    panic!(
+                        "Wasn't found required idx at output {output_index} input {input_index}"
+                    );
+                }
+
+                if input_index != len - 1 {
+                    if almost_eq(cos_twiddle, 0.) {
+                        // do nothing
+                    } else if almost_eq(cos_twiddle, 1.) {
+                        if len < fma_cutoff || input_index == 1 {
+                            line_builder = line_builder.add(
+                                format!(
+                                    "{}1f64.as_(), x{input_index}, fmla(",
+                                    if cos_twiddle < 0. { "-" } else { "" },
+                                )
+                                .as_str(),
+                            );
+                            need_to_close += 1;
+                        } else {
+                            line_builder = line_builder.add(
+                                format!(
+                                    " {} x{input_index}",
+                                    if cos_twiddle < 0. {
+                                        "-"
+                                    } else {
+                                        if input_index > 1 { "+" } else { "" }
+                                    },
+                                )
+                                .as_str(),
+                            );
+                        }
+                    } else {
+                        if len < fma_cutoff || (input_index == 1 && fuse_first) {
+                            if len >= fma_cutoff && fuse_first {
+                                line_builder = line_builder.add(
+                                    format!(
+                                        "{}self.twiddle{}.{}, x{input_index},",
+                                        if neg_twiddle { "-" } else { "" },
+                                        twiddle_idx.unwrap(),
+                                        if twiddle_img { "im" } else { "re" }
+                                    )
+                                    .as_str(),
+                                );
+                            } else {
+                                line_builder = line_builder.add(
+                                    format!(
+                                        "{}self.twiddle{}.{}, x{input_index}, fmla(",
+                                        if neg_twiddle { "-" } else { "" },
+                                        twiddle_idx.unwrap(),
+                                        if twiddle_img { "im" } else { "re" }
+                                    )
+                                    .as_str(),
+                                );
+                                need_to_close += 1;
+                            }
+                        } else {
+                            line_builder = line_builder.add(
+                                format!(
+                                    " {} self.twiddle{}.{} * x{input_index}",
+                                    if neg_twiddle {
+                                        "-"
+                                    } else {
+                                        if input_index > (if fuse_first { 2 } else { 1 }) {
+                                            "+"
+                                        } else {
+                                            ""
+                                        }
+                                    },
+                                    twiddle_idx.unwrap(),
+                                    if twiddle_img { "im" } else { "re" }
+                                )
+                                .as_str(),
+                            );
+                        }
+                    }
+                } else {
+                    // last item
+                    if almost_eq(cos_twiddle, 0.) {
+                        line_builder = line_builder.add("x0");
+                    } else {
+                        if len < fma_cutoff {
+                            line_builder = line_builder.add(
+                                format!(
+                                    "{}self.twiddle{}.{}, x{input_index}, x0",
+                                    if neg_twiddle { "-" } else { "" },
+                                    twiddle_idx.unwrap(),
+                                    if twiddle_img { "im" } else { "re" }
+                                )
+                                .as_str(),
+                            );
+                        } else {
+                            line_builder = line_builder.add(
+                                format!(
+                                    "{} self.twiddle{}.{} * x{input_index} + x0",
+                                    if neg_twiddle { "-" } else { "+" },
+                                    twiddle_idx.unwrap(),
+                                    if twiddle_img { "im" } else { "re" }
+                                )
+                                .as_str(),
+                            );
+                        }
+                    }
+                }
+            } else if (is_odd && output_index == len / 2) && input_index > 0 {
+                if almost_eq_exact(cos_twiddle, 1.) {
+                    line_builder = line_builder.add(format!(" + x{input_index}").as_str());
+                } else if almost_eq_exact(cos_twiddle, -1.) {
+                    line_builder = line_builder.add(format!(" - x{input_index}").as_str());
+                }
+            }
+        }
+
+        if need_to_close > 0 {
+            for _ in 0..need_to_close {
+                line_builder = line_builder.add(")");
+            }
+        }
+        line_builder = line_builder.add(";");
+
+        lanes.push(line_builder.to_string());
+
+        if is_odd {
+            builder = builder.add(&line_builder);
+            builder = builder.add("\n");
+        }
+
+        result.push(entry);
+    }
+
+    if !is_odd {
+        let solved_expressions = solve_expression(&lanes);
+
+        builder = builder.add(solved_expressions.as_str());
+    }
+
+    builder = builder.add("\n");
+
+    for i in 0..len {
+        builder = builder.add(format!("data[{i}] = y{i};\n").as_str());
+    }
+
+    (builder, lanes)
+}

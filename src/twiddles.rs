@@ -28,12 +28,16 @@
  */
 use num_complex::Complex;
 use num_traits::{AsPrimitive, Float};
-use pxfm::{f_sincospi, f_sincospif};
+use pxfm::{f_cospi, f_cospif, f_sincospi, f_sincospif, f_sinpi, f_sinpif, f_tanpi, f_tanpif};
 
 pub(crate) trait FftTrigonometry {
     fn sincos_pi(self) -> (Self, Self)
     where
         Self: Sized;
+    fn cospi(self) -> Self;
+    #[allow(unused)]
+    fn sinpi(self) -> Self;
+    fn tanpi(self) -> Self;
 }
 
 impl FftTrigonometry for f32 {
@@ -41,12 +45,42 @@ impl FftTrigonometry for f32 {
     fn sincos_pi(self) -> (Self, Self) {
         f_sincospif(self)
     }
+
+    #[inline]
+    fn cospi(self) -> Self {
+        f_cospif(self)
+    }
+
+    #[inline]
+    fn sinpi(self) -> Self {
+        f_sinpif(self)
+    }
+
+    #[inline]
+    fn tanpi(self) -> Self {
+        f_tanpif(self)
+    }
 }
 
 impl FftTrigonometry for f64 {
     #[inline]
     fn sincos_pi(self) -> (Self, Self) {
         f_sincospi(self)
+    }
+
+    #[inline]
+    fn cospi(self) -> Self {
+        f_cospi(self)
+    }
+
+    #[inline]
+    fn sinpi(self) -> Self {
+        f_sinpi(self)
+    }
+
+    #[inline]
+    fn tanpi(self) -> Self {
+        f_tanpi(self)
     }
 }
 

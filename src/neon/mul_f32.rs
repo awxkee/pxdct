@@ -26,7 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::mla::c_mul_fast;
+use crate::mla::{c_mul_fast, fmla};
+use crate::neon::util::NeonStoreF;
 use crate::spectrum_mul::DctSpectrumMul;
 use crate::util::DctConstants;
 use num_complex::Complex;
@@ -60,80 +61,72 @@ impl DctSpectrumMul<f32> for DctSpectrumMulF32 {
         }
     }
 
-    fn mul_spectrum_to_real(&self, a: &[Complex<f32>], b: &[Complex<f32>], out: &mut [f32]) {
-        for ((fft, twiddle), out) in a
-            .chunks_exact(8)
-            .zip(b.chunks_exact(8))
-            .zip(out.chunks_exact_mut(8))
-        {
-            unsafe {
-                let a = vld1q_f32(fft.as_ptr().cast());
-                let b = vld1q_f32(twiddle.as_ptr().cast());
+    fn mul_spectrum_to_real(
+        &self,
+        complex_input: &[Complex<f32>],
+        twiddles: &[Complex<f32>],
+        out: &mut [f32],
+    ) {
+        let len = out.len();
+        let half = out.len() / 2;
+        let complex_length = complex_input.len();
 
-                let a1 = vld1q_f32(fft.get_unchecked(2..).as_ptr().cast());
-                let b1 = vld1q_f32(twiddle.get_unchecked(2..).as_ptr().cast());
+        assert!(twiddles.len() >= len);
+        assert!(!complex_input.is_empty());
+        assert!(complex_input.len() >= half);
+        assert!(out.len() >= len);
 
-                let a2 = vld1q_f32(fft.get_unchecked(4..).as_ptr().cast());
-                let b2 = vld1q_f32(twiddle.get_unchecked(4..).as_ptr().cast());
-
-                let a3 = vld1q_f32(fft.get_unchecked(6..).as_ptr().cast());
-                let b3 = vld1q_f32(twiddle.get_unchecked(6..).as_ptr().cast());
-
-                let a_z0 = vuzpq_f32(a, a1);
-                let b_z0 = vuzpq_f32(b, b1);
-                let a_re0 = a_z0.0;
-                let a_im0 = a_z0.1;
-                let b_re0 = b_z0.0;
-                let b_im0 = b_z0.1;
-
-                let a_z1 = vuzpq_f32(a2, a3);
-                let b_z1 = vuzpq_f32(b2, b3);
-                let a_re1 = a_z1.0;
-                let a_im1 = a_z1.1;
-                let b_re1 = b_z1.0;
-                let b_im1 = b_z1.1;
-
-                let real0 = vmlsq_f32(vmulq_f32(a_re0, b_re0), a_im0, b_im0);
-                let real1 = vmlsq_f32(vmulq_f32(a_re1, b_re1), a_im1, b_im1);
-
-                vst1q_f32(out.as_mut_ptr(), real0);
-                vst1q_f32(out.get_unchecked_mut(4..).as_mut_ptr(), real1);
+        unsafe {
+            *out.get_unchecked_mut(0) =
+                twiddles.get_unchecked(0).re * complex_input.get_unchecked(0).re;
+            if len.is_multiple_of(2) {
+                *out.get_unchecked_mut(half) =
+                    twiddles.get_unchecked(half).re * complex_input.get_unchecked(half).re;
             }
         }
 
-        let a = a.chunks_exact(8).remainder();
-        let b = b.chunks_exact(8).remainder();
-        let out = out.chunks_exact_mut(8).into_remainder();
+        let v_conj = NeonStoreF::set_values(0.0, -0.0, 0.0, -0.0);
 
-        for ((fft, twiddle), out) in a
-            .chunks_exact(4)
-            .zip(b.chunks_exact(4))
-            .zip(out.chunks_exact_mut(4))
-        {
+        let mut i = 1usize;
+
+        while i + 4 < complex_length {
             unsafe {
-                let a = vld1q_f32(fft.as_ptr().cast());
-                let b = vld1q_f32(twiddle.as_ptr().cast());
+                let c0 = NeonStoreF::load_complex(complex_input.get_unchecked(i..));
+                let c1 = NeonStoreF::load_complex(complex_input.get_unchecked(i + 2..));
+                let twiddle0 = NeonStoreF::load_complex(twiddles.get_unchecked(i..));
+                let twiddle1 = NeonStoreF::load_complex(twiddles.get_unchecked(i + 2..));
+                let twiddle0_rev =
+                    NeonStoreF::load_complex(twiddles.get_unchecked(len - i - 1..)).swap_complex();
+                let twiddle1_rev =
+                    NeonStoreF::load_complex(twiddles.get_unchecked(len - i - 3..)).swap_complex();
 
-                let a1 = vld1q_f32(fft.get_unchecked(2..).as_ptr().cast());
-                let b1 = vld1q_f32(twiddle.get_unchecked(2..).as_ptr().cast());
-
-                let a_z0 = vuzpq_f32(a, a1);
-                let b_z0 = vuzpq_f32(b, b1);
-                let a_re0 = a_z0.0;
-                let a_im0 = a_z0.1;
-                let b_re0 = b_z0.0;
-                let b_im0 = b_z0.1;
-                let real = vmlsq_f32(vmulq_f32(a_re0, b_re0), a_im0, b_im0);
-                vst1q_f32(out.as_mut_ptr(), real);
+                let real_forward = NeonStoreF::mul_complex_unpack_real(c0, c1, twiddle0, twiddle1);
+                let real_backward = NeonStoreF::mul_complex_unpack_real(
+                    c0.xor(v_conj),
+                    c1.xor(v_conj),
+                    twiddle0_rev,
+                    twiddle1_rev,
+                );
+                real_forward.write(out.get_unchecked_mut(i..));
+                real_backward
+                    .reverse()
+                    .write(out.get_unchecked_mut(len - i - 3..));
             }
+
+            i += 4;
         }
 
-        let a = a.chunks_exact(4).remainder();
-        let b = b.chunks_exact(4).remainder();
-        let out = out.chunks_exact_mut(4).into_remainder();
-
-        for ((fft, twiddle), out) in a.iter().zip(b.iter()).zip(out.iter_mut()) {
-            *out = f32::mul_add(fft.re, twiddle.re, -fft.im * twiddle.im);
+        for i in i..complex_length {
+            unsafe {
+                let twiddle = *twiddles.get_unchecked(i);
+                let twiddle_rev = *twiddles.get_unchecked(len - i);
+                let fft_value = *complex_input.get_unchecked(i);
+                *out.get_unchecked_mut(i) =
+                    fmla(fft_value.re, twiddle.re, -fft_value.im * twiddle.im);
+                let conj_fft = fft_value.conj();
+                *out.get_unchecked_mut(len - i) =
+                    fmla(conj_fft.re, twiddle_rev.re, -conj_fft.im * twiddle_rev.im);
+            }
         }
     }
 

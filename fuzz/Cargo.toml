@@ -22,6 +22,20 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "dct4"
+path = "dct4/dct4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dct2_f64"
+path = "dct2_f64/dct2_f64.rs"
+test = false
+doc = false
+bench = false
+
 [features]
 default = []
 avx = ["pxdct/avx"]

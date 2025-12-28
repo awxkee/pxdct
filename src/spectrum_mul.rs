@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::mla::c_mul_fast;
+use crate::mla::{c_mul_fast, fmla};
 use crate::util::DctSample;
 use num_complex::Complex;
 use std::marker::PhantomData;
@@ -44,9 +44,41 @@ pub(crate) struct FftSpectrumMul<T> {
 }
 
 impl<T: DctSample> DctSpectrumMul<T> for FftSpectrumMul<T> {
-    fn mul_spectrum_to_real(&self, a: &[Complex<T>], b: &[Complex<T>], out: &mut [T]) {
-        for ((fft_entry, twiddle), out) in a.iter().zip(b.iter()).zip(out.iter_mut()) {
-            *out = c_mul_fast(*fft_entry, *twiddle).re;
+    fn mul_spectrum_to_real(
+        &self,
+        complex_input: &[Complex<T>],
+        twiddles: &[Complex<T>],
+        out: &mut [T],
+    ) {
+        let len = out.len();
+        let half = out.len() / 2;
+        let complex_length = complex_input.len();
+
+        assert!(twiddles.len() >= len);
+        assert!(!complex_input.is_empty());
+        assert!(complex_input.len() >= half);
+        assert!(out.len() >= len);
+
+        unsafe {
+            *out.get_unchecked_mut(0) =
+                twiddles.get_unchecked(0).re * complex_input.get_unchecked(0).re;
+            if len.is_multiple_of(2) {
+                *out.get_unchecked_mut(half) =
+                    twiddles.get_unchecked(half).re * complex_input.get_unchecked(half).re;
+            }
+        }
+
+        for i in 1..complex_length {
+            unsafe {
+                let twiddle = *twiddles.get_unchecked(i);
+                let twiddle_rev = *twiddles.get_unchecked(len - i);
+                let fft_value = *complex_input.get_unchecked(i);
+                *out.get_unchecked_mut(i) =
+                    fmla(fft_value.re, twiddle.re, -fft_value.im * twiddle.im);
+                let conj_fft = fft_value.conj();
+                *out.get_unchecked_mut(len - i) =
+                    fmla(conj_fft.re, twiddle_rev.re, -conj_fft.im * twiddle_rev.im);
+            }
         }
     }
 
