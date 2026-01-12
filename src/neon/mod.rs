@@ -26,10 +26,38 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#![allow(clippy::too_many_arguments)]
+mod block_transpose;
+mod dct2;
 #[cfg(feature = "fcma")]
 mod fcma_mul_f32;
 mod mul_f32;
+#[cfg(target_pointer_width = "64")]
+mod pfa_dct2_remap;
+mod store_d;
+mod transpose;
+mod util;
 
+pub(crate) use dct2::bf_radix3::{
+    NeonDct2Butterfly27f, NeonDct2Butterfly81f, NeonDct2Butterfly243f,
+};
 #[cfg(feature = "fcma")]
 pub(crate) use fcma_mul_f32::FcmaDctSpectrumMulF32;
 pub(crate) use mul_f32::DctSpectrumMulF32;
+
+pub(crate) use block_transpose::{
+    NeonTransposeNx5F32, NeonTransposeNx6F32, NeonTransposeNx7F32, NeonTransposeNx11F32,
+};
+pub(crate) use dct2::{
+    NeonDct2Butterfly25f, NeonDct2Butterfly32d, NeonDct2Butterfly32f, NeonDct2Butterfly36d,
+    NeonDct2Butterfly36f, NeonDct2Butterfly49f, NeonDct2Butterfly64d, NeonDct2Butterfly64f,
+    NeonDct2Butterfly128d, NeonDct2Butterfly128f, NeonDct2Butterfly216d, NeonDct2Butterfly216f,
+    NeonDct2Butterfly256d, NeonDct2Butterfly256f, NeonDct2Butterfly512d, NeonDct2Butterfly512f,
+    NeonDct2MixedRadix2, NeonDct2MixedRadix3d, NeonDct2MixedRadix3f, NeonDct2MixedRadix5d,
+    NeonDct2MixedRadix5f, NeonDct2MixedRadix6d, NeonDct2MixedRadix6f, NeonDct2MixedRadix7d,
+    NeonDct2MixedRadix7f, NeonDct2MixedRadix9d, NeonDct2MixedRadix9f, NeonDct2MixedRadix11f,
+    NeonSplitRadixDct2d, NeonSplitRadixDct2f, NeonSplitRadixDst2d, NeonSplitRadixDst2f,
+};
+#[cfg(target_pointer_width = "64")]
+pub(crate) use pfa_dct2_remap::NeonPfaDct2Remapper;
+pub(crate) use transpose::NeonTranspose4x4;

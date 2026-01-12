@@ -26,10 +26,39 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-mod butterflies;
+#![allow(clippy::too_many_arguments)]
+mod dct2;
+mod dct2_bf_power2;
+mod dct2_bf_radix3;
+mod dct2_butterflies;
 mod mul_f32;
+mod pfa_dct2_remap;
+mod stored;
+mod storef;
+mod util;
 
-pub(crate) use butterflies::{
-    AvxDct2Butterfly3, AvxDct2Butterfly4, AvxDct2Butterfly8, AvxDct2Butterfly16, AvxDst2Butterfly4,
+pub(crate) use dct2::{
+    AvxDct2Butterfly3, AvxDct2Butterfly5, AvxDct2Butterfly6, AvxDct2Butterfly7, AvxDct2Butterfly11,
+    AvxDct2Butterfly13, AvxDct2Butterfly17, AvxDct2Butterfly19, AvxDct2Butterfly23,
+    AvxDct2Butterfly25d, AvxDct2Butterfly25f, AvxDct2Butterfly27d, AvxDct2Butterfly29,
+    AvxDct2Butterfly31, AvxDct2Butterfly32d, AvxDct2Butterfly32f, AvxDct2Butterfly36d,
+    AvxDct2Butterfly36f, AvxDct2Butterfly37, AvxDct2Butterfly49d, AvxDct2Butterfly49f,
+    AvxDct2Butterfly64d, AvxDct2Butterfly64f, AvxDct2Butterfly81d, AvxDct2Butterfly128d,
+    AvxDct2Butterfly128f, AvxDct2Butterfly216d, AvxDct2Butterfly216f, AvxDct2Butterfly243d,
+    AvxDct2Butterfly256d, AvxDct2Butterfly256f, AvxDct2Butterfly512d, AvxDct2Butterfly512f,
+    AvxDct2MixedRadix2, AvxDct2MixedRadix3d, AvxDct2MixedRadix3f, AvxDct2MixedRadix5d,
+    AvxDct2MixedRadix5f, AvxDct2MixedRadix6d, AvxDct2MixedRadix6f, AvxDct2MixedRadix7d,
+    AvxDct2MixedRadix7f, AvxDct2MixedRadix9d, AvxDct2MixedRadix9f, AvxDct2MixedRadix11d,
+    AvxDct2MixedRadix11f, AvxSplitRadixDct2d, AvxSplitRadixDct2f, AvxSplitRadixDst2d,
+    AvxSplitRadixDst2f,
 };
+pub(crate) use dct2_bf_power2::{
+    AvxDct2Butterfly4, AvxDct2Butterfly8, AvxDct2Butterfly16, AvxDst2Butterfly4,
+};
+pub(crate) use dct2_bf_radix3::{
+    AvxDct2Butterfly9, AvxDct2Butterfly27f, AvxDct2Butterfly81f, AvxDct2Butterfly243f,
+};
+pub(crate) use dct2_butterflies::AvxDct2Butterfly12;
 pub(crate) use mul_f32::AvxDctSpectrumMulF32;
+#[cfg(target_pointer_width = "64")]
+pub(crate) use pfa_dct2_remap::AvxPfaDct2Remapper;
