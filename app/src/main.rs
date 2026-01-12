@@ -30,25 +30,14 @@ mod coprime_generator;
 mod dct2_gen;
 mod dct2_gen_fma;
 mod dct2_gen_neon;
+mod dct2_radixq_codegen;
 mod dct3_gen;
 mod dct4_butterfly_generator;
 mod dct4_gen;
-mod radix_generator;
 mod solver;
 
-use crate::coprime_generator::{gen_coprimes, naive_dct2_f32};
-use crate::dct2_gen::generate_dct2;
-use crate::dct2_gen_fma::generate_dct2_fma;
-use crate::dct2_gen_neon::generate_dct2_neon;
-use crate::dct3_gen::generate_dct3;
-use crate::dct4_butterfly_generator::generate_butterfly_dct4;
-use crate::dct4_gen::generate_dct4;
-use crate::radix_generator::Dct2RadixqGenerator;
-use crate::solver::solve_expression;
 use criterion::Criterion;
-use num_complex::Complex;
 use pxdct::PxdctExecutor;
-use pxfm::f_sincospi;
 use rand::Rng;
 
 fn naive_dct4(input: &[f32]) -> Vec<f32> {
@@ -194,37 +183,37 @@ fn main() {
     //     *z = rand::rng().random_range(1.0..2.0);
     // }
 
-    // let mut c = Criterion::default();
-    // c.bench_function("length 31", |r| {
-    //     let mut short_bf45 = vec![0.; 31];
-    //     for z in short_bf45.iter_mut() {
-    //         *z = rand::rng().random_range(1.0..2.0);
-    //     }
-    //     let process16 = pxdct::Pxdct::make_dct2_f32(31).unwrap();
-    //     r.iter(|| {
-    //         process16.execute(&mut short_bf45).unwrap();
-    //     });
-    // });
-    // c.bench_function("length 64", |r| {
-    //     let mut short_bf45 = vec![0.; 64];
-    //     for z in short_bf45.iter_mut() {
-    //         *z = rand::rng().random_range(1.0..2.0);
-    //     }
-    //     let process16 = pxdct::Pxdct::make_dct2_f64(64).unwrap();
-    //     r.iter(|| {
-    //         process16.execute(&mut short_bf45).unwrap();
-    //     });
-    // });
-    // c.bench_function("length 128", |r| {
-    //     let mut short_bf45 = vec![0.; 128];
-    //     for z in short_bf45.iter_mut() {
-    //         *z = rand::rng().random_range(1.0..2.0);
-    //     }
-    //     let process16 = pxdct::Pxdct::make_dct2_f64(128).unwrap();
-    //     r.iter(|| {
-    //         process16.execute(&mut short_bf45).unwrap();
-    //     });
-    // });
+    let mut c = Criterion::default();
+    c.bench_function("length 169", |r| {
+        let mut short_bf45 = vec![0.; 169];
+        for z in short_bf45.iter_mut() {
+            *z = rand::rng().random_range(1.0..2.0);
+        }
+        let process16 = pxdct::Pxdct::make_dct2_f32(169).unwrap();
+        r.iter(|| {
+            process16.execute(&mut short_bf45).unwrap();
+        });
+    });
+    c.bench_function("length 2197", |r| {
+        let mut short_bf45 = vec![0.; 2197];
+        for z in short_bf45.iter_mut() {
+            *z = rand::rng().random_range(1.0..2.0);
+        }
+        let process16 = pxdct::Pxdct::make_dct2_f64(2197).unwrap();
+        r.iter(|| {
+            process16.execute(&mut short_bf45).unwrap();
+        });
+    });
+    c.bench_function("length 28561", |r| {
+        let mut short_bf45 = vec![0.; 28561];
+        for z in short_bf45.iter_mut() {
+            *z = rand::rng().random_range(1.0..2.0);
+        }
+        let process16 = pxdct::Pxdct::make_dct2_f64(28561).unwrap();
+        r.iter(|| {
+            process16.execute(&mut short_bf45).unwrap();
+        });
+    });
     //
     // c.bench_function("length 256", |r| {
     //     let mut short_bf45 = vec![0.; 256];

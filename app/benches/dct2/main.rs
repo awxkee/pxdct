@@ -238,9 +238,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     bench_rustdct_averages(c, 150);
     bench_pxdct_averages(c, 150);
 
+    check_power_group(c, 169, "169".to_string());
+    check_power_group(c, 2197, "2197".to_string());
+    check_power_group(c, 28561, "28561".to_string());
+    check_power_group(c, 371293, "371293".to_string());
+
     check_power_group(c, 121, "121".to_string());
     check_power_group(c, 1331, "1331".to_string());
     check_power_group(c, 14641, "14641".to_string());
+    check_power_group(c, 161051, "161051".to_string());
 
     check_power_group(c, 4, "4".to_string());
     check_power_group(c, 8, "8".to_string());
@@ -251,11 +257,20 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     check_power_group(c, 256, "256".to_string());
     check_power_group(c, 512, "512".to_string());
     check_power_group(c, 1024, "1024".to_string());
+    check_power_group(c, 2048, "2048".to_string());
+    check_power_group(c, 4096, "4096".to_string());
+    check_power_group(c, 8192, "8192".to_string());
+    check_power_group(c, 16384, "16384".to_string());
+    check_power_group(c, 32768, "32768".to_string());
+    check_power_group(c, 65536, "65536".to_string());
+    check_power_group(c, 131072, "131072".to_string());
 
     check_power_group(c, 7, "7".to_string());
     check_power_group(c, 49, "49".to_string());
     check_power_group(c, 343, "343".to_string());
     check_power_group(c, 2401, "2401".to_string());
+    check_power_group(c, 16807, "16807".to_string());
+    check_power_group(c, 117649, "117649".to_string());
 
     check_power_group(c, 9, "9".to_string());
     check_power_group(c, 27, "27".to_string());
@@ -264,11 +279,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     check_power_group(c, 729, "729".to_string());
     check_power_group(c, 2187, "2187".to_string());
     check_power_group(c, 6561, "6561".to_string());
+    check_power_group(c, 19683, "19683".to_string());
+    check_power_group(c, 59049, "59049".to_string());
 
     check_power_group(c, 5, "5".to_string());
     check_power_group(c, 25, "25".to_string());
     check_power_group(c, 125, "125".to_string());
     check_power_group(c, 3125, "3125".to_string());
+    check_power_group(c, 15625, "15625".to_string());
 
     check_power_group(c, 6, "6".to_string());
     check_power_group(c, 216, "216".to_string());

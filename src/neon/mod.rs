@@ -56,7 +56,8 @@ pub(crate) use dct2::{
     NeonDct2MixedRadix2, NeonDct2MixedRadix3d, NeonDct2MixedRadix3f, NeonDct2MixedRadix5d,
     NeonDct2MixedRadix5f, NeonDct2MixedRadix6d, NeonDct2MixedRadix6f, NeonDct2MixedRadix7d,
     NeonDct2MixedRadix7f, NeonDct2MixedRadix9d, NeonDct2MixedRadix9f, NeonDct2MixedRadix11f,
-    NeonSplitRadixDct2d, NeonSplitRadixDct2f, NeonSplitRadixDst2d, NeonSplitRadixDst2f,
+    NeonDct2MixedRadix13f, NeonSplitRadixDct2d, NeonSplitRadixDct2f, NeonSplitRadixDst2d,
+    NeonSplitRadixDst2f,
 };
 #[cfg(target_pointer_width = "64")]
 pub(crate) use pfa_dct2_remap::NeonPfaDct2Remapper;

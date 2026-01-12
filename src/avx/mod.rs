@@ -49,8 +49,8 @@ pub(crate) use dct2::{
     AvxDct2MixedRadix2, AvxDct2MixedRadix3d, AvxDct2MixedRadix3f, AvxDct2MixedRadix5d,
     AvxDct2MixedRadix5f, AvxDct2MixedRadix6d, AvxDct2MixedRadix6f, AvxDct2MixedRadix7d,
     AvxDct2MixedRadix7f, AvxDct2MixedRadix9d, AvxDct2MixedRadix9f, AvxDct2MixedRadix11d,
-    AvxDct2MixedRadix11f, AvxSplitRadixDct2d, AvxSplitRadixDct2f, AvxSplitRadixDst2d,
-    AvxSplitRadixDst2f,
+    AvxDct2MixedRadix11f, AvxDct2MixedRadix13d, AvxDct2MixedRadix13f, AvxSplitRadixDct2d,
+    AvxSplitRadixDct2f, AvxSplitRadixDst2d, AvxSplitRadixDst2f,
 };
 pub(crate) use dct2_bf_power2::{
     AvxDct2Butterfly4, AvxDct2Butterfly8, AvxDct2Butterfly16, AvxDst2Butterfly4,

@@ -66,6 +66,10 @@ pub(crate) trait Dct2Factory {
         length: usize,
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self>;
+    fn mixed_radix13(
+        length: usize,
+        inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self>;
     fn dct2_relatively_prime(
         width_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
         height_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
@@ -307,6 +311,29 @@ impl Dct2Factory for f32 {
         {
             use crate::dct2::Dct2MixedRadix11;
             Ok(Arc::new(Dct2MixedRadix11::new(length, inner_dct)?))
+        }
+    }
+
+    fn mixed_radix13(
+        length: usize,
+        inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
+        {
+            use crate::avx::AvxDct2MixedRadix13f;
+            return Ok(Arc::new(AvxDct2MixedRadix13f::new(length, inner_dct)?)
+                as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
+        }
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct2MixedRadix13f;
+            Ok(Arc::new(NeonDct2MixedRadix13f::new(length, inner_dct)?))
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::dct2::Dct2MixedRadix13;
+            Ok(Arc::new(Dct2MixedRadix13::new(length, inner_dct)?))
         }
     }
 
@@ -1230,6 +1257,21 @@ impl Dct2Factory for f64 {
         }
         use crate::dct2::Dct2MixedRadix11;
         Ok(Arc::new(Dct2MixedRadix11::new(length, inner_dct)?))
+    }
+
+    fn mixed_radix13(
+        length: usize,
+        inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
+        {
+            use crate::avx::AvxDct2MixedRadix13d;
+            return Ok(Arc::new(AvxDct2MixedRadix13d::new(length, inner_dct)?)
+                as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
+        }
+        use crate::dct2::Dct2MixedRadix13;
+        Ok(Arc::new(Dct2MixedRadix13::new(length, inner_dct)?))
     }
 
     fn dct2_relatively_prime(
