@@ -37,6 +37,8 @@ mod bf_split_radix2d;
 mod bf_split_radix2f;
 mod mixed_radix11d;
 mod mixed_radix11f;
+mod mixed_radix13d;
+mod mixed_radix13f;
 mod mixed_radix2;
 mod mixed_radix3d;
 mod mixed_radix3f;
@@ -82,6 +84,8 @@ pub(crate) use mixed_radix9d::AvxDct2MixedRadix9d;
 pub(crate) use mixed_radix9f::AvxDct2MixedRadix9f;
 pub(crate) use mixed_radix11d::AvxDct2MixedRadix11d;
 pub(crate) use mixed_radix11f::AvxDct2MixedRadix11f;
+pub(crate) use mixed_radix13d::AvxDct2MixedRadix13d;
+pub(crate) use mixed_radix13f::AvxDct2MixedRadix13f;
 pub(crate) use prime_butterflies::{
     AvxDct2Butterfly3, AvxDct2Butterfly5, AvxDct2Butterfly7, AvxDct2Butterfly11,
     AvxDct2Butterfly13, AvxDct2Butterfly17, AvxDct2Butterfly19, AvxDct2Butterfly23,

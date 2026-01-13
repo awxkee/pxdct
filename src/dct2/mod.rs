@@ -31,6 +31,7 @@ mod bf49;
 mod coprime;
 mod dct2fft;
 mod mixed_radix11;
+mod mixed_radix13;
 mod mixed_radix2;
 mod mixed_radix3q;
 mod mixed_radix5;
@@ -61,6 +62,7 @@ pub(crate) use mixed_radix7::{Dct2MixedRadix7, MixedRadix7Sample};
 #[allow(unused)]
 pub(crate) use mixed_radix9::Dct2MixedRadix9;
 pub(crate) use mixed_radix11::Dct2MixedRadix11;
+pub(crate) use mixed_radix13::Dct2MixedRadix13;
 #[allow(unused)]
 pub(crate) use split_radix::{SplitRadixDct2, SplitRadixDst2};
 #[allow(unused)]

@@ -230,6 +230,10 @@ impl Pxdct {
             return T::mixed_radix11(length, Pxdct::dct2_strategy(length / 11)?);
         }
 
+        if length.is_multiple_of(13) {
+            return T::mixed_radix13(length, Pxdct::dct2_strategy(length / 13)?);
+        }
+
         if length.is_multiple_of(2) {
             return T::mixed_radix2(length, Pxdct::dct2_strategy(length / 2)?);
         }
