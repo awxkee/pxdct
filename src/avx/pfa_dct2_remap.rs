@@ -149,15 +149,15 @@ impl AvxPfaDct2Remapper {
                     _mm_store_ss(dst.get_unchecked_mut(address[0] as usize), product);
                     _mm_store_ss(
                         dst.get_unchecked_mut(address[1] as usize),
-                        _mm_permute_ps::<{ shuffle(0, 0, 0, 1) }>(product),
+                        _mm_shuffle_ps::<{ shuffle(0, 0, 0, 1) }>(product, product),
                     );
                     _mm_store_ss(
                         dst.get_unchecked_mut(address[2] as usize),
-                        _mm_permute_ps::<{ shuffle(0, 0, 0, 2) }>(product),
+                        _mm_shuffle_ps::<{ shuffle(0, 0, 0, 2) }>(product, product),
                     );
                     _mm_store_ss(
                         dst.get_unchecked_mut(address[3] as usize),
-                        _mm_permute_ps::<{ shuffle(0, 0, 0, 3) }>(product),
+                        _mm_shuffle_ps::<{ shuffle(0, 0, 0, 3) }>(product, product),
                     );
                 }
             }

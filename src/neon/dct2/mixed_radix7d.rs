@@ -484,7 +484,7 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix7d {
                         q.write(chunk.get_unchecked_mut(q_modules * 4 - k - 1..));
                     }
 
-                    dc4 = dc4 + a0;
+                    dc4 += a0;
 
                     let mdc4 = NeonStoreD::f64_mul_add(2., dc4, -dss3);
                     unsafe {
@@ -497,7 +497,7 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix7d {
                         q.write(chunk.get_unchecked_mut(q_modules * 6 - k - 1..));
                     }
 
-                    dc6 = dc6 + a0;
+                    dc6 += a0;
                     dc6 = NeonStoreD::f64_mul_add(2., -dc6, -dss5);
 
                     unsafe {
@@ -625,7 +625,7 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix7d {
                         dss3.write1(chunk.get_unchecked_mut(q_modules * 4 - k..));
                     }
 
-                    dc4 = dc4 + a0;
+                    dc4 += a0;
 
                     let mdc4 = NeonStoreD::f64_mul_add(2., dc4, -dss3);
                     unsafe {
@@ -637,7 +637,7 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix7d {
                         dss5.write1(chunk.get_unchecked_mut(q_modules * 6 - k..));
                     }
 
-                    dc6 = dc6 + a0;
+                    dc6 += a0;
                     dc6 = NeonStoreD::f64_mul_add(2., -dc6, -dss5);
 
                     unsafe {

@@ -148,9 +148,9 @@ where
 
         assert!(!self.twiddles.is_empty());
 
-        let mut scratch = try_vec![T::default(); self.execution_length];
-
         let q_modules = self.execution_length / 3;
+
+        let mut scratch = try_vec![T::default(); self.execution_length];
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
             let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);

@@ -67,7 +67,7 @@ pub(crate) unsafe fn _mm256_fcmul_ps(a: __m256, b: __m256) -> __m256 {
     let ai = _mm256_movehdup_ps(a); // duplicate odd lanes (im parts)
 
     // Swap real/imag of b for cross terms
-    let bswap = _mm256_permute_ps::<0b10110001>(b); // [im, re, im, re, ...]
+    let bswap = _mm256_shuffle_ps::<0b10110001>(b, b); // [im, re, im, re, ...]
 
     // re = ar*br - ai*bi
     // im = ar*bi + ai*br
@@ -174,9 +174,8 @@ impl AvxDctSpectrumMulF32 {
 
             while i + 4 < a.len() {
                 let cf = _mm_loadu_ps(a.get_unchecked(i..).as_ptr());
-                let cb = _mm_permute_ps::<{ shuffle(0, 1, 2, 3) }>(_mm_loadu_ps(
-                    a.get_unchecked(len - i - 4..).as_ptr(),
-                ));
+                let q = _mm_loadu_ps(a.get_unchecked(len - i - 4..).as_ptr());
+                let cb = _mm_shuffle_ps::<{ shuffle(0, 1, 2, 3) }>(q, q);
                 let tw0 = _mm256_loadu_ps(b.get_unchecked(i..).as_ptr().cast());
 
                 let uq = (_mm_unpacklo_ps(cf, cb), _mm_unpackhi_ps(cf, cb));

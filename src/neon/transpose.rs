@@ -95,7 +95,6 @@ pub(crate) struct NeonTranspose4x4 {
 
 impl NeonTranspose4x4 {
     fn transpose_y<const REMAINDER_Y: usize>(&self, src: &[f32], dst: &mut [f32], y: usize) {
-        // const BLOCK_SIZE_Y: usize = 4;
         const BLOCK_SIZE_X: usize = 4;
         let input_y = y;
 

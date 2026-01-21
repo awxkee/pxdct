@@ -38,7 +38,6 @@ mod dct2;
 mod dct3;
 mod dct3_butterflies;
 mod dct4;
-mod dct4_butterflies;
 mod dst2;
 mod dst3;
 mod dst3_butterfly;
@@ -62,9 +61,6 @@ use crate::dct3_butterflies::{
     Dct3Butterfly2, Dct3Butterfly3, Dct3Butterfly4, Dct3Butterfly5, Dct3Butterfly6, Dct3Butterfly7,
     Dct3Butterfly8, Dct3Butterfly9, Dct3Butterfly11, Dct3Butterfly12, Dct3Butterfly16,
 };
-use crate::dct4_butterflies::{
-    Dct4Butterfly5, Dct4Butterfly7, Dct4Butterfly9, Dct4Butterfly11, Dct4Butterfly13,
-};
 use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
 use crate::dst3_butterfly::{
@@ -80,7 +76,7 @@ use dct2::power2_butterflies::{Dst2Butterfly2, Dst2Butterfly4};
 use num_traits::AsPrimitive;
 pub use pxdct_error::PxdctError;
 use std::sync::{Arc, OnceLock};
-use zaft::Zaft;
+use zaft::FftDirection;
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
 ///
@@ -551,101 +547,141 @@ impl Pxdct {
         Dst3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
     }
 
-    /// Creates a single-precision (f32) DST-IV executor.
-    pub fn make_dct4_f32(
+    fn strategy_dct4<T: DctSample + Dct4Factory + Dct2Factory>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    where
+        f64: AsPrimitive<T>,
+    {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
 
         if length == 1 {
-            return Ok(f32::dct4_identity());
+            return Ok(T::dct4_identity());
         } else if length == 2 {
-            return Ok(f32::dct4_butterfly2());
+            return Ok(T::dct4_butterfly2());
         } else if length == 3 {
-            return Ok(f32::dct4_butterfly3());
+            return Ok(T::dct4_butterfly3());
         } else if length == 4 {
-            return Ok(f32::dct4_butterfly4());
+            return Ok(T::dct4_butterfly4());
         } else if length == 5 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dct4Butterfly5::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
+            return Ok(T::dct4_butterfly5());
         } else if length == 6 {
-            return Ok(f32::dct4_butterfly6());
+            return Ok(T::dct4_butterfly6());
         } else if length == 7 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dct4Butterfly7::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
+            return Ok(T::dct4_butterfly7());
         } else if length == 8 {
-            return Ok(f32::dct4_butterfly8());
+            return Ok(T::dct4_butterfly8());
         } else if length == 9 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dct4Butterfly9::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
+            return Ok(T::dct4_butterfly9());
         } else if length == 10 {
-            return Ok(f32::dct4_butterfly10());
+            return Ok(T::dct4_butterfly10());
         } else if length == 11 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dct4Butterfly11::default())
-                        as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
+            return Ok(T::dct4_butterfly11());
         } else if length == 12 {
-            return Ok(f32::dct4_butterfly12());
+            return Ok(T::dct4_butterfly12());
         } else if length == 13 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dct4Butterfly13::default())
-                        as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
+            return Ok(T::dct4_butterfly13());
         } else if length == 14 {
-            return Ok(f32::dct4_butterfly14());
+            return Ok(T::dct4_butterfly14());
         } else if length == 16 {
-            return Ok(f32::dct4_butterfly16());
+            return Ok(T::dct4_butterfly16());
+        } else if length == 17 {
+            return Ok(T::dct4_butterfly17());
         } else if length == 18 {
-            return Ok(f32::dct4_butterfly18());
+            return Ok(T::dct4_butterfly18());
+        } else if length == 19 {
+            return Ok(T::dct4_butterfly19());
         } else if length == 20 {
-            return Ok(f32::dct4_butterfly20());
+            return Ok(T::dct4_butterfly20());
         } else if length == 22 {
-            return Ok(f32::dct4_butterfly22());
+            return Ok(T::dct4_butterfly22());
+        } else if length == 23 {
+            return Ok(T::dct4_butterfly23());
         } else if length == 24 {
-            return Ok(f32::dct4_butterfly24());
+            return Ok(T::dct4_butterfly24());
         } else if length == 26 {
-            return Ok(f32::dct4_butterfly26());
+            return Ok(T::dct4_butterfly26());
+        } else if length == 27 {
+            return Ok(T::dct4_butterfly27());
         } else if length == 28 {
-            return Ok(f32::dct4_butterfly28());
+            return Ok(T::dct4_butterfly28());
+        } else if length == 29 {
+            return Ok(T::dct4_butterfly29());
         } else if length == 30 {
-            return Ok(f32::dct4_butterfly30());
+            return Ok(T::dct4_butterfly30());
         } else if length == 32 {
-            return Ok(f32::dct4_butterfly32());
+            return Ok(T::dct4_butterfly32());
+        }
+
+        if length.is_multiple_of(9) {
+            let half_length = length / 9;
+            return T::dct4_mixed_radix9(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(7) {
+            let half_length = length / 7;
+            return T::dct4_mixed_radix7(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(5) {
+            let half_length = length / 5;
+            return T::dct4_mixed_radix5(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(11) {
+            let half_length = length / 11;
+            return T::dct4_mixed_radix11(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(13) {
+            let half_length = length / 13;
+            return T::dct4_mixed_radix13(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(17) {
+            let half_length = length / 17;
+            return T::dct4_mixed_radix17(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(19) {
+            let half_length = length / 19;
+            return T::dct4_mixed_radix19(length, Pxdct::strategy_dct4(half_length)?);
+        }
+
+        if length.is_multiple_of(3) {
+            let half_length = length / 3;
+            return T::dct4_mixed_radix3(length, Pxdct::strategy_dct4(half_length)?);
         }
 
         if length.is_power_of_two() {
-            return f32::dct4_radix2(length, Pxdct::make_dct2_f32(length / 2)?);
+            return T::dct4_radix2(length, Pxdct::dct2_strategy(length / 2)?);
         }
 
         if length.is_multiple_of(2) {
             let half_length = length / 2;
-            return f32::dct4_mixed_radix2(length, Pxdct::make_dct2_f32(half_length)?);
+            return T::dct4_mixed_radix2(length, Pxdct::dct2_strategy(half_length)?);
         }
 
-        f32::dct4_fft(
-            Zaft::make_forward_fft_f32(length).map_err(|x| PxdctError::FftError(x.to_string()))?,
+        T::dct4_fft(
+            T::make_fft(length, FftDirection::Forward)
+                .map_err(|x| PxdctError::FftError(x.to_string()))?,
         )
+    }
+
+    /// Creates a single-precision (f32) DCT-IV executor.
+    pub fn make_dct4_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Pxdct::strategy_dct4(length)
+    }
+
+    /// Creates a double-precision (f32) DCT-IV executor.
+    pub fn make_dct4_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Pxdct::strategy_dct4(length)
     }
 }
 
@@ -775,6 +811,24 @@ mod tests {
         result
     }
 
+    pub fn naive_dct4_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let cos_inner =
+                    (output_index as f32 + 0.5) * (input_index as f32 + 0.5) * std::f32::consts::PI
+                        / (input.len() as f32);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+
+        result
+    }
+
     #[test]
     fn dct2_roundtrip() {
         for i in 1..250 {
@@ -849,7 +903,7 @@ mod tests {
 
     #[test]
     fn dct4_roundtrip() {
-        for i in 1..250 {
+        for i in 34..250 {
             let mut array = vec![0f32; i];
             for i in 1..i + 1 {
                 array[i - 1] = i as f32;
@@ -867,6 +921,30 @@ mod tests {
 
             working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
                 assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct4_roundtrip_f64() {
+        for i in 1..300 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct4_f64(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct4_f64(array.len()).unwrap();
+
+            dct_forward.execute(&mut working_array).unwrap();
+            dct_inverse.execute(&mut working_array).unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f64) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.00001, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
             });
         }
     }

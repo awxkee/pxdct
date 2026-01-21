@@ -148,8 +148,6 @@ fn dct4_radix2_16pt(data: &mut [f32]) {
 fn main() {
     // let (dc3, lanes) = generate_dct2_fma(23, "fmla".to_string());
     // println!("{}", dc3);
-    // let radixq_gen = Dct2RadixqGenerator::new(5, 1);
-    // radixq_gen.execute();
     // gen_coprimes(5, 4);
     // for i in 1..150 {
     //     let mut long_bf36_6 = vec![0.; i];
