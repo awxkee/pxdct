@@ -237,6 +237,10 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .warm_up_time(Duration::from_millis(400));
     bench_rustdct_averages(c, 150);
     bench_pxdct_averages(c, 150);
+    bench_rustdct_averages(c, 1800);
+    bench_pxdct_averages(c, 1800);
+
+    check_power_group(c, 1803, "1803".to_string());
 
     check_power_group(c, 169, "169".to_string());
     check_power_group(c, 2197, "2197".to_string());

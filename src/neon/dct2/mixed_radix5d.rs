@@ -392,7 +392,7 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix5d {
                         dss3.reverse().write(chunk.get_unchecked_mut(idx..));
                     }
 
-                    dc4 = dc4 + a0;
+                    dc4 += a0;
 
                     let idx1 = q_modules * 4 + k;
                     unsafe {
@@ -484,7 +484,7 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix5d {
                         dss3.write1(chunk.get_unchecked_mut(idx..));
                     }
 
-                    dc4 = dc4 + a0;
+                    dc4 += a0;
 
                     let idx1 = q_modules * 4 + k;
                     unsafe {

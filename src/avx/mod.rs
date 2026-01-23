@@ -31,6 +31,7 @@ mod dct2;
 mod dct2_bf_power2;
 mod dct2_bf_radix3;
 mod dct2_butterflies;
+mod dct4;
 mod mul_f32;
 mod pfa_dct2_remap;
 mod stored;
@@ -59,6 +60,15 @@ pub(crate) use dct2_bf_radix3::{
     AvxDct2Butterfly9, AvxDct2Butterfly27f, AvxDct2Butterfly81f, AvxDct2Butterfly243f,
 };
 pub(crate) use dct2_butterflies::AvxDct2Butterfly12;
+pub(crate) use dct4::{
+    AvxDct4Butterfly3, AvxDct4Butterfly7, AvxDct4Butterfly9, AvxDct4Butterfly11,
+    AvxDct4Butterfly13, AvxDct4Butterfly27f, AvxDct4MixedRadix2d, AvxDct4MixedRadix2f,
+    AvxDct4MixedRadix3d, AvxDct4MixedRadix3f, AvxDct4MixedRadix5d, AvxDct4MixedRadix5f,
+    AvxDct4MixedRadix7d, AvxDct4MixedRadix7f, AvxDct4MixedRadix9d, AvxDct4MixedRadix9f,
+    AvxDct4MixedRadix11d, AvxDct4MixedRadix11f, AvxDct4MixedRadix13d, AvxDct4MixedRadix13f,
+    AvxDct4MixedRadix17d, AvxDct4MixedRadix17f, AvxDct4MixedRadix19d, AvxDct4MixedRadix19f,
+    AvxDct4Radix2d, AvxDct4Radix2f,
+};
 pub(crate) use mul_f32::AvxDctSpectrumMulF32;
 #[cfg(target_pointer_width = "64")]
 pub(crate) use pfa_dct2_remap::AvxPfaDct2Remapper;

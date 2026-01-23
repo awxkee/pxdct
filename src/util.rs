@@ -98,6 +98,8 @@ pub(crate) trait DctSample:
     + MixedRadix29Sample
     + MixedRadix23Sample
     + MulAssign
+    + Send
+    + Sync
 {
     fn mulsigni(self, other: isize) -> Self;
     fn mulsign(self, other: Self) -> Self;

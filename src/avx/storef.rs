@@ -30,19 +30,23 @@ use crate::avx::util::{_mm_unpackhilo_ps64, shuffle};
 use num_complex::Complex;
 use num_traits::MulAdd;
 use std::arch::x86_64::*;
-use std::ops::{Add, AddAssign, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
 #[inline]
 #[target_feature(enable = "avx2")]
 fn _mm256_unzip_ps(a: __m256, b: __m256) -> (__m256, __m256) {
-    let t0 = _mm256_permute_ps::<{ shuffle(3, 1, 2, 0) }>(a);
-    let t1 = _mm256_permute_ps::<{ shuffle(3, 1, 2, 0) }>(b);
+    let t0 = _mm256_shuffle_ps::<{ shuffle(3, 1, 2, 0) }>(a, a);
+    let t1 = _mm256_shuffle_ps::<{ shuffle(3, 1, 2, 0) }>(b, b);
 
     // Now combine even and odd lanes:
-    let o0 = _mm256_unpacklo_pd(_mm256_castps_pd(t0), _mm256_castps_pd(t1));
-    let o1 = _mm256_unpackhi_pd(_mm256_castps_pd(t0), _mm256_castps_pd(t1));
-    let u0 = _mm256_castpd_ps(_mm256_permute4x64_pd::<{ shuffle(3, 1, 2, 0) }>(o0));
-    let u1 = _mm256_castpd_ps(_mm256_permute4x64_pd::<{ shuffle(3, 1, 2, 0) }>(o1));
+    let o0 = _mm256_shuffle_ps::<{ shuffle(1, 0, 1, 0) }>(t0, t1);
+    let o1 = _mm256_shuffle_ps::<{ shuffle(3, 2, 3, 2) }>(t0, t1);
+    let u0 = _mm256_castpd_ps(_mm256_permute4x64_pd::<{ shuffle(3, 1, 2, 0) }>(
+        _mm256_castps_pd(o0),
+    ));
+    let u1 = _mm256_castpd_ps(_mm256_permute4x64_pd::<{ shuffle(3, 1, 2, 0) }>(
+        _mm256_castps_pd(o1),
+    ));
     (u0, u1)
 }
 
@@ -91,7 +95,10 @@ impl AvxStoreF {
         );
 
         // capture the max total in low-lane and broadcast into high-lane
-        let lo = _mm_permute_ps::<{ shuffle(3, 3, 3, 3) }>(_mm256_castps256_ps128(v));
+        let lo = _mm_shuffle_ps::<{ shuffle(3, 3, 3, 3) }>(
+            _mm256_castps256_ps128(v),
+            _mm256_castps256_ps128(v),
+        );
         let t = _mm256_insertf128_ps::<1>(_mm256_setzero_ps(), lo);
 
         // shift totals, add base and low-lane max
@@ -430,6 +437,13 @@ impl Mul<f32> for AvxStoreF {
     }
 }
 
+impl MulAssign<f32> for AvxStoreF {
+    #[inline(always)]
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = unsafe { AvxStoreF::raw(_mm256_mul_ps(_mm256_set1_ps(rhs), self.v)) };
+    }
+}
+
 impl Mul<AvxStoreF> for AvxStoreF {
     type Output = Self;
     #[inline(always)]
@@ -471,6 +485,11 @@ impl AvxStoreF {
     #[inline(always)]
     pub(crate) fn f32_mul_add(q: f32, a: AvxStoreF, b: Self) -> Self {
         unsafe { AvxStoreF::raw(_mm256_fmadd_ps(a.v, _mm256_set1_ps(q), b.v)) }
+    }
+
+    #[inline(always)]
+    pub(crate) fn mul_f32_add(a: AvxStoreF, b: f32, c: AvxStoreF) -> AvxStoreF {
+        unsafe { AvxStoreF::raw(_mm256_fmadd_ps(a.v, _mm256_set1_ps(b), c.v)) }
     }
 
     #[inline(always)]

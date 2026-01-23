@@ -28,7 +28,7 @@
  */
 use num_traits::MulAdd;
 use std::arch::aarch64::*;
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
@@ -87,6 +87,11 @@ impl NeonStoreD {
     }
 
     #[inline(always)]
+    pub(crate) fn mul_f64_add(p0: NeonStoreD, p1: f64, p2: NeonStoreD) -> NeonStoreD {
+        NeonStoreD::raw(unsafe { vfmaq_n_f64(p2.v, p0.v, p1) })
+    }
+
+    #[inline(always)]
     pub(crate) fn f64_mul_nadd(q: f64, a: NeonStoreD, b: NeonStoreD) -> NeonStoreD {
         NeonStoreD::raw(unsafe { vfmsq_n_f64(b.v, a.v, q) })
     }
@@ -115,6 +120,13 @@ impl Add<NeonStoreD> for NeonStoreD {
     #[inline(always)]
     fn add(self, rhs: NeonStoreD) -> Self::Output {
         NeonStoreD::raw(unsafe { vaddq_f64(self.v, rhs.v) })
+    }
+}
+
+impl AddAssign for NeonStoreD {
+    #[inline(always)]
+    fn add_assign(&mut self, rhs: Self) {
+        *self = NeonStoreD::raw(unsafe { vaddq_f64(self.v, rhs.v) })
     }
 }
 
@@ -147,6 +159,13 @@ impl Mul<f64> for NeonStoreD {
     #[inline(always)]
     fn mul(self, rhs: f64) -> Self::Output {
         NeonStoreD::raw(unsafe { vmulq_n_f64(self.v, rhs) })
+    }
+}
+
+impl MulAssign<f64> for NeonStoreD {
+    #[inline(always)]
+    fn mul_assign(&mut self, rhs: f64) {
+        *self = NeonStoreD::raw(unsafe { vmulq_n_f64(self.v, rhs) })
     }
 }
 

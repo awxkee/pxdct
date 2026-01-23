@@ -550,9 +550,9 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix9d {
                     let dc = dc0 + a0;
 
                     dc2 = -(dc2 + a0);
-                    dc4 = dc4 + a0;
-                    dc6 = dc6 + a0;
-                    dc8 = dc8 + a0;
+                    dc4 += a0;
+                    dc6 += a0;
+                    dc8 += a0;
 
                     unsafe {
                         dc.write(chunk.get_unchecked_mut(k..));
@@ -742,9 +742,9 @@ impl PxdctExecutor<f64> for NeonDct2MixedRadix9d {
                     let dc = dc0 + a0;
 
                     dc2 = -(dc2 + a0);
-                    dc4 = dc4 + a0;
-                    dc6 = dc6 + a0;
-                    dc8 = dc8 + a0;
+                    dc4 += a0;
+                    dc6 += a0;
+                    dc8 += a0;
 
                     unsafe {
                         dc.write1(chunk.get_unchecked_mut(k..));

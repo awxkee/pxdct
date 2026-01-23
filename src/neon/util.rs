@@ -29,7 +29,7 @@
 use num_complex::Complex;
 use num_traits::MulAdd;
 use std::arch::aarch64::*;
-use std::ops::{Add, AddAssign, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
@@ -224,6 +224,13 @@ impl Mul<f32> for NeonStoreF {
     }
 }
 
+impl MulAssign<f32> for NeonStoreF {
+    #[inline(always)]
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = NeonStoreF::raw(unsafe { vmulq_n_f32(self.v, rhs) });
+    }
+}
+
 impl AddAssign for NeonStoreF {
     #[inline(always)]
     fn add_assign(&mut self, rhs: Self) {
@@ -254,6 +261,11 @@ impl NeonStoreF {
     #[inline(always)]
     pub(crate) fn f32_mul_add(q: f32, a: NeonStoreF, b: Self) -> Self {
         NeonStoreF::raw(unsafe { vfmaq_n_f32(b.v, a.v, q) })
+    }
+
+    #[inline(always)]
+    pub(crate) fn mul_f32_add(a: NeonStoreF, b: f32, c: Self) -> Self {
+        NeonStoreF::raw(unsafe { vfmaq_n_f32(c.v, a.v, b) })
     }
 
     #[inline(always)]

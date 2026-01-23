@@ -29,7 +29,7 @@
 use crate::avx::util::shuffle;
 use num_traits::MulAdd;
 use std::arch::x86_64::*;
-use std::ops::{Add, AddAssign, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
@@ -156,8 +156,8 @@ impl AvxStoreD {
     #[inline]
     #[target_feature(enable = "avx2")]
     pub(crate) fn zip(self, other: Self) -> [Self; 2] {
-        let r0 = _mm256_unpacklo_pd(self.v, other.v);
-        let r1 = _mm256_unpackhi_pd(self.v, other.v);
+        let r0 = _mm256_shuffle_pd::<0b0000>(self.v, other.v);
+        let r1 = _mm256_shuffle_pd::<0b1111>(self.v, other.v);
         let xy0 = _mm256_permute2f128_pd::<32>(r0, r1);
         let xy1 = _mm256_permute2f128_pd::<49>(r0, r1);
         [AvxStoreD::raw(xy0), AvxStoreD::raw(xy1)]
@@ -213,6 +213,13 @@ impl Mul<f64> for AvxStoreD {
     }
 }
 
+impl MulAssign<f64> for AvxStoreD {
+    #[inline(always)]
+    fn mul_assign(&mut self, rhs: f64) {
+        *self = unsafe { AvxStoreD::raw(_mm256_mul_pd(self.v, _mm256_set1_pd(rhs))) };
+    }
+}
+
 impl Mul<AvxStoreD> for AvxStoreD {
     type Output = Self;
     #[inline(always)]
@@ -256,5 +263,11 @@ impl AvxStoreD {
     #[inline(always)]
     pub(crate) fn f64_mul_nadd(q: f64, a: AvxStoreD, b: Self) -> Self {
         unsafe { AvxStoreD::raw(_mm256_fnmadd_pd(a.v, _mm256_set1_pd(q), b.v)) }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn mul_f64_add(p0: AvxStoreD, p1: f64, p2: AvxStoreD) -> AvxStoreD {
+        unsafe { AvxStoreD::raw(_mm256_fmadd_pd(p0.v, _mm256_set1_pd(p1), p2.v)) }
     }
 }
