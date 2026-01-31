@@ -59,11 +59,11 @@ pub(crate) use bf_radix6f::{AvxDct2Butterfly6, AvxDct2Butterfly36f, AvxDct2Butte
 pub(crate) use bf_radix9d::{AvxDct2Butterfly27d, AvxDct2Butterfly81d, AvxDct2Butterfly243d};
 pub(crate) use bf_split_radix2d::{
     AvxDct2Butterfly32d, AvxDct2Butterfly64d, AvxDct2Butterfly128d, AvxDct2Butterfly256d,
-    AvxDct2Butterfly512d,
+    AvxDct2Butterfly512d, dct2_split_radix_rotation_twiddles_avx,
 };
 pub(crate) use bf_split_radix2f::{
     AvxDct2Butterfly32f, AvxDct2Butterfly64f, AvxDct2Butterfly128f, AvxDct2Butterfly256f,
-    AvxDct2Butterfly512f,
+    AvxDct2Butterfly512f, dct2_split_radix_rotation_twiddles_avxf,
 };
 pub(crate) use bf25d::AvxDct2Butterfly25d;
 pub(crate) use bf25f::AvxDct2Butterfly25f;

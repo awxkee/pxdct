@@ -18,5 +18,9 @@ name = "dct2"
 harness = false
 
 [[bench]]
+name = "dct3"
+harness = false
+
+[[bench]]
 name = "dct4"
 harness = false

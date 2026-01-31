@@ -31,7 +31,7 @@ use crate::dct2::power2_butterflies::{
 };
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::DctSample;
+use crate::util::{DctSample, define_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -65,24 +65,7 @@ impl<T: DctSample> Dct4Butterfly2<T> {
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct4Butterfly2<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(2) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(2) {
-            self.exec((&mut chunk[..2]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        2
-    }
-}
+define_butterfly!(Dct4Butterfly2, 2);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly4<T> {
@@ -124,24 +107,7 @@ where
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct4Butterfly4<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(4) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(4) {
-            self.exec((&mut chunk[..4]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        4
-    }
-}
+define_butterfly!(Dct4Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly8<T: DctSample> {
@@ -202,24 +168,7 @@ where
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct4Butterfly8<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(8) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(8) {
-            self.exec((&mut chunk[..8]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        8
-    }
-}
+define_butterfly!(Dct4Butterfly8, 8);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly16<T: DctSample> {
@@ -310,24 +259,7 @@ where
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct4Butterfly16<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(16) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(16) {
-            self.exec((&mut chunk[..16]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        16
-    }
-}
+define_butterfly!(Dct4Butterfly16, 16);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly32<T: DctSample> {
@@ -513,24 +445,7 @@ where
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct4Butterfly32<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(32) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(32) {
-            self.exec((&mut chunk[..32]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        32
-    }
-}
+define_butterfly!(Dct4Butterfly32, 32);
 
 #[cfg(test)]
 mod tests {
