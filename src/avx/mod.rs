@@ -37,6 +37,7 @@ mod mul_f32;
 mod pfa_dct2_remap;
 mod stored;
 mod storef;
+mod transpose_real_s;
 mod util;
 
 pub(crate) use dct2::{
@@ -77,3 +78,4 @@ pub(crate) use dct4::{
 pub(crate) use mul_f32::AvxDctSpectrumMulF32;
 #[cfg(target_pointer_width = "64")]
 pub(crate) use pfa_dct2_remap::AvxPfaDct2Remapper;
+pub(crate) use transpose_real_s::AvxTransposeFReal4x4;
