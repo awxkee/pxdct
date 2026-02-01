@@ -1,5 +1,5 @@
 /*
- * // Copyright (c) Radzivon Bartoshyk 11/2025. All rights reserved.
+ * // Copyright (c) Radzivon Bartoshyk 2/2026. All rights reserved.
  * //
  * // Redistribution and use in source and binary forms, with or without modification,
  * // are permitted provided that the following conditions are met:
@@ -26,36 +26,10 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+mod bf2n;
+mod split_radixd;
+mod split_radixf;
 
-#[derive(Debug)]
-pub enum PxdctError {
-    OutOfMemory(usize),
-    CantCreateUnderlyingFft(String),
-    InvalidSizeMultiplier(usize, usize),
-    FftError(String),
-    ZeroSizedDct,
-    ScratchBufferIsTooSmall(usize, usize),
-}
-
-impl Error for PxdctError {}
-
-impl Display for PxdctError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PxdctError::CantCreateUnderlyingFft(s) => f.write_str(s),
-            PxdctError::OutOfMemory(length) => {
-                f.write_fmt(format_args!("Cannot allocate {length} bytes to vector",))
-            }
-            PxdctError::InvalidSizeMultiplier(s0, s1) => f.write_fmt(format_args!(
-                "Size {s0} is assumed to be multiplier of {s1} to execute many DFT, but it wasn't"
-            )),
-            PxdctError::FftError(s) => f.write_fmt(format_args!("Underlying fft error {s}")),
-            PxdctError::ZeroSizedDct => f.write_str("Zero sized DCT is not allowed"),
-            PxdctError::ScratchBufferIsTooSmall(a, b) => f.write_fmt(format_args!(
-                "Scratch is expected to be at least {a} bytes, but was {b}"
-            )),
-        }
-    }
-}
+pub(crate) use bf2n::{AvxDct3Butterfly16, AvxDct3Butterfly32, AvxDct3Butterfly64};
+pub(crate) use split_radixd::AvxSplitRadixDct3d;
+pub(crate) use split_radixf::AvxSplitRadixDct3f;

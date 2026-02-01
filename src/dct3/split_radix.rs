@@ -33,6 +33,7 @@ use num_complex::Complex;
 use num_traits::AsPrimitive;
 use std::sync::Arc;
 
+#[allow(unused)]
 pub(crate) struct SplitRadixDct3<T: DctSample> {
     twiddles: Vec<Complex<T>>,
     half_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
@@ -44,6 +45,7 @@ impl<T: DctSample> SplitRadixDct3<T>
 where
     f64: AsPrimitive<T>,
 {
+    #[allow(unused)]
     pub(crate) fn new(
         len: usize,
         half_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
@@ -80,6 +82,7 @@ where
                 self.execution_length,
             ));
         }
+
         let mut scratch = try_vec![T::default(); self.execution_length];
 
         let len = self.length();
@@ -92,12 +95,12 @@ where
             let (recursive_input_n1, recursive_input_n3) =
                 recursive_input_odds.split_at_mut(quarter_len);
 
-            // do the same pre-loop setup as DCT4ViaDCT3, and since we're skipping the first iteration of the loop we
-            // to also set up the corresponding evens cells
-            recursive_input_evens[0] = chunk[0];
-            recursive_input_evens[1] = chunk[2];
-            recursive_input_n1[0] = chunk[1] * T::TWO;
-            recursive_input_n3[0] = chunk[len - 1] * T::TWO;
+            unsafe {
+                *recursive_input_evens.get_unchecked_mut(0) = *chunk.get_unchecked(0);
+                *recursive_input_evens.get_unchecked_mut(1) = *chunk.get_unchecked(2);
+                *recursive_input_n1.get_unchecked_mut(0) = *chunk.get_unchecked(1) * T::TWO;
+                *recursive_input_n3.get_unchecked_mut(0) = *chunk.get_unchecked(len - 1) * T::TWO;
+            }
 
             // populate the recursive input arrays
             for i in 1..quarter_len {
@@ -109,11 +112,11 @@ where
                     *recursive_input_evens.get_unchecked_mut(i * 2 + 1) =
                         *chunk.get_unchecked(k + 2);
 
-                    // for the odd ones we're going to do the same addition/subtraction we do in the setup for DCT4ViaDCT3
-                    *recursive_input_n1.get_unchecked_mut(i) =
-                        *chunk.get_unchecked(k - 1) + *chunk.get_unchecked(k + 1);
-                    *recursive_input_n3.get_unchecked_mut(quarter_len - i) =
-                        *chunk.get_unchecked(k - 1) - *chunk.get_unchecked(k + 1);
+                    let b = *chunk.get_unchecked(k - 1);
+                    let f = *chunk.get_unchecked(k + 1);
+
+                    *recursive_input_n1.get_unchecked_mut(i) = b + f;
+                    *recursive_input_n3.get_unchecked_mut(quarter_len - i) = b - f;
                 }
             }
 
@@ -122,21 +125,17 @@ where
             self.quarter_dct.execute(recursive_input_n1)?;
             self.quarter_dct.execute(recursive_input_n3)?;
 
-            //merge the results. we're going to combine 2 separate things:
-            // - merging the two smaller DCT3 outputs into a DCT4 output
-            // - marging the DCT4 outputand the larger DCT3 output into the final output
-            for (i, (twiddle, &cosine_value)) in self
+            let mut phase_sign = T::one();
+
+            for (i, ((twiddle, &cosine_value), &sine_value)) in self
                 .twiddles
                 .iter()
                 .zip(recursive_input_n1.iter())
+                .zip(recursive_input_n3.iter())
                 .enumerate()
             {
-                // flip the sign of every other sine value to finish the job of using a DCT3 to compute a DST3
-                let sine_value = if i % 2 == 0 {
-                    recursive_input_n3[i]
-                } else {
-                    -recursive_input_n3[i]
-                };
+                // flip the sign of every other sine value to compute DST3 using DCT3
+                let sine_value = sine_value.mulsign(phase_sign);
 
                 let lower_dct4 = fmla(cosine_value, twiddle.re, sine_value * twiddle.im);
                 let upper_dct4 = fmla(cosine_value, twiddle.im, -sine_value * twiddle.re);
@@ -151,6 +150,7 @@ where
                     *chunk.get_unchecked_mut(half_len - i - 1) = upper_dct3 + upper_dct4;
                     *chunk.get_unchecked_mut(half_len + i) = upper_dct3 - upper_dct4;
                 }
+                phase_sign = -phase_sign;
             }
         }
 
@@ -223,7 +223,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct3_butterflies::{Dct3Butterfly8, Dct3Butterfly16};
+    use crate::dct3::Dct3Butterfly8;
+    use crate::dct3::bf_f2::Dct3Butterfly16;
     use crate::tests::{naive_dct3, naive_dst3};
     use rand::Rng;
 

@@ -12,7 +12,7 @@ a mutable data slice.
 
 ## Features
 
-- Supports **DCT-II**, **DCT-III**, **DST-II**, and **DST-III**
+- Supports **DCT-II**, **DCT-III**, **DST-II**, **DST-III**, and **DCT-IV**
 - Works with both `f32` and `f64`
 
 ---

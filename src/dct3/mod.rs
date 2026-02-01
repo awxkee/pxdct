@@ -1,5 +1,5 @@
 /*
- * // Copyright (c) Radzivon Bartoshyk 11/2025. All rights reserved.
+ * // Copyright (c) Radzivon Bartoshyk 1/2026. All rights reserved.
  * //
  * // Redistribution and use in source and binary forms, with or without modification,
  * // are permitted provided that the following conditions are met:
@@ -26,36 +26,26 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+mod bf_f2;
+mod butterflies;
+pub mod fft;
+mod identity;
+mod prime_butterflies;
+mod split_radix;
 
-#[derive(Debug)]
-pub enum PxdctError {
-    OutOfMemory(usize),
-    CantCreateUnderlyingFft(String),
-    InvalidSizeMultiplier(usize, usize),
-    FftError(String),
-    ZeroSizedDct,
-    ScratchBufferIsTooSmall(usize, usize),
-}
-
-impl Error for PxdctError {}
-
-impl Display for PxdctError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PxdctError::CantCreateUnderlyingFft(s) => f.write_str(s),
-            PxdctError::OutOfMemory(length) => {
-                f.write_fmt(format_args!("Cannot allocate {length} bytes to vector",))
-            }
-            PxdctError::InvalidSizeMultiplier(s0, s1) => f.write_fmt(format_args!(
-                "Size {s0} is assumed to be multiplier of {s1} to execute many DFT, but it wasn't"
-            )),
-            PxdctError::FftError(s) => f.write_fmt(format_args!("Underlying fft error {s}")),
-            PxdctError::ZeroSizedDct => f.write_str("Zero sized DCT is not allowed"),
-            PxdctError::ScratchBufferIsTooSmall(a, b) => f.write_fmt(format_args!(
-                "Scratch is expected to be at least {a} bytes, but was {b}"
-            )),
-        }
-    }
-}
+pub(crate) use bf_f2::{
+    Dct3Butterfly2, Dct3Butterfly4, Dct3Butterfly8, Dct3Butterfly16, Dct3Butterfly32,
+    Dct3Butterfly64,
+};
+pub(crate) use butterflies::{
+    Dct3Butterfly6, Dct3Butterfly9, Dct3Butterfly10, Dct3Butterfly12, Dct3Butterfly14,
+    Dct3Butterfly15, Dct3Butterfly18, Dct3Butterfly20, Dct3Butterfly21, Dct3Butterfly24,
+    Dct3Butterfly26, Dct3Butterfly28, Dct3Butterfly30, Dct3Butterfly35, Dct3Butterfly36,
+};
+pub(crate) use fft::Dct3Fft;
+pub(crate) use identity::Dct3Identity;
+pub(crate) use prime_butterflies::{
+    Dct3Butterfly3, Dct3Butterfly5, Dct3Butterfly7, Dct3Butterfly11, Dct3Butterfly13,
+};
+#[allow(unused_imports)]
+pub(crate) use split_radix::{SplitRadixDct3, SplitRadixDst3};

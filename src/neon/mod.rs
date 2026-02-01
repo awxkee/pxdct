@@ -29,6 +29,7 @@
 #![allow(clippy::too_many_arguments)]
 mod block_transpose;
 mod dct2;
+mod dct3;
 mod dct4;
 #[cfg(feature = "fcma")]
 mod fcma_mul_f32;
@@ -60,6 +61,7 @@ pub(crate) use dct2::{
     NeonDct2MixedRadix13f, NeonSplitRadixDct2d, NeonSplitRadixDct2f, NeonSplitRadixDst2d,
     NeonSplitRadixDst2f,
 };
+pub(crate) use dct3::{NeonSplitRadixDct3d, NeonSplitRadixDct3f};
 pub(crate) use dct4::{
     NeonDct4Butterfly27f, NeonDct4MixedRadix2f, NeonDct4MixedRadix3d, NeonDct4MixedRadix3f,
     NeonDct4MixedRadix5d, NeonDct4MixedRadix5f, NeonDct4MixedRadix7d, NeonDct4MixedRadix7f,

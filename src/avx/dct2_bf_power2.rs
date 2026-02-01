@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::util::fma;
+use crate::avx::util::{define_avx_butterfly, fma};
 use crate::dct2::power2_butterflies::{Dct2Butterfly2, Dst2Butterfly2};
 use crate::twiddles::compute_twiddle;
 use crate::util::DctSample;
@@ -77,34 +77,7 @@ where
     }
 }
 
-impl<T: DctSample> AvxDct2Butterfly4<T>
-where
-    f64: AsPrimitive<T>,
-{
-    #[target_feature(enable = "avx2", enable = "fma")]
-    fn execute_impl(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(4) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(4) {
-            self.exec((&mut chunk[..4]).try_into().unwrap());
-        }
-        Ok(())
-    }
-}
-
-impl<T: DctSample> PxdctExecutor<T> for AvxDct2Butterfly4<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        unsafe { self.execute_impl(data) }
-    }
-
-    fn length(&self) -> usize {
-        4
-    }
-}
+define_avx_butterfly!(AvxDct2Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct AvxDst2Butterfly4<T: DctSample> {
@@ -150,34 +123,7 @@ where
     }
 }
 
-impl<T: DctSample> AvxDst2Butterfly4<T>
-where
-    f64: AsPrimitive<T>,
-{
-    #[target_feature(enable = "avx2", enable = "fma")]
-    fn execute_impl(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(4) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(4) {
-            self.exec((&mut chunk[..4]).try_into().unwrap());
-        }
-        Ok(())
-    }
-}
-
-impl<T: DctSample> PxdctExecutor<T> for AvxDst2Butterfly4<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        unsafe { self.execute_impl(data) }
-    }
-
-    fn length(&self) -> usize {
-        4
-    }
-}
+define_avx_butterfly!(AvxDst2Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct AvxDct2Butterfly8<T: DctSample> {
@@ -260,34 +206,7 @@ where
     }
 }
 
-impl<T: DctSample> AvxDct2Butterfly8<T>
-where
-    f64: AsPrimitive<T>,
-{
-    #[target_feature(enable = "avx2", enable = "fma")]
-    fn execute_impl(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(8) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(8) {
-            self.exec((&mut chunk[..8]).try_into().unwrap());
-        }
-        Ok(())
-    }
-}
-
-impl<T: DctSample> PxdctExecutor<T> for AvxDct2Butterfly8<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        unsafe { self.execute_impl(data) }
-    }
-
-    fn length(&self) -> usize {
-        8
-    }
-}
+define_avx_butterfly!(AvxDct2Butterfly8, 8);
 
 #[derive(Debug, Clone)]
 pub(crate) struct AvxDct2Butterfly16<T: DctSample> {
@@ -431,34 +350,7 @@ where
     }
 }
 
-impl<T: DctSample> AvxDct2Butterfly16<T>
-where
-    f64: AsPrimitive<T>,
-{
-    #[target_feature(enable = "avx2", enable = "fma")]
-    fn execute_impl(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(16) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(16) {
-            self.exec((&mut chunk[..16]).try_into().unwrap());
-        }
-        Ok(())
-    }
-}
-
-impl<T: DctSample> PxdctExecutor<T> for AvxDct2Butterfly16<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        unsafe { self.execute_impl(data) }
-    }
-
-    fn length(&self) -> usize {
-        16
-    }
-}
+define_avx_butterfly!(AvxDct2Butterfly16, 16);
 
 #[cfg(test)]
 macro_rules! gen_test_avx_butterfly {

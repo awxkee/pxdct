@@ -298,6 +298,31 @@ pub(crate) fn has_valid_avx() -> bool {
     std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
 }
 
+macro_rules! define_butterfly {
+    ($bf_name: ident, $length: expr) => {
+        impl<T: DctSample> PxdctExecutor<T> for $bf_name<T>
+        where
+            f64: AsPrimitive<T>,
+        {
+            fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+                if !data.len().is_multiple_of($length) {
+                    return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
+                }
+                for chunk in data.chunks_exact_mut($length) {
+                    self.exec((&mut chunk[..$length]).try_into().unwrap());
+                }
+                Ok(())
+            }
+
+            fn length(&self) -> usize {
+                $length
+            }
+        }
+    };
+}
+
+pub(crate) use define_butterfly;
+
 macro_rules! create_dct2_3 {
     ($clazz: ident) => {
         impl<T: DctSample> $clazz<T>

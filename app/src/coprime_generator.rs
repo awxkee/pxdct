@@ -28,7 +28,7 @@
  */
 use std::ops::{Add, BitXor};
 
-fn transpose<T: Copy>(src: &[T], dst: &mut [T], width: usize, height: usize) {
+pub(crate) fn transpose<T: Copy>(src: &[T], dst: &mut [T], width: usize, height: usize) {
     for x in 0..width {
         for y in 0..height {
             let input_index = x + y * width;
@@ -41,7 +41,7 @@ fn transpose<T: Copy>(src: &[T], dst: &mut [T], width: usize, height: usize) {
     }
 }
 
-trait Mulsigni {
+pub(crate) trait Mulsigni {
     fn mulsigni(self, other: isize) -> Self;
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn naive_dct2_f32(input: &[f32]) -> Vec<f32> {
     result
 }
 
-fn pfa_input_indices(n1: usize, n2: usize) -> Vec<isize> {
+pub(crate) fn pfa_input_indices(n1: usize, n2: usize) -> Vec<isize> {
     let mut indices = vec![0isize; n1 * n2];
     let mut index = 0usize;
     println!("---");
@@ -95,7 +95,7 @@ fn pfa_input_indices(n1: usize, n2: usize) -> Vec<isize> {
     indices
 }
 
-fn pfa_unity_gain(n1: usize, n2: usize) -> Vec<isize> {
+pub(crate) fn pfa_unity_gain(n1: usize, n2: usize) -> Vec<isize> {
     let length = n1 * n2;
     let mut indices = Vec::new();
     for r in 0..n1 {
@@ -117,12 +117,10 @@ fn pfa_unity_gain(n1: usize, n2: usize) -> Vec<isize> {
     indices
 }
 
-fn pfa_modulation(n1: usize, n2: usize) -> Vec<isize> {
-    let length = n1 * n2;
+pub(crate) fn pfa_modulation(n1: usize, n2: usize) -> Vec<isize> {
     let mut indices = Vec::new();
     for r in 0..n1 {
         for c in 0..n2 {
-            let idx = c * n1 + r * n2;
             indices.push(
                 (c as isize * n1 as isize - r as isize * n2 as isize).unsigned_abs() as isize,
             );

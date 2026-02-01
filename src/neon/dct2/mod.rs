@@ -53,11 +53,11 @@ pub(crate) use bf_radix6d::{NeonDct2Butterfly36d, NeonDct2Butterfly216d};
 pub(crate) use bf_radix6f::{NeonDct2Butterfly36f, NeonDct2Butterfly216f};
 pub(crate) use bf_split_radix2::{
     NeonDct2Butterfly32f, NeonDct2Butterfly64f, NeonDct2Butterfly128f, NeonDct2Butterfly256f,
-    NeonDct2Butterfly512f,
+    NeonDct2Butterfly512f, dct2_split_radix_rotation_twiddles_neon,
 };
 pub(crate) use bf_split_radix2d::{
     NeonDct2Butterfly32d, NeonDct2Butterfly64d, NeonDct2Butterfly128d, NeonDct2Butterfly256d,
-    NeonDct2Butterfly512d,
+    NeonDct2Butterfly512d, dct2_split_radix_rotation_twiddles_neond,
 };
 pub(crate) use bf25::NeonDct2Butterfly25f;
 pub(crate) use bf49::NeonDct2Butterfly49f;

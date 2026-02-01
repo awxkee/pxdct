@@ -31,14 +31,22 @@ mod dct2_gen;
 mod dct2_gen_fma;
 mod dct2_gen_neon;
 mod dct2_radixq_codegen;
+mod dct3_coprime;
 mod dct3_gen;
 mod dct4_butterfly_generator;
 mod dct4_gen;
 mod solver;
+mod split_radix_dct3;
 
+use crate::dct3_coprime::gen_dct3_coprimes;
+use crate::dct3_gen::{compute_twiddle, generate_dct3};
+use crate::solver::solve_expression_arr;
+use crate::split_radix_dct3::split_radix_dct3;
 use criterion::Criterion;
-use pxdct::PxdctExecutor;
-use rand::Rng;
+use pxfm::{f_cospi, f_sinpi};
+use rustdct::num_traits::FloatConst;
+use std::f64::consts::PI;
+use std::fmt::format;
 
 fn naive_dct4(input: &[f32]) -> Vec<f32> {
     let mut result = Vec::new();
@@ -145,6 +153,71 @@ fn dct4_radix2_16pt(data: &mut [f32]) {
     println!("{:?}, {:?}", data, naive); // Computes X_II_0 and X_II_2
 }
 
+#[inline(always)]
+pub fn cos3_2(x: [f64; 2]) -> [f64; 2] {
+    let half_0 = x[0] * 0.5;
+    let frac_1 = x[1] * f64::FRAC_1_SQRT_2();
+    let v0 = half_0 + frac_1;
+    let v1 = half_0 - frac_1;
+    [v0, v1]
+}
+
+#[inline(always)]
+pub fn cos4_2(x: [f64; 2]) -> [f64; 2] {
+    let half_0 = x[0] * 0.5;
+    let frac_1 = x[1] * f64::FRAC_1_SQRT_2();
+    let v0 = half_0 + frac_1;
+    let v1 = half_0 - frac_1;
+    [v0, v1]
+}
+
+#[inline(always)]
+pub fn cos3_4(x: [f64; 4]) -> [f64; 4] {
+    let twiddle = compute_twiddle(1, 16).conj();
+
+    let u0 = x[0];
+    let u1 = x[1];
+    let u2 = x[2] * 2.0;
+    let u3 = x[3];
+
+    let [z1_0, z1_1] = cos3_2([(u0 + u2), u0 - u2]);
+    let [z2_0, z2_1] = cos3_2([(u1 + u3), u1 - u3]);
+
+    let lw = f64::mul_add(z2_0, twiddle.re, z2_1 * twiddle.im);
+    let uw = f64::mul_add(z2_0, twiddle.im, -z2_1 * twiddle.re);
+
+    [z1_0, z1_1 + uw, z2_0 + lw, z1_0 + uw]
+}
+
+#[inline(always)]
+pub fn idct5(input: [f64; 5]) -> [f64; 5] {
+    // Cosine constants
+    let c1 = (PI / 5.0).cos(); // ≈ 0.809017
+    let c2 = (2.0 * PI / 5.0).cos(); // ≈ 0.309017
+    let s1 = (PI / 5.0).sin(); // ≈ 0.587785
+    let s2 = (2.0 * PI / 5.0).sin(); // ≈ 0.951057
+    let a0 = input[0];
+    let a1 = input[1] + input[4];
+    let a2 = input[2] + input[3];
+    let b1 = input[1] - input[4];
+    let b2 = input[2] - input[3];
+
+    // Stage 2: Intermediate computation
+    let t1 = c1 * a1 + c2 * a2;
+    let t2 = c2 * a1 - c1 * a2;
+    let u1 = s1 * b1 + s2 * b2;
+    let u2 = s2 * b1 - s1 * b2;
+
+    // Stage 3: Final outputs
+    [
+        a0 + a1 + a2,
+        a0 + t1 + u1,
+        a0 + t2 + u2,
+        a0 + t2 - u2,
+        a0 + t1 - u1,
+    ]
+}
+
 fn main() {
     // let (dc3, lanes) = generate_dct2_fma(23, "fmla".to_string());
     // println!("{}", dc3);
@@ -163,15 +236,16 @@ fn main() {
     // let bf = generate_butterfly_dct4(30);
     // println!("{}", bf);
 
-    let mut short_bf45 = vec![5f64, 2., 9., 4., 1., 8., 1., 8.];
-    for (i, z) in short_bf45.iter_mut().enumerate() {
-        *z = i as f64; // rand::rng().random_range(1.0..2.0);
-    }
-    // dct4_radix2_6pt(&mut short_bf45);
-    let process16 = pxdct::Pxdct::make_dst2_f64(8).unwrap();
-    // [190.0, -80.973434, 0.0, -8.921358, 3.5762787e-7, -3.1543207, 0.0, -1.5615854, 8.34465e-7, -0.9014206, 0.0, -0.5615945, 9.536743e-7, -4.6403565, 0.0, -0.22416973, -1.1920929e-7, 5.5045886, -14.557901, -15.471075]
-    process16.execute(&mut short_bf45).unwrap();
-    println!("{:?}", short_bf45);
+    // let mut short_bf45 = vec![5f64, 2., 9., 4.];
+    // for (i, z) in short_bf45.iter_mut().enumerate() {
+    //     *z = i as f64; // rand::rng().random_range(1.0..2.0);
+    // }
+    // let cos3_4 = cos3_4(short_bf45.to_vec().try_into().unwrap());
+    // println!("cos3_4 = {:?}", cos3_4);
+    // let process16 = pxdct::Pxdct::make_dct3_f64(4).unwrap();
+    // // [190.0, -80.973434, 0.0, -8.921358, 3.5762787e-7, -3.1543207, 0.0, -1.5615854, 8.34465e-7, -0.9014206, 0.0, -0.5615945, 9.536743e-7, -4.6403565, 0.0, -0.22416973, -1.1920929e-7, 5.5045886, -14.557901, -15.471075]
+    // process16.execute(&mut short_bf45).unwrap();
+    // println!("{:?}", short_bf45);
 
     // let process16 = pxdct::Pxdct::make_dct2_f32(short_bf12.len()).unwrap();
     //     process16.execute(&mut short_bf12).unwrap();
@@ -181,37 +255,37 @@ fn main() {
     //     *z = rand::rng().random_range(1.0..2.0);
     // }
 
-    let mut c = Criterion::default();
-    c.bench_function("length 169", |r| {
-        let mut short_bf45 = vec![0.; 169];
-        for z in short_bf45.iter_mut() {
-            *z = rand::rng().random_range(1.0..2.0);
-        }
-        let process16 = pxdct::Pxdct::make_dct2_f32(169).unwrap();
-        r.iter(|| {
-            process16.execute(&mut short_bf45).unwrap();
-        });
-    });
-    c.bench_function("length 2197", |r| {
-        let mut short_bf45 = vec![0.; 2197];
-        for z in short_bf45.iter_mut() {
-            *z = rand::rng().random_range(1.0..2.0);
-        }
-        let process16 = pxdct::Pxdct::make_dct2_f64(2197).unwrap();
-        r.iter(|| {
-            process16.execute(&mut short_bf45).unwrap();
-        });
-    });
-    c.bench_function("length 28561", |r| {
-        let mut short_bf45 = vec![0.; 28561];
-        for z in short_bf45.iter_mut() {
-            *z = rand::rng().random_range(1.0..2.0);
-        }
-        let process16 = pxdct::Pxdct::make_dct2_f64(28561).unwrap();
-        r.iter(|| {
-            process16.execute(&mut short_bf45).unwrap();
-        });
-    });
+    // let mut c = Criterion::default();
+    // c.bench_function("length 169", |r| {
+    //     let mut short_bf45 = vec![0.; 169];
+    //     for z in short_bf45.iter_mut() {
+    //         *z = rand::rng().random_range(1.0..2.0);
+    //     }
+    //     let process16 = pxdct::Pxdct::make_dct2_f32(169).unwrap();
+    //     r.iter(|| {
+    //         process16.execute(&mut short_bf45).unwrap();
+    //     });
+    // });
+    // c.bench_function("length 2197", |r| {
+    //     let mut short_bf45 = vec![0.; 2197];
+    //     for z in short_bf45.iter_mut() {
+    //         *z = rand::rng().random_range(1.0..2.0);
+    //     }
+    //     let process16 = pxdct::Pxdct::make_dct2_f64(2197).unwrap();
+    //     r.iter(|| {
+    //         process16.execute(&mut short_bf45).unwrap();
+    //     });
+    // });
+    // c.bench_function("length 28561", |r| {
+    //     let mut short_bf45 = vec![0.; 28561];
+    //     for z in short_bf45.iter_mut() {
+    //         *z = rand::rng().random_range(1.0..2.0);
+    //     }
+    //     let process16 = pxdct::Pxdct::make_dct2_f64(28561).unwrap();
+    //     r.iter(|| {
+    //         process16.execute(&mut short_bf45).unwrap();
+    //     });
+    // });
     //
     // c.bench_function("length 256", |r| {
     //     let mut short_bf45 = vec![0.; 256];

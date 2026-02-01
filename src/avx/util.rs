@@ -50,3 +50,42 @@ pub(crate) fn fma<T: Copy + Mul<T, Output = T> + Add<T, Output = T> + MulAdd<T, 
 ) -> T {
     MulAdd::mul_add(a, b, c)
 }
+
+macro_rules! define_avx_butterfly {
+    ($bf_name: ident, $length: expr) => {
+        impl<T: DctSample> $bf_name<T>
+        where
+            f64: AsPrimitive<T>,
+        {
+            #[target_feature(enable = "avx2", enable = "fma")]
+            fn execute_impl(&self, data: &mut [T]) -> Result<(), PxdctError> {
+                if !data.len().is_multiple_of($length) {
+                    return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
+                }
+                for chunk in data.chunks_exact_mut($length) {
+                    self.exec((&mut chunk[..$length]).try_into().unwrap());
+                }
+                Ok(())
+            }
+
+            fn length(&self) -> usize {
+                $length
+            }
+        }
+
+        impl<T: DctSample> PxdctExecutor<T> for $bf_name<T>
+        where
+            f64: AsPrimitive<T>,
+        {
+            fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+                unsafe { self.execute_impl(data) }
+            }
+
+            fn length(&self) -> usize {
+                $length
+            }
+        }
+    };
+}
+
+pub(crate) use define_avx_butterfly;

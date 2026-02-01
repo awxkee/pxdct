@@ -31,6 +31,7 @@ mod dct2;
 mod dct2_bf_power2;
 mod dct2_bf_radix3;
 mod dct2_butterflies;
+mod dct3;
 mod dct4;
 mod mul_f32;
 mod pfa_dct2_remap;
@@ -60,6 +61,10 @@ pub(crate) use dct2_bf_radix3::{
     AvxDct2Butterfly9, AvxDct2Butterfly27f, AvxDct2Butterfly81f, AvxDct2Butterfly243f,
 };
 pub(crate) use dct2_butterflies::AvxDct2Butterfly12;
+pub(crate) use dct3::{
+    AvxDct3Butterfly16, AvxDct3Butterfly32, AvxDct3Butterfly64, AvxSplitRadixDct3d,
+    AvxSplitRadixDct3f,
+};
 pub(crate) use dct4::{
     AvxDct4Butterfly3, AvxDct4Butterfly7, AvxDct4Butterfly9, AvxDct4Butterfly11,
     AvxDct4Butterfly13, AvxDct4Butterfly27f, AvxDct4MixedRadix2d, AvxDct4MixedRadix2f,
