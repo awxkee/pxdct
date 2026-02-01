@@ -79,6 +79,14 @@ impl TransposeFactory for f32 {
             use crate::neon::NeonTranspose4x4;
             Arc::new(NeonTranspose4x4 { width, height })
         }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        {
+            use crate::util::has_valid_avx;
+            if has_valid_avx() {
+                use crate::avx::AvxTransposeFReal4x4;
+                return Arc::new(AvxTransposeFReal4x4 { width, height });
+            }
+        }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
             Arc::new(TransposeTiny { width, height })

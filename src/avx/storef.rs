@@ -59,6 +59,12 @@ pub(crate) struct AvxStoreF {
 impl AvxStoreF {
     #[inline]
     #[target_feature(enable = "avx2")]
+    pub(crate) fn zero() -> AvxStoreF {
+        AvxStoreF::raw(_mm256_setzero_ps())
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
     pub(crate) fn swap_complex(&self) -> Self {
         Self::raw(_mm256_castpd_ps(_mm256_permute4x64_pd::<
             { shuffle(0, 1, 2, 3) },
