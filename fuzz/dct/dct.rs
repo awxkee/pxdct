@@ -21,6 +21,8 @@ fuzz_target!(|data: DctArbitrary| {
         *k = i as f32 / len as f32;
     }
 
+    let mut zap = vec![0.0; len];
+
     let dct2 = Pxdct::make_dct2_f32(len).unwrap();
     let dct3 = Pxdct::make_dct3_f32(len).unwrap();
 
@@ -31,4 +33,9 @@ fuzz_target!(|data: DctArbitrary| {
     dct3.execute(&mut array).unwrap();
     dst2.execute(&mut array).unwrap();
     dst3.execute(&mut array).unwrap();
+
+    dct2.execute_into(&mut array, &mut zap).unwrap();
+    dct3.execute_into(&mut array, &mut zap).unwrap();
+    dst2.execute_into(&mut array, &mut zap).unwrap();
+    dst3.execute_into(&mut array, &mut zap).unwrap();
 });

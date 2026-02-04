@@ -52,6 +52,13 @@ impl NeonStoreD {
     }
 
     #[inline(always)]
+    pub(crate) fn dup(v0: f64) -> Self {
+        NeonStoreD {
+            v: unsafe { vdupq_n_f64(v0) },
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn raw(v: float64x2_t) -> Self {
         NeonStoreD { v }
     }

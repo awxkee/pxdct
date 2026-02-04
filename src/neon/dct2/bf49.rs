@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::MixedRadix7Sample;
 use crate::dct2::prime_butterflies::Dct2Butterfly7;
 use crate::mla::fmla;
@@ -66,9 +67,9 @@ impl NeonDct2Butterfly49f {
 
 impl NeonDct2Butterfly49f {
     #[inline(always)]
-    pub(crate) fn exec(
+    pub(crate) fn exec<S: BidirectionalStore<f32>>(
         &self,
-        data: &mut [f32; 49],
+        data: &mut S,
         a_buffer: &mut [f32; 7],
         c_buffer: &mut [f32; 21],
         s_buffer: &mut [f32; 21],
@@ -77,7 +78,7 @@ impl NeonDct2Butterfly49f {
             a_buffer[n] = data[n * 7 + 3];
         }
 
-        self.bf7.exec(a_buffer);
+        self.bf7.exec(&mut InPlaceStore::new(a_buffer));
 
         let q_modules = 7;
 
@@ -94,9 +95,9 @@ impl NeonDct2Butterfly49f {
             }
 
             self.bf7
-                .exec((&mut c_buffer[m * 7..(m + 1) * 7]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut c_buffer[m * 7..(m + 1) * 7]));
             self.bf7
-                .exec((&mut s_buffer[m * 7..(m + 1) * 7]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut s_buffer[m * 7..(m + 1) * 7]));
         }
 
         {
@@ -245,44 +246,44 @@ impl NeonDct2Butterfly49f {
 
                 let a0 = NeonStoreF::load(&a_buffer[k..]);
                 let dc = dc0 + a0;
-                dc.write(&mut data[k..]);
+                dc.write(data.slice_from_mut(k..));
 
                 let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
                 {
                     let q = dss1.reverse();
-                    q.write(&mut data[q_modules * 2 - k - 3..]);
+                    q.write(data.slice_from_mut(q_modules * 2 - k - 3..));
                 }
 
                 dc2 = -(dc2 + a0); // negated 2j
                 dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
                 {
-                    dc2.write(&mut data[q_modules * 2 + k..]);
+                    dc2.write(data.slice_from_mut(q_modules * 2 + k..));
                 }
 
                 let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
                 {
                     let q = dss3.reverse();
-                    q.write(&mut data[q_modules * 4 - k - 3..]);
+                    q.write(data.slice_from_mut(q_modules * 4 - k - 3..));
                 }
 
                 dc4 += a0;
 
                 let mdc4 = NeonStoreF::f32_mul_add(2., dc4, -dss3);
                 {
-                    mdc4.write(&mut data[q_modules * 4 + k..]);
+                    mdc4.write(data.slice_from_mut(q_modules * 4 + k..));
                 }
 
                 let dss5 = NeonStoreF::f32_mul_add(2., ds5, -mdc4);
                 {
                     let q = dss5.reverse();
-                    q.write(&mut data[q_modules * 6 - k - 3..]);
+                    q.write(data.slice_from_mut(q_modules * 6 - k - 3..));
                 }
 
                 dc6 += a0;
                 dc6 = NeonStoreF::f32_mul_add(2., -dc6, -dss5);
 
                 {
-                    dc6.write(&mut data[q_modules * 6 + k..]);
+                    dc6.write(data.slice_from_mut(q_modules * 6 + k..));
                 }
             }
 
@@ -373,45 +374,45 @@ impl NeonDct2Butterfly49f {
                 let a0 = NeonStoreF::load2(&a_buffer[k..]);
                 let dc = dc0 + a0;
                 {
-                    dc.write2(&mut data[k..]);
+                    dc.write2(data.slice_from_mut(k..));
                 }
 
                 let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
                 {
                     let q = dss1.reverse2();
-                    q.write2(&mut data[q_modules * 2 - k - 1..]);
+                    q.write2(data.slice_from_mut(q_modules * 2 - k - 1..));
                 }
 
                 dc2 = -(dc2 + a0); // negated 2j
                 dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
                 {
-                    dc2.write2(&mut data[q_modules * 2 + k..]);
+                    dc2.write2(data.slice_from_mut(q_modules * 2 + k..));
                 }
 
                 let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
                 {
                     let q = dss3.reverse2();
-                    q.write2(&mut data[q_modules * 4 - k - 1..]);
+                    q.write2(data.slice_from_mut(q_modules * 4 - k - 1..));
                 }
 
                 dc4 += a0;
 
                 let mdc4 = NeonStoreF::f32_mul_add(2., dc4, -dss3);
                 {
-                    mdc4.write2(&mut data[q_modules * 4 + k..]);
+                    mdc4.write2(data.slice_from_mut(q_modules * 4 + k..));
                 }
 
                 let dss5 = NeonStoreF::f32_mul_add(2., ds5, -mdc4);
                 {
                     let q = dss5.reverse2();
-                    q.write2(&mut data[q_modules * 6 - k - 1..]);
+                    q.write2(data.slice_from_mut(q_modules * 6 - k - 1..));
                 }
 
                 dc6 += a0;
                 dc6 = NeonStoreF::f32_mul_add(2., -dc6, -dss5);
 
                 {
-                    dc6.write2(&mut data[q_modules * 6 + k..]);
+                    dc6.write2(data.slice_from_mut(q_modules * 6 + k..));
                 }
             }
         }
@@ -430,7 +431,7 @@ impl PxdctExecutor<f32> for NeonDct2Butterfly49f {
 
         for chunk in data.chunks_exact_mut(49) {
             self.exec(
-                (&mut chunk[..49]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
                 &mut c_buffer,
                 &mut s_buffer,
@@ -439,8 +440,45 @@ impl PxdctExecutor<f32> for NeonDct2Butterfly49f {
         Ok(())
     }
 
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 49);
+
+        let mut a_buffer = [f32::zero(); 7];
+        let mut c_buffer = [f32::zero(); 21];
+        let mut s_buffer = [f32::zero(); 21];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(49).zip(output.chunks_exact_mut(49)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
+                &mut a_buffer,
+                &mut c_buffer,
+                &mut s_buffer,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
     fn length(&self) -> usize {
         49
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

@@ -187,7 +187,7 @@ impl DctSpectrumMul<f32> for FcmaDctSpectrumMulF32 {
         let complex_length = complex_input.len();
 
         assert!(twiddles.len() >= len);
-        assert!(complex_input.len() > 0);
+        assert!(!complex_input.is_empty());
         assert!(complex_input.len() >= half);
         assert!(out.len() >= len);
 

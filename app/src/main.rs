@@ -47,6 +47,7 @@ use pxfm::{f_cospi, f_sinpi};
 use rustdct::num_traits::FloatConst;
 use std::f64::consts::PI;
 use std::fmt::format;
+use pxdct::Pxdct;
 
 fn naive_dct4(input: &[f32]) -> Vec<f32> {
     let mut result = Vec::new();
@@ -216,6 +217,44 @@ pub fn idct5(input: [f64; 5]) -> [f64; 5] {
         a0 + t2 - u2,
         a0 + t1 - u1,
     ]
+}
+
+#[inline(always)]
+pub fn cos2_6(x: [f64; 6]) -> [f64; 6] {
+    let u0 = x[0] + x[5];
+    let u1 = x[1] + x[4];
+    let u2 = x[2] + x[3];
+    let u3 = x[2] - x[3];
+    let u4 = x[1] - x[4];
+    let u5 = x[0] - x[5];
+    let internal = Pxdct::make_dct2_f64(3).unwrap();
+    let internal4 = Pxdct::make_dct4_f64(3).unwrap();
+    let mut z1 = [u0, u1, u2];
+    let mut z2 = [u5, u4, u3];
+    internal.execute(&mut z1).unwrap();
+    internal4.execute(&mut z2).unwrap();
+    let mut output: [f64; 6] = [0.0; 6];
+    for i in 0..3 {
+        output[i * 2] = z1[i];
+        output[i * 2 + 1] = z2[i];
+    }
+    output
+}
+
+#[inline(never)]
+pub fn cos3_6(x: [f64; 6]) -> [f64; 6] {
+    let internal = Pxdct::make_dct3_f64(3).unwrap();
+    let internal4 = Pxdct::make_dct4_f64(3).unwrap();
+    let mut z1 = [x[0], x[2], x[4]];
+    let mut z2 = [x[1], x[3], x[5]];
+    internal.execute(&mut z1).unwrap();
+    internal4.execute(&mut z2).unwrap();
+    let mut output: [f64; 6] = [0.0; 6];
+    for i in 0..3 {
+        output[i] = z1[i] + z2[i];
+        output[6 - i - 1] = z1[i] - z2[i];
+    }
+    output
 }
 
 fn main() {

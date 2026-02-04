@@ -57,7 +57,39 @@ where
         Ok(())
     }
 
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+        if data.is_empty() {
+            return Err(PxdctError::InvalidSizeMultiplier(1, 0));
+        }
+        for sample in data.iter_mut() {
+            *sample *= T::FRAC_1_SQRT_2;
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 1);
+        for (&src, dst) in input.iter().zip(output.iter_mut()) {
+            *dst = src * T::FRAC_1_SQRT_2;
+        }
+        Ok(())
+    }
+
     fn length(&self) -> usize {
         1
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }

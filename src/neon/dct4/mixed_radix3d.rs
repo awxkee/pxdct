@@ -26,10 +26,12 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::BidirectionalStore;
 use crate::dct4::radixq_dct4_rotation_twiddle;
 use crate::mla::fmla;
 use crate::neon::store_d::NeonStoreD;
-use crate::util::{DctConstants, DctSample, try_vec};
+use crate::neon::util::boring_neon_mixed_radix;
+use crate::util::{DctConstants, DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{AsPrimitive, One};
 use std::sync::Arc;
@@ -82,6 +84,7 @@ pub(crate) fn dct4_radix3_rotation_twiddles_neond(q_modules: usize, len: usize) 
 
 pub(crate) struct NeonDct4MixedRadix3d {
     inner_dct4: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+    inner_dct_scratch_size: usize,
     rotation_twiddles: Vec<NeonStoreD>,
     execution_length: usize,
 }
@@ -89,157 +92,132 @@ pub(crate) struct NeonDct4MixedRadix3d {
 impl NeonDct4MixedRadix3d {
     pub(crate) fn new(
         len: usize,
-        dct2: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+        dct4: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     ) -> Result<Self, PxdctError> {
         assert_eq!(
-            dct2.length(),
+            dct4.length(),
             len / 3,
             "DCT-IV Mixed-Radix-3 length DCTs must be third of DCT-IV"
         );
 
+        let inner_dct4_scratch_size = dct4.scratch_size();
+
         Ok(Self {
-            inner_dct4: dct2,
+            inner_dct4: dct4,
+            inner_dct_scratch_size: inner_dct4_scratch_size,
             execution_length: len,
             rotation_twiddles: dct4_radix3_rotation_twiddles_neond(len / 3, len),
         })
     }
 }
 
-impl PxdctExecutor<f64> for NeonDct4MixedRadix3d {
-    fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.execution_length) {
-            return Err(PxdctError::InvalidSizeMultiplier(
-                data.len(),
-                self.execution_length,
-            ));
-        }
-        let mut scratch = try_vec![f64::default(); self.execution_length];
-
+impl NeonDct4MixedRadix3d {
+    #[inline(always)]
+    fn execute_with_store<S: BidirectionalStore<f64>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
         let q_modules = self.execution_length / 3;
-
         let s = 2 * self.execution_length / 3;
+        let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
 
-        for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
-            let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
+        // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
+        for (n, dst) in a_buffer.iter_mut().enumerate() {
+            *dst = data[n * 3 + 1];
+        }
 
-            // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
-            for (n, dst) in a_buffer.iter_mut().enumerate() {
-                unsafe {
-                    *dst = *chunk.get_unchecked(n * 3 + 1);
-                }
-            }
+        // Extract and combine symmetric pairs with sign alternation for S buffer
+        for (m, (c_buffer, s_buffer)) in c_buffer
+            .chunks_exact_mut(q_modules)
+            .zip(s_buffer.chunks_exact_mut(q_modules))
+            .enumerate()
+        {
+            let mut sign = f64::one();
+            for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate() {
+                let u0 = data[3 * n + m];
+                let u1 = data[3 * n + 3 - m - 1];
 
-            // Extract and combine symmetric pairs with sign alternation for S buffer
-            for (m, (c_buffer, s_buffer)) in c_buffer
-                .chunks_exact_mut(q_modules)
-                .zip(s_buffer.chunks_exact_mut(q_modules))
-                .enumerate()
-            {
-                let mut sign = f64::one();
-                for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate()
-                {
-                    let u0 = unsafe { *chunk.get_unchecked(3 * n + m) };
-                    let u1 = unsafe { *chunk.get_unchecked(3 * n + 3 - m - 1) };
+                *c_dst = u0 + u1;
+                *s_dst = (u0 - u1).mulsign(sign);
 
-                    *c_dst = u0 + u1;
-                    *s_dst = (u0 - u1).mulsign(sign);
-
-                    sign = -sign;
-                }
-            }
-
-            // Step 2: Apply DCT-IV to all buffers (A, C₀, C₁, S₀, S₁)
-            self.inner_dct4.execute(&mut scratch)?;
-
-            let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
-            let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
-
-            // Step 4: Handle rotation twiddles
-            let mut k = 0usize;
-            let mut uk = 0usize;
-
-            while k + 2 <= q_modules {
-                const S: usize = 2;
-                let c_v = NeonStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
-                let s_v = NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - k - S..) })
-                    .reverse();
-                let a_v = NeonStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
-
-                let twiddle_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-
-                let mut u0 = fmla(c_v, twiddle_re, s_v * twiddle_im);
-                let mut u1 = u0;
-                let mut v0 = fmla(c_v, twiddle_im, -s_v * twiddle_re);
-
-                u0 += a_v;
-                u1 *= f64::HALF;
-                v0 *= f64::SQRT_3_OVER_2;
-                u1 = u1 - a_v;
-
-                let uc0 = u1 - v0;
-                let uc1 = u1 + v0;
-
-                unsafe {
-                    u0.write(chunk.get_unchecked_mut(k..));
-                }
-
-                unsafe {
-                    uc1.write(chunk.get_unchecked_mut(s + k..));
-                }
-
-                unsafe {
-                    uc0.reverse().write(chunk.get_unchecked_mut(s - S - k..));
-                }
-                k += 2;
-                uk += 2;
-            }
-
-            let remainder = q_modules - k;
-            if remainder == 1 {
-                const S: usize = 1;
-                let c_v = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
-                let s_v = NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - k - S..) });
-                let a_v = NeonStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
-
-                let twiddle_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-
-                let mut u0 = fmla(c_v, twiddle_re, s_v * twiddle_im);
-                let mut u1 = u0;
-                let mut v0 = fmla(c_v, twiddle_im, -s_v * twiddle_re);
-
-                u0 += a_v;
-                u1 *= f64::HALF;
-                v0 *= f64::SQRT_3_OVER_2;
-                u1 = u1 - a_v;
-
-                let uc0 = u1 - v0;
-                let uc1 = u1 + v0;
-
-                unsafe {
-                    u0.write1(chunk.get_unchecked_mut(k..));
-                }
-
-                unsafe {
-                    uc1.write1(chunk.get_unchecked_mut(s + k..));
-                }
-
-                unsafe {
-                    uc0.write1(chunk.get_unchecked_mut(s - S - k..));
-                }
+                sign = -sign;
             }
         }
 
+        // Step 2: Apply DCT-IV to all buffers (A, C₀, C₁, S₀, S₁)
+        self.inner_dct4
+            .execute_with_scratch(scratch, inner_scratch)?;
+
+        let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
+
+        // Step 4: Handle rotation twiddles
+        let mut k = 0usize;
+        let mut uk = 0usize;
+
+        while k + 2 <= q_modules {
+            const S: usize = 2;
+            let c_v = NeonStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
+            let s_v =
+                NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - k - S..) }).reverse();
+            let a_v = NeonStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
+
+            let twiddle_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
+            let twiddle_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
+
+            let mut u0 = fmla(c_v, twiddle_re, s_v * twiddle_im);
+            let mut u1 = u0;
+            let mut v0 = fmla(c_v, twiddle_im, -s_v * twiddle_re);
+
+            u0 += a_v;
+            u1 *= f64::HALF;
+            v0 *= f64::SQRT_3_OVER_2;
+            u1 = u1 - a_v;
+
+            let uc0 = u1 - v0;
+            let uc1 = u1 + v0;
+
+            u0.write(data.slice_from_mut(k..));
+            uc1.write(data.slice_from_mut(s + k..));
+            uc0.reverse().write(data.slice_from_mut(s - S - k..));
+            k += 2;
+            uk += 2;
+        }
+
+        let remainder = q_modules - k;
+        if remainder == 1 {
+            const S: usize = 1;
+            let c_v = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
+            let s_v = NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - k - S..) });
+            let a_v = NeonStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
+
+            let twiddle_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
+            let twiddle_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
+
+            let mut u0 = fmla(c_v, twiddle_re, s_v * twiddle_im);
+            let mut u1 = u0;
+            let mut v0 = fmla(c_v, twiddle_im, -s_v * twiddle_re);
+
+            u0 += a_v;
+            u1 *= f64::HALF;
+            v0 *= f64::SQRT_3_OVER_2;
+            u1 = u1 - a_v;
+
+            let uc0 = u1 - v0;
+            let uc1 = u1 + v0;
+
+            u0.write1(data.slice_from_mut(k..));
+            uc1.write1(data.slice_from_mut(s + k..));
+            uc0.write1(data.slice_from_mut(s - S - k..));
+        }
         Ok(())
     }
-
-    #[inline]
-    fn length(&self) -> usize {
-        self.execution_length
-    }
 }
+
+boring_neon_mixed_radix!(NeonDct4MixedRadix3d, f64);
 
 #[cfg(test)]
 mod tests {

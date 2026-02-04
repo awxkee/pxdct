@@ -40,6 +40,12 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .measurement_time(Duration::from_millis(400))
         .warm_up_time(Duration::from_millis(400));
 
+    check_power_group(c, 128, "128".to_string());
+    check_power_group(c, 256, "256".to_string());
+    check_power_group(c, 512, "512".to_string());
+    check_power_group(c, 1024, "1024".to_string());
+    check_power_group(c, 2048, "2048".to_string());
+
     check_power_group(c, 23, "23".to_string());
 
     check_power_group(c, 19, "19".to_string());
@@ -53,12 +59,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     check_power_group(c, 4913, "4913".to_string());
     check_power_group(c, 83521, "83521".to_string());
     check_power_group(c, 1419857, "1419857".to_string());
-
-    check_power_group(c, 128, "128".to_string());
-    check_power_group(c, 256, "256".to_string());
-    check_power_group(c, 512, "512".to_string());
-    check_power_group(c, 1024, "1024".to_string());
-    check_power_group(c, 2048, "2048".to_string());
 
     check_power_group(c, 13, "13".to_string());
     check_power_group(c, 169, "169".to_string());

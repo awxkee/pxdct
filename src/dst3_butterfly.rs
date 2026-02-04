@@ -26,10 +26,11 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct3::{Dct3Butterfly2, Dct3Butterfly4, Dct3Butterfly8};
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::{DctSample, define_butterfly};
+use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -42,7 +43,7 @@ pub(crate) struct Dst3Butterfly2<T> {
 
 impl<T: DctSample> Dst3Butterfly2<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 2]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         #[cfg(any(
             all(
                 any(target_arch = "x86", target_arch = "x86_64"),
@@ -73,7 +74,7 @@ impl<T: DctSample> Dst3Butterfly2<T> {
     }
 }
 
-define_butterfly!(Dst3Butterfly2, 2);
+define_in_place_butterfly!(Dst3Butterfly2, 2);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dst3Butterfly3<T> {
@@ -93,7 +94,7 @@ where
 
 impl<T: DctSample> Dst3Butterfly3<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 3]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let buffer0_half = data[2] * T::HALF;
         let buffer1 = data[1];
         let buffer2 = data[0];
@@ -107,7 +108,7 @@ impl<T: DctSample> Dst3Butterfly3<T> {
     }
 }
 
-define_butterfly!(Dst3Butterfly3, 3);
+define_in_place_butterfly!(Dst3Butterfly3, 3);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dst3Butterfly4<T> {
@@ -129,11 +130,11 @@ where
 
 impl<T: DctSample> Dst3Butterfly4<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 4]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // DST-3 split radix with n = 4
 
         let mut odds = [data[3], data[1]];
-        self.bf2.exec(&mut odds);
+        self.bf2.exec(&mut InPlaceStore::new(&mut odds));
 
         let lower_dct4 = fmla(data[2], self.twiddle.re, data[0] * self.twiddle.im);
         let upper_dct4 = fmla(data[2], self.twiddle.im, -data[0] * self.twiddle.re);
@@ -146,7 +147,7 @@ impl<T: DctSample> Dst3Butterfly4<T> {
     }
 }
 
-define_butterfly!(Dst3Butterfly4, 4);
+define_in_place_butterfly!(Dst3Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dst3Butterfly5<T> {
@@ -171,7 +172,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 5]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let x0 = data[0];
         let x1 = data[1];
         let x2 = data[2];
@@ -228,7 +229,7 @@ where
     }
 }
 
-define_butterfly!(Dst3Butterfly5, 5);
+define_in_place_butterfly!(Dst3Butterfly5, 5);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dst3Butterfly8<T> {
@@ -254,18 +255,18 @@ where
 
 impl<T: DctSample> Dst3Butterfly8<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 8]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // Derived from process_inplace_dct3, reversing the inputs and negating the odd outputs
 
         //process the evens
         let mut dct3_buffer = [data[7], data[5], data[3], data[1]];
-        self.bf4.exec(&mut dct3_buffer);
+        self.bf4.exec(&mut InPlaceStore::new(&mut dct3_buffer));
 
         //process the odds
         let mut odds_n1 = [data[6] * T::TWO, data[4] + data[2]];
         let mut odds_n3 = [data[4] - data[2], data[0] * T::TWO];
-        self.bf2.exec(&mut odds_n1);
-        self.bf2_dst.exec(&mut odds_n3);
+        self.bf2.exec(&mut InPlaceStore::new(&mut odds_n1));
+        self.bf2_dst.exec(&mut InPlaceStore::new(&mut odds_n3));
 
         let merged_odds = [
             fmla(
@@ -304,7 +305,7 @@ impl<T: DctSample> Dst3Butterfly8<T> {
     }
 }
 
-define_butterfly!(Dst3Butterfly8, 8);
+define_in_place_butterfly!(Dst3Butterfly8, 8);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dst3Butterfly16<T> {
@@ -335,11 +336,11 @@ where
 
 impl<T: DctSample> Dst3Butterfly16<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 16]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let mut dct3_buffer = [
             data[15], data[13], data[11], data[9], data[7], data[5], data[3], data[1],
         ];
-        self.bf8.exec(&mut dct3_buffer);
+        self.bf8.exec(&mut InPlaceStore::new(&mut dct3_buffer));
 
         //process the odds
         let mut evens_n1 = [
@@ -354,8 +355,8 @@ impl<T: DctSample> Dst3Butterfly16<T> {
             data[4] - data[2],
             data[0] * T::TWO,
         ];
-        self.bf4.exec(&mut evens_n1);
-        self.bf4_dst.exec(&mut evens_n3);
+        self.bf4.exec(&mut InPlaceStore::new(&mut evens_n1));
+        self.bf4_dst.exec(&mut InPlaceStore::new(&mut evens_n3));
 
         let merged_odds = [
             fmla(
@@ -427,7 +428,7 @@ impl<T: DctSample> Dst3Butterfly16<T> {
     }
 }
 
-define_butterfly!(Dst3Butterfly16, 16);
+define_in_place_butterfly!(Dst3Butterfly16, 16);
 
 #[cfg(test)]
 mod tests {

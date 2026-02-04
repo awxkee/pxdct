@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct4::Dct4Butterfly9;
 use crate::mla::fmla;
 use crate::neon::dct4::mixed_radix3f::dct4_radix3_rotation_twiddles_neon;
@@ -52,7 +53,7 @@ impl Default for NeonDct4Butterfly27f {
 
 impl NeonDct4Butterfly27f {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [f32; 27]) {
+    pub(crate) fn exec<S: BidirectionalStore<f32>>(&self, data: &mut S) {
         let mut a_buffer = [
             data[1], data[4], data[7], data[10], data[13], data[16], data[19], data[22], data[25],
         ];
@@ -79,9 +80,12 @@ impl NeonDct4Butterfly27f {
             data[24] - data[26],
         ];
 
-        self.bf9.exec(&mut a_buffer);
-        self.bf9.exec(&mut c_buffer);
-        self.bf9.exec(&mut s_buffer);
+        self.bf9
+            .exec(&mut InPlaceStore::new(a_buffer.as_mut_slice()));
+        self.bf9
+            .exec(&mut InPlaceStore::new(c_buffer.as_mut_slice()));
+        self.bf9
+            .exec(&mut InPlaceStore::new(s_buffer.as_mut_slice()));
 
         let mut k = 0usize;
         let mut uk = 0usize;
@@ -111,17 +115,10 @@ impl NeonDct4Butterfly27f {
             let uc0 = u1 - v0;
             let uc1 = u1 + v0;
 
-            unsafe {
-                u0.write(data.get_unchecked_mut(k..));
-            }
+            u0.write(data.slice_from_mut(k..));
+            uc1.write(data.slice_from_mut(s + k..));
+            uc0.reverse().write(data.slice_from_mut(s - S - k..));
 
-            unsafe {
-                uc1.write(data.get_unchecked_mut(s + k..));
-            }
-
-            unsafe {
-                uc0.reverse().write(data.get_unchecked_mut(s - S - k..));
-            }
             k += 4;
             uk += 2;
         }
@@ -147,17 +144,9 @@ impl NeonDct4Butterfly27f {
             let uc0 = u1 - v0;
             let uc1 = u1 + v0;
 
-            unsafe {
-                u0.write1(data.get_unchecked_mut(k..));
-            }
-
-            unsafe {
-                uc1.write1(data.get_unchecked_mut(s + k..));
-            }
-
-            unsafe {
-                uc0.write1(data.get_unchecked_mut(s - S - k..));
-            }
+            u0.write1(data.slice_from_mut(k..));
+            uc1.write1(data.slice_from_mut(s + k..));
+            uc0.write1(data.slice_from_mut(s - S - k..));
         }
     }
 }
@@ -167,14 +156,44 @@ impl PxdctExecutor<f32> for NeonDct4Butterfly27f {
         if !data.len().is_multiple_of(27) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
+
+        use crate::bidirectional::InPlaceStore;
+
         for chunk in data.chunks_exact_mut(27) {
-            self.exec((&mut chunk[..27]).try_into().unwrap());
+            self.exec(&mut InPlaceStore::new(chunk));
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 27);
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(27).zip(output.chunks_exact_mut(27)) {
+            self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())
     }
 
     fn length(&self) -> usize {
         27
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

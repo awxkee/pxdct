@@ -202,8 +202,10 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
     c.bench_function(format!("pxdct dct2 {group}s").as_str(), |b| {
         let plan = Pxdct::make_dct2_f32(input_power.len()).unwrap();
         let mut working = input_power.to_vec();
+        let mut scratch = vec![0f32; plan.scratch_size()];
         b.iter(|| {
-            plan.execute(&mut working).unwrap();
+            plan.execute_with_scratch(&mut working, &mut scratch)
+                .unwrap();
         })
     });
 
@@ -224,8 +226,10 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
     c.bench_function(format!("pxdct dct2 {group}d").as_str(), |b| {
         let plan = Pxdct::make_dct2_f64(input_power.len()).unwrap();
         let mut working = input_power.to_vec();
+        let mut scratch = vec![0.; plan.scratch_size()];
         b.iter(|| {
-            plan.execute(&mut working).unwrap();
+            plan.execute_with_scratch(&mut working, &mut scratch)
+                .unwrap();
         })
     });
 }
@@ -239,18 +243,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     bench_pxdct_averages(c, 150);
     bench_rustdct_averages(c, 1800);
     bench_pxdct_averages(c, 1800);
-
-    check_power_group(c, 1803, "1803".to_string());
-
-    check_power_group(c, 169, "169".to_string());
-    check_power_group(c, 2197, "2197".to_string());
-    check_power_group(c, 28561, "28561".to_string());
-    check_power_group(c, 371293, "371293".to_string());
-
-    check_power_group(c, 121, "121".to_string());
-    check_power_group(c, 1331, "1331".to_string());
-    check_power_group(c, 14641, "14641".to_string());
-    check_power_group(c, 161051, "161051".to_string());
 
     check_power_group(c, 4, "4".to_string());
     check_power_group(c, 8, "8".to_string());
@@ -268,6 +260,18 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     check_power_group(c, 32768, "32768".to_string());
     check_power_group(c, 65536, "65536".to_string());
     check_power_group(c, 131072, "131072".to_string());
+
+    check_power_group(c, 1803, "1803".to_string());
+
+    check_power_group(c, 169, "169".to_string());
+    check_power_group(c, 2197, "2197".to_string());
+    check_power_group(c, 28561, "28561".to_string());
+    check_power_group(c, 371293, "371293".to_string());
+
+    check_power_group(c, 121, "121".to_string());
+    check_power_group(c, 1331, "1331".to_string());
+    check_power_group(c, 14641, "14641".to_string());
+    check_power_group(c, 161051, "161051".to_string());
 
     check_power_group(c, 7, "7".to_string());
     check_power_group(c, 49, "49".to_string());

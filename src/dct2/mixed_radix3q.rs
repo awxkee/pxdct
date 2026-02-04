@@ -26,9 +26,10 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::{radixq_cos_twiddle, radixq_rotation_twiddle};
 use crate::mla::fmla;
-use crate::util::{DctSample, try_vec};
+use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::{AsPrimitive, Zero};
@@ -74,6 +75,7 @@ pub(crate) struct Dct2MixedRadix3q<T> {
     twiddles: Vec<Complex<T>>,
     rotation_twiddles: Vec<Complex<T>>,
     inner_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    inner_dct_scratch_size: usize,
     execution_length: usize,
 }
 
@@ -125,12 +127,124 @@ where
             }
         }
 
+        let inner_dct_scratch_size = third_dct.scratch_size();
+
         Ok(Dct2MixedRadix3q {
             twiddles: cos_twiddles,
             rotation_twiddles: rotation_layer,
             inner_dct: third_dct,
             execution_length: len,
+            inner_dct_scratch_size,
         })
+    }
+}
+
+impl<T: DctSample + MixedRadix3Sample> Dct2MixedRadix3q<T>
+where
+    f64: AsPrimitive<T>,
+{
+    #[inline(always)]
+    fn execute_store<S: BidirectionalStore<T>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        let q_modules = self.execution_length / 3;
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
+        let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
+
+        // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
+        for (n, dst) in a_buffer.iter_mut().enumerate() {
+            *dst = data[n * 3 + 1];
+        }
+
+        // Extract and combine symmetric pairs with sign alternation for S buffer
+        for (m, (c_buffer, s_buffer)) in c_buffer
+            .chunks_exact_mut(q_modules)
+            .zip(s_buffer.chunks_exact_mut(q_modules))
+            .enumerate()
+        {
+            let mut sign = T::one();
+            for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate() {
+                let u0 = data[3 * n + m];
+                let u1 = data[3 * n + 3 - m - 1];
+
+                *c_dst = u0 + u1;
+                *s_dst = (u0 - u1).mulsign(sign);
+
+                sign = -sign;
+            }
+        }
+
+        // Step 2: Apply DCT-II to all buffers (A, C₀, C₁, S₀, S₁)
+        self.inner_dct
+            .execute_with_scratch(scratch, inner_scratch)?;
+
+        let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
+
+        {
+            // Step 3: Recombine transformed buffers with twiddle factors
+
+            // Handle k=0 case (DC and low frequencies)
+            let qc = c_buffer[0];
+            let c0 = qc; // Component C₀ (position 0)
+            let c1 = qc * -T::HALF; // Component C₂ (position 2, uses j=2)
+
+            let s0_twiddled = s_buffer[0];
+
+            // Odd components: S₁ uses j=1
+            let s0 = s0_twiddled * T::SIN2PI_OVER_3; // S₁: sin(2π/5)
+
+            // Write output: C₀ (pos 0), S₁ (pos q_modules)
+            let a0 = a_buffer[0];
+            let dc = c0 + a0;
+            data[0] = dc;
+            data[q_modules] = s0;
+
+            let idx1 = q_modules * 2;
+            let qid2 = -(c1 + a0); // negated 2j
+            data[idx1] = qid2;
+
+            // Step 4: Handle k≥1 cases with rotation twiddles
+            for k in 1..q_modules {
+                // Apply rotation twiddles to combine forward and inverted components
+                let rotation_twiddle = unsafe { *self.rotation_twiddles.get_unchecked(k - 1) };
+
+                let c_forward = unsafe { *c_buffer.get_unchecked(k) };
+                let s_forward = unsafe { *s_buffer.get_unchecked(q_modules - k) };
+
+                let rotated_dc = fmla(s_forward, rotation_twiddle.re, c_forward);
+
+                let twiddle = unsafe { *self.twiddles.get_unchecked(k - 1) };
+
+                let twiddled_dc = rotated_dc * twiddle.re;
+
+                let dc0 = twiddled_dc;
+                let mut dc2 = twiddled_dc * -T::HALF;
+
+                let rotated_ds = fmla(c_forward, rotation_twiddle.im, s_forward);
+
+                let twiddled_ds = rotated_ds * twiddle.im;
+
+                let ds1 = twiddled_ds * T::SIN2PI_OVER_3;
+
+                let a0 = unsafe { *a_buffer.get_unchecked(k) };
+                let dc = dc0 + a0;
+                data[k] = dc;
+
+                let idx = q_modules * 2 - k;
+                let dss1 = fmla(2f64.as_(), ds1, -dc);
+                data[idx] = dss1;
+
+                let idx1 = q_modules * 2 + k;
+                dc2 = -(dc2 + a0); // negated 2j
+                dc2 = fmla(2f64.as_(), dc2, -dss1);
+                data[idx1] = dc2;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -139,6 +253,11 @@ where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(self.execution_length) {
             return Err(PxdctError::InvalidSizeMultiplier(
                 data.len(),
@@ -146,121 +265,37 @@ where
             ));
         }
 
-        assert!(!self.twiddles.is_empty());
-
-        let q_modules = self.execution_length / 3;
-
-        let mut scratch = try_vec![T::default(); self.execution_length];
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
-            let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
+            self.execute_store(&mut InPlaceStore::new(chunk), full_scratch)?;
+        }
 
-            // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
-            for (n, dst) in a_buffer.iter_mut().enumerate() {
-                unsafe {
-                    *dst = *chunk.get_unchecked(n * 3 + 1);
-                }
-            }
+        Ok(())
+    }
 
-            // Extract and combine symmetric pairs with sign alternation for S buffer
-            for (m, (c_buffer, s_buffer)) in c_buffer
-                .chunks_exact_mut(q_modules)
-                .zip(s_buffer.chunks_exact_mut(q_modules))
-                .enumerate()
-            {
-                let mut sign = T::one();
-                for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate()
-                {
-                    let u0 = unsafe { *chunk.get_unchecked(3 * n + m) };
-                    let u1 = unsafe { *chunk.get_unchecked(3 * n + 3 - m - 1) };
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
 
-                    *c_dst = u0 + u1;
-                    *s_dst = (u0 - u1).mulsign(sign);
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
 
-                    sign = -sign;
-                }
-            }
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
 
-            // Step 2: Apply DCT-II to all buffers (A, C₀, C₁, S₀, S₁)
-            self.inner_dct.execute(&mut scratch)?;
-
-            let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
-            let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules);
-
-            {
-                // Step 3: Recombine transformed buffers with twiddle factors
-
-                // Handle k=0 case (DC and low frequencies)
-                let qc = c_buffer[0];
-                let c0 = qc; // Component C₀ (position 0)
-                let c1 = qc * -T::HALF; // Component C₂ (position 2, uses j=2)
-
-                let s0_twiddled = s_buffer[0];
-
-                // Odd components: S₁ uses j=1
-                let s0 = s0_twiddled * T::SIN2PI_OVER_3; // S₁: sin(2π/5)
-
-                // Write output: C₀ (pos 0), S₁ (pos q_modules)
-                let a0 = a_buffer[0];
-                let dc = c0 + a0;
-                unsafe {
-                    *chunk.get_unchecked_mut(0) = dc;
-                }
-
-                unsafe {
-                    *chunk.get_unchecked_mut(q_modules) = s0;
-                }
-
-                unsafe {
-                    let idx1 = q_modules * 2;
-                    let qid2 = -(c1 + a0); // negated 2j
-                    *chunk.get_unchecked_mut(idx1) = qid2;
-                }
-
-                // Step 4: Handle k≥1 cases with rotation twiddles
-                for k in 1..q_modules {
-                    // Apply rotation twiddles to combine forward and inverted components
-                    let rotation_twiddle = unsafe { *self.rotation_twiddles.get_unchecked(k - 1) };
-
-                    let c_forward = unsafe { *c_buffer.get_unchecked(k) };
-                    let s_forward = unsafe { *s_buffer.get_unchecked(q_modules - k) };
-
-                    let rotated_dc = fmla(s_forward, rotation_twiddle.re, c_forward);
-
-                    let twiddle = unsafe { *self.twiddles.get_unchecked(k - 1) };
-
-                    let twiddled_dc = rotated_dc * twiddle.re;
-
-                    let dc0 = twiddled_dc;
-                    let mut dc2 = twiddled_dc * -T::HALF;
-
-                    let rotated_ds = fmla(c_forward, rotation_twiddle.im, s_forward);
-
-                    let twiddled_ds = rotated_ds * twiddle.im;
-
-                    let ds1 = twiddled_ds * T::SIN2PI_OVER_3;
-
-                    let a0 = unsafe { *a_buffer.get_unchecked(k) };
-                    let dc = dc0 + a0;
-                    unsafe {
-                        *chunk.get_unchecked_mut(k) = dc;
-                    }
-
-                    let idx = q_modules * 2 - k;
-                    let dss1 = fmla(2f64.as_(), ds1, -dc);
-                    unsafe {
-                        *chunk.get_unchecked_mut(idx) = dss1;
-                    }
-
-                    let idx1 = q_modules * 2 + k;
-                    dc2 = -(dc2 + a0); // negated 2j
-                    dc2 = fmla(2f64.as_(), dc2, -dss1);
-                    unsafe {
-                        *chunk.get_unchecked_mut(idx1) = dc2;
-                    }
-                }
-            }
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            self.execute_store(&mut BiStore::new(src, dst), full_scratch)?;
         }
         Ok(())
     }
@@ -268,6 +303,11 @@ where
     #[inline]
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length + self.inner_dct_scratch_size
     }
 }
 

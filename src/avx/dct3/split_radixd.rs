@@ -28,8 +28,9 @@
  */
 use crate::avx::dct2::dct2_split_radix_rotation_twiddles_avx;
 use crate::avx::stored::AvxStoreD;
-use crate::avx::util::fma;
-use crate::util::{DctConstants, try_vec};
+use crate::avx::util::{boring_avx_split_radix, fma};
+use crate::bidirectional::BidirectionalStore;
+use crate::util::{DctConstants, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use std::sync::Arc;
 
@@ -38,6 +39,9 @@ pub(crate) struct AvxSplitRadixDct3d {
     half_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     quarter_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     execution_length: usize,
+    inner_scratch_size: usize,
+    half_dct_scratch_size: usize,
+    quarter_dct_scratch_size: usize,
 }
 
 impl AvxSplitRadixDct3d {
@@ -52,141 +56,141 @@ impl AvxSplitRadixDct3d {
             "Invalid DCT was received, quarter size is not multiple of half for Split-Radix DCT-III"
         );
 
+        let half_dct_scratch_size = half_dct.scratch_size();
+        let quarter_dct_scratch_size = quarter_dct.scratch_size();
+
         Ok(AvxSplitRadixDct3d {
             twiddles: unsafe { dct2_split_radix_rotation_twiddles_avx(len) },
             half_dct,
             quarter_dct,
             execution_length: len,
+            inner_scratch_size: len + half_dct_scratch_size.max(quarter_dct_scratch_size),
+            half_dct_scratch_size,
+            quarter_dct_scratch_size,
         })
     }
 }
 
-impl PxdctExecutor<f64> for AvxSplitRadixDct3d {
-    fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        unsafe { self.execute_impl(data) }
-    }
-
-    #[inline]
-    fn length(&self) -> usize {
-        self.execution_length
-    }
-}
+boring_avx_split_radix!(AvxSplitRadixDct3d, f64);
 
 impl AvxSplitRadixDct3d {
+    #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn execute_impl(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.execution_length) {
-            return Err(PxdctError::InvalidSizeMultiplier(
-                data.len(),
-                self.execution_length,
-            ));
-        }
-        let mut scratch = try_vec![f64::default(); self.execution_length];
+    fn execute_store<S: BidirectionalStore<f64>>(
+        &self,
+        chunk: &mut S,
+        scratch: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        let (scratch, r) = scratch.split_at_mut(self.execution_length);
 
         let len = self.length();
         let half_len = len / 2;
         let quarter_len = len / 4;
 
-        for chunk in data.chunks_exact_mut(self.execution_length) {
-            // divide the output into 3 sub-lists to use for our inner DCTs, one of size N/2 and two of size N/4
-            let (recursive_input_evens, recursive_input_odds) = scratch.split_at_mut(half_len);
-            let (recursive_input_n1, recursive_input_n3) =
-                recursive_input_odds.split_at_mut(quarter_len);
+        // divide the output into 3 sub-lists to use for our inner DCTs, one of size N/2 and two of size N/4
+        let (recursive_input_evens, recursive_input_odds) = scratch.split_at_mut(half_len);
+        let (recursive_input_n1, recursive_input_n3) =
+            recursive_input_odds.split_at_mut(quarter_len);
+
+        unsafe {
+            *recursive_input_evens.get_unchecked_mut(0) = chunk[0];
+            *recursive_input_evens.get_unchecked_mut(1) = chunk[2];
+            *recursive_input_n1.get_unchecked_mut(0) = chunk[1] * f64::TWO;
+            *recursive_input_n3.get_unchecked_mut(0) = chunk[len - 1] * f64::TWO;
+        }
+
+        let conj_odd = AvxStoreD::set_values(0.0, -0.0, 0.0, -0.0);
+
+        // populate the recursive input arrays
+        for i in 1..quarter_len {
+            let k = 4 * i;
 
             unsafe {
-                *recursive_input_evens.get_unchecked_mut(0) = *chunk.get_unchecked(0);
-                *recursive_input_evens.get_unchecked_mut(1) = *chunk.get_unchecked(2);
-                *recursive_input_n1.get_unchecked_mut(0) = *chunk.get_unchecked(1) * f64::TWO;
-                *recursive_input_n3.get_unchecked_mut(0) = *chunk.get_unchecked(len - 1) * f64::TWO;
+                // the evens are the easy ones - just copy straight over
+                *recursive_input_evens.get_unchecked_mut(i * 2) = chunk[k];
+                *recursive_input_evens.get_unchecked_mut(i * 2 + 1) = chunk[k + 2];
+
+                let b = chunk[k - 1];
+                let f = chunk[k + 1];
+
+                *recursive_input_n1.get_unchecked_mut(i) = b + f;
+                *recursive_input_n3.get_unchecked_mut(quarter_len - i) = b - f;
+            }
+        }
+
+        let (half_dct_scratch, _) = r.split_at_mut(self.half_dct_scratch_size);
+
+        self.half_dct
+            .execute_with_scratch(recursive_input_evens, half_dct_scratch)?;
+
+        let (quarter_dct_scratch, _) = r.split_at_mut(self.quarter_dct_scratch_size);
+
+        self.quarter_dct
+            .execute_with_scratch(recursive_input_n1, quarter_dct_scratch)?;
+        self.quarter_dct
+            .execute_with_scratch(recursive_input_n3, quarter_dct_scratch)?;
+
+        let mut i = 0usize;
+        let mut tw_idx = 0usize;
+
+        while i + 4 <= quarter_len {
+            const S: usize = 4;
+            let sine_value =
+                AvxStoreD::load(unsafe { recursive_input_n3.get_unchecked(i..) }).xor(conj_odd);
+            let cos_value = AvxStoreD::load(unsafe { recursive_input_n1.get_unchecked(i..) });
+            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tw_idx) };
+            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tw_idx + 1) };
+
+            let lower_dct4 = fma(cos_value, twiddle_re, sine_value * twiddle_im);
+            let upper_dct4 = fma(cos_value, twiddle_im, -sine_value * twiddle_re);
+
+            unsafe {
+                let lower_dct3 = AvxStoreD::load(recursive_input_evens.get_unchecked(i..));
+                let upper_dct3 =
+                    AvxStoreD::load(recursive_input_evens.get_unchecked(half_len - i - S..))
+                        .reverse();
+
+                let v0 = lower_dct3 + lower_dct4;
+                let v1 = lower_dct3 - lower_dct4;
+                let v2 = upper_dct3 + upper_dct4;
+                let v3 = upper_dct3 - upper_dct4;
+                v0.write(chunk.slice_from_mut(i..));
+                v1.reverse().write(chunk.slice_from_mut(len - i - S..));
+                v2.reverse().write(chunk.slice_from_mut(half_len - i - S..));
+                v3.write(chunk.slice_from_mut(half_len + i..));
             }
 
-            let conj_odd = AvxStoreD::set_values(0.0, -0.0, 0.0, -0.0);
+            tw_idx += 2;
+            i += 4;
+        }
 
-            // populate the recursive input arrays
-            for i in 1..quarter_len {
-                let k = 4 * i;
+        let rem = quarter_len - i;
+        if rem == 2 {
+            const S: usize = 2;
+            let sine_value =
+                AvxStoreD::load2(unsafe { recursive_input_n3.get_unchecked(i..) }).xor(conj_odd);
+            let cos_value = AvxStoreD::load2(unsafe { recursive_input_n1.get_unchecked(i..) });
+            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tw_idx) };
+            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tw_idx + 1) };
 
-                unsafe {
-                    // the evens are the easy ones - just copy straight over
-                    *recursive_input_evens.get_unchecked_mut(i * 2) = *chunk.get_unchecked(k);
-                    *recursive_input_evens.get_unchecked_mut(i * 2 + 1) =
-                        *chunk.get_unchecked(k + 2);
+            let lower_dct4 = fma(cos_value, twiddle_re, sine_value * twiddle_im);
+            let upper_dct4 = fma(cos_value, twiddle_im, -sine_value * twiddle_re);
 
-                    let b = *chunk.get_unchecked(k - 1);
-                    let f = *chunk.get_unchecked(k + 1);
+            unsafe {
+                let lower_dct3 = AvxStoreD::load2(recursive_input_evens.get_unchecked(i..));
+                let upper_dct3 =
+                    AvxStoreD::load2(recursive_input_evens.get_unchecked(half_len - i - S..))
+                        .reverse2();
 
-                    *recursive_input_n1.get_unchecked_mut(i) = b + f;
-                    *recursive_input_n3.get_unchecked_mut(quarter_len - i) = b - f;
-                }
-            }
-
-            self.half_dct.execute(recursive_input_evens)?;
-            self.quarter_dct.execute(recursive_input_n1)?;
-            self.quarter_dct.execute(recursive_input_n3)?;
-
-            let mut i = 0usize;
-            let mut tw_idx = 0usize;
-
-            while i + 4 <= quarter_len {
-                const S: usize = 4;
-                let sine_value =
-                    AvxStoreD::load(unsafe { recursive_input_n3.get_unchecked(i..) }).xor(conj_odd);
-                let cos_value = AvxStoreD::load(unsafe { recursive_input_n1.get_unchecked(i..) });
-                let twiddle_re = unsafe { *self.twiddles.get_unchecked(tw_idx) };
-                let twiddle_im = unsafe { *self.twiddles.get_unchecked(tw_idx + 1) };
-
-                let lower_dct4 = fma(cos_value, twiddle_re, sine_value * twiddle_im);
-                let upper_dct4 = fma(cos_value, twiddle_im, -sine_value * twiddle_re);
-
-                unsafe {
-                    let lower_dct3 = AvxStoreD::load(recursive_input_evens.get_unchecked(i..));
-                    let upper_dct3 =
-                        AvxStoreD::load(recursive_input_evens.get_unchecked(half_len - i - S..))
-                            .reverse();
-
-                    let v0 = lower_dct3 + lower_dct4;
-                    let v1 = lower_dct3 - lower_dct4;
-                    let v2 = upper_dct3 + upper_dct4;
-                    let v3 = upper_dct3 - upper_dct4;
-                    v0.write(chunk.get_unchecked_mut(i..));
-                    v1.reverse().write(chunk.get_unchecked_mut(len - i - S..));
-                    v2.reverse()
-                        .write(chunk.get_unchecked_mut(half_len - i - S..));
-                    v3.write(chunk.get_unchecked_mut(half_len + i..));
-                }
-
-                tw_idx += 2;
-                i += 4;
-            }
-
-            let rem = quarter_len - i;
-            if rem == 2 {
-                const S: usize = 2;
-                let sine_value = AvxStoreD::load2(unsafe { recursive_input_n3.get_unchecked(i..) })
-                    .xor(conj_odd);
-                let cos_value = AvxStoreD::load2(unsafe { recursive_input_n1.get_unchecked(i..) });
-                let twiddle_re = unsafe { *self.twiddles.get_unchecked(tw_idx) };
-                let twiddle_im = unsafe { *self.twiddles.get_unchecked(tw_idx + 1) };
-
-                let lower_dct4 = fma(cos_value, twiddle_re, sine_value * twiddle_im);
-                let upper_dct4 = fma(cos_value, twiddle_im, -sine_value * twiddle_re);
-
-                unsafe {
-                    let lower_dct3 = AvxStoreD::load2(recursive_input_evens.get_unchecked(i..));
-                    let upper_dct3 =
-                        AvxStoreD::load2(recursive_input_evens.get_unchecked(half_len - i - S..))
-                            .reverse2();
-
-                    let v0 = lower_dct3 + lower_dct4;
-                    let v1 = lower_dct3 - lower_dct4;
-                    let v2 = upper_dct3 + upper_dct4;
-                    let v3 = upper_dct3 - upper_dct4;
-                    v0.write2(chunk.get_unchecked_mut(i..));
-                    v1.reverse2().write2(chunk.get_unchecked_mut(len - i - S..));
-                    v2.reverse2()
-                        .write2(chunk.get_unchecked_mut(half_len - i - S..));
-                    v3.write2(chunk.get_unchecked_mut(half_len + i..));
-                }
+                let v0 = lower_dct3 + lower_dct4;
+                let v1 = lower_dct3 - lower_dct4;
+                let v2 = upper_dct3 + upper_dct4;
+                let v3 = upper_dct3 - upper_dct4;
+                v0.write2(chunk.slice_from_mut(i..));
+                v1.reverse2().write2(chunk.slice_from_mut(len - i - S..));
+                v2.reverse2()
+                    .write2(chunk.slice_from_mut(half_len - i - S..));
+                v3.write2(chunk.slice_from_mut(half_len + i..));
             }
         }
 

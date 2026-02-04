@@ -26,8 +26,9 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::mla::fmla;
-use crate::util::{DctSample, try_vec};
+use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -37,6 +38,7 @@ pub(crate) struct Dct4MixedRadix2<T> {
     dct2: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     twiddles: Vec<Complex<T>>,
     execution_length: usize,
+    dct2_scratch_size: usize,
 }
 
 impl<T: DctSample> Dct4MixedRadix2<T>
@@ -60,26 +62,28 @@ where
             *twiddle = compute_twiddle::<T>(2 * i + 1, len * 8).conj();
         }
 
+        let dct2_scratch_size = dct2.scratch_size();
+
         Ok(Self {
             dct2,
             twiddles,
             execution_length: len,
+            dct2_scratch_size,
         })
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct4MixedRadix2<T>
+impl<T: DctSample> Dct4MixedRadix2<T>
 where
     f64: AsPrimitive<T>,
 {
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.execution_length) {
-            return Err(PxdctError::InvalidSizeMultiplier(
-                data.len(),
-                self.execution_length,
-            ));
-        }
-        let mut scratch = try_vec![T::default(); self.execution_length];
+    #[inline(always)]
+    fn execute_with_store<S: BidirectionalStore<T>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
 
         let len = self.length();
         let half_len = len / 2;
@@ -93,72 +97,127 @@ where
         //
         // where the pre/post rotations are fused with alternating sign flips to minimize
         // twiddle storage and multiplications.
-        for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (left, right) = scratch.split_at_mut(half_len);
 
-            let mut sign_re = -T::one();
-            let mut sign_im = T::one();
+        let (left, right) = scratch.split_at_mut(half_len);
 
-            // -------- Pre-rotation / even-odd folding --------
-            // Fold symmetric samples (x[i], x[N-1-i]) into two half-length sequences.
-            for (i, twiddle) in self.twiddles.iter().enumerate() {
-                let front = unsafe { *chunk.get_unchecked(i) };
-                let back = unsafe { *chunk.get_unchecked(len - i - 1) };
-                unsafe {
-                    *left.get_unchecked_mut(i) = fmla(twiddle.re, front, twiddle.im * back);
-                }
-                unsafe {
-                    *right.get_unchecked_mut(half_len - i - 1) = fmla(
-                        twiddle.re.mulsign(sign_re),
-                        back,
-                        twiddle.im.mulsign(sign_im) * front,
-                    );
-                }
-                sign_im = -sign_im;
-                sign_re = -sign_re;
+        let mut sign_re = -T::one();
+        let mut sign_im = T::one();
+
+        // -------- Pre-rotation / even-odd folding --------
+        // Fold symmetric samples (x[i], x[N-1-i]) into two half-length sequences.
+        for (i, twiddle) in self.twiddles.iter().enumerate() {
+            let front = data[i];
+            let back = data[len - i - 1];
+            unsafe {
+                *left.get_unchecked_mut(i) = fmla(twiddle.re, front, twiddle.im * back);
             }
-
-            self.dct2.execute(&mut scratch)?;
-
-            let (left, right) = scratch.split_at_mut(half_len);
-
-            chunk[0] = left[0];
-            chunk[len - 1] = right[0];
-
-            let mut sign_left = if half_len.is_multiple_of(2) {
-                -T::one()
-            } else {
-                T::one()
-            };
-            let mut sign_right = if half_len.is_multiple_of(2) {
-                T::one()
-            } else {
-                -T::one()
-            };
-
-            // -------- Post-butterfly recombination --------
-            // Interleave even and odd spectra back into full DCT-IV ordering.
-            for i in 1..half_len {
-                let il = unsafe { *left.get_unchecked(i) };
-                let rr = unsafe { *right.get_unchecked(half_len - i) };
-
-                unsafe {
-                    let q = i - 1;
-                    *chunk.get_unchecked_mut(q * 2 + 1) = fmla(sign_left, rr, il);
-                    *chunk.get_unchecked_mut(q * 2 + 2) = fmla(sign_right, rr, il);
-                }
-
-                sign_left = -sign_left;
-                sign_right = -sign_right;
+            unsafe {
+                *right.get_unchecked_mut(half_len - i - 1) = fmla(
+                    twiddle.re.mulsign(sign_re),
+                    back,
+                    twiddle.im.mulsign(sign_im) * front,
+                );
             }
+            sign_im = -sign_im;
+            sign_re = -sign_re;
         }
 
+        self.dct2.execute_with_scratch(scratch, inner_scratch)?;
+
+        let (left, right) = scratch.split_at_mut(half_len);
+
+        data[0] = left[0];
+        data[len - 1] = right[0];
+
+        let mut sign_left = if half_len.is_multiple_of(2) {
+            -T::one()
+        } else {
+            T::one()
+        };
+        let mut sign_right = if half_len.is_multiple_of(2) {
+            T::one()
+        } else {
+            -T::one()
+        };
+
+        // -------- Post-butterfly recombination --------
+        // Interleave even and odd spectra back into full DCT-IV ordering.
+        for i in 1..half_len {
+            let il = unsafe { *left.get_unchecked(i) };
+            let rr = unsafe { *right.get_unchecked(half_len - i) };
+
+            let q = i - 1;
+            data[q * 2 + 1] = fmla(sign_left, rr, il);
+            data[q * 2 + 2] = fmla(sign_right, rr, il);
+
+            sign_left = -sign_left;
+            sign_right = -sign_right;
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: DctSample> PxdctExecutor<T> for Dct4MixedRadix2<T>
+where
+    f64: AsPrimitive<T>,
+{
+    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
+        if !data.len().is_multiple_of(self.execution_length) {
+            return Err(PxdctError::InvalidSizeMultiplier(
+                data.len(),
+                self.execution_length,
+            ));
+        }
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+
+        for chunk in data.chunks_exact_mut(self.execution_length) {
+            self.execute_with_store(&mut InPlaceStore::new(chunk), full_scratch)?;
+        }
+
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            self.execute_with_store(&mut BiStore::new(src, dst), full_scratch)?;
+        }
         Ok(())
     }
 
     #[inline]
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length + self.dct2_scratch_size
     }
 }
 

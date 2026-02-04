@@ -97,6 +97,7 @@ pub(crate) trait DctSample:
     + MixedRadix19Sample
     + MixedRadix29Sample
     + MixedRadix23Sample
+    + Dct4MixedRadix9Sample
     + MulAssign
     + Send
     + Sync
@@ -156,15 +157,23 @@ impl DctSample for f64 {
 
 pub(crate) trait DctConstants {
     const HALF: Self;
+    const QUARTER: Self;
+    const ONE_EIGHT: Self;
     const TWO: Self;
     const SQRT_2: Self;
     const SQRT_3: Self;
     const FRAC_1_SQRT_2: Self;
     const SQRT_3_OVER_2: Self;
+    const SQRT_2_OVER_16: Self;
+    const SQRT_2_OVER_64: Self;
+    const SQRT_2_OVER_256: Self;
+    const SQRT_2_OVER_512: Self;
 }
 
 impl DctConstants for f32 {
     const HALF: Self = 0.5;
+    const QUARTER: Self = 0.25;
+    const ONE_EIGHT: Self = 0.125;
     const TWO: Self = 2.;
     const SQRT_2: Self = std::f32::consts::SQRT_2;
     // import struct
@@ -195,10 +204,37 @@ impl DctConstants for f32 {
     //
     // print(double_to_hex(value))
     const SQRT_3_OVER_2: Self = f32::from_bits(0x3f5db3d7);
+    // import struct
+    // from sage.all import *
+    // R = RealField(256)
+    // def float_to_hex(f):
+    //     packed = struct.pack('>f', float(f))
+    //     return '0x' + packed.hex()
+    // print(float_to_hex(float((R(2)/R(16)).sqrt())))
+    const SQRT_2_OVER_16: Self = f32::from_bits(0x3eb504f3);
+    // import struct
+    // from sage.all import *
+    // R = RealField(256)
+    // def float_to_hex(f):
+    //     packed = struct.pack('>f', float(f))
+    //     return '0x' + packed.hex()
+    // print(float_to_hex(float((R(2)/R(64)).sqrt())))
+    const SQRT_2_OVER_64: Self = f32::from_bits(0x3e3504f3);
+    // import struct
+    // from sage.all import *
+    // R = RealField(256)
+    // def float_to_hex(f):
+    //     packed = struct.pack('>f', float(f))
+    //     return '0x' + packed.hex()
+    // print(float_to_hex(float((R(2)/R(256)).sqrt())))
+    const SQRT_2_OVER_256: Self = f32::from_bits(0x3db504f3);
+    const SQRT_2_OVER_512: Self = 0.0625;
 }
 
 impl DctConstants for f64 {
     const HALF: Self = 0.5;
+    const QUARTER: Self = 0.25;
+    const ONE_EIGHT: Self = 0.125;
     const TWO: Self = 2.;
     const SQRT_2: Self = std::f64::consts::SQRT_2;
     // import struct
@@ -229,7 +265,51 @@ impl DctConstants for f64 {
     //
     // print(double_to_hex(value))
     const SQRT_3_OVER_2: Self = f64::from_bits(0x3febb67ae8584caa);
+    // import struct
+    // from sage.all import *
+    // R = RealField(256)
+    // def double_to_hex(f):
+    //     packed = struct.pack('>d', float(f))
+    //     return '0x' + packed.hex()
+    // print(double_to_hex(float((R(2)/R(16)).sqrt())))
+    const SQRT_2_OVER_16: Self = f64::from_bits(0x3fd6a09e667f3bcd);
+    // import struct
+    // from sage.all import *
+    // R = RealField(256)
+    // def double_to_hex(f):
+    //     packed = struct.pack('>d', float(f))
+    //     return '0x' + packed.hex()
+    // print(double_to_hex(float((R(2)/R(64)).sqrt())))
+    const SQRT_2_OVER_64: Self = f64::from_bits(0x3fc6a09e667f3bcd);
+    // import struct
+    // from sage.all import *
+    // R = RealField(256)
+    // def double_to_hex(f):
+    //     packed = struct.pack('>d', float(f))
+    //     return '0x' + packed.hex()
+    // print(double_to_hex(float((R(2)/R(256)).sqrt())))
+    const SQRT_2_OVER_256: Self = f64::from_bits(0x3fb6a09e667f3bcd);
+    const SQRT_2_OVER_512: Self = 0.0625;
 }
+
+macro_rules! validate_oof_sizes {
+    ($src: expr, $dst: expr, $length: expr) => {{
+        if !$src.len().is_multiple_of($length) {
+            return Err(PxdctError::InvalidSizeMultiplier($src.len(), $length));
+        }
+        if !$dst.len().is_multiple_of($length) {
+            return Err(PxdctError::InvalidSizeMultiplier($dst.len(), $length));
+        }
+        if $dst.len() != $src.len() {
+            return Err(PxdctError::OutOfPlaceSizeDoesntMatch(
+                $src.len(),
+                $dst.len(),
+            ));
+        }
+    }};
+}
+
+pub(crate) use validate_oof_sizes;
 
 pub(crate) trait FftProvider<T> {
     fn make_fft(
@@ -289,8 +369,19 @@ macro_rules! try_vec {
     }};
 }
 
+macro_rules! validate_scratch {
+    ($scratch: expr, $size: expr) => {{
+        if $scratch.len() < $size {
+            return Err(crate::PxdctError::InvalidScratchSize($size, $scratch.len()));
+        }
+        let (left, _) = $scratch.split_at_mut($size);
+        left
+    }};
+}
+
 use crate::spectrum_mul::FftSpectrumMulFactory;
 pub(crate) use try_vec;
+pub(crate) use validate_scratch;
 
 #[inline]
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -298,7 +389,7 @@ pub(crate) fn has_valid_avx() -> bool {
     std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
 }
 
-macro_rules! define_butterfly {
+macro_rules! define_in_place_butterfly {
     ($bf_name: ident, $length: expr) => {
         impl<T: DctSample> PxdctExecutor<T> for $bf_name<T>
         where
@@ -308,8 +399,44 @@ macro_rules! define_butterfly {
                 if !data.len().is_multiple_of($length) {
                     return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
                 }
+                use crate::bidirectional::InPlaceStore;
                 for chunk in data.chunks_exact_mut($length) {
-                    self.exec((&mut chunk[..$length]).try_into().unwrap());
+                    self.exec(&mut InPlaceStore::new(
+                        (&mut chunk[..$length]).try_into().unwrap(),
+                    ));
+                }
+                Ok(())
+            }
+
+            fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+                if !data.len().is_multiple_of($length) {
+                    return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
+                }
+                use crate::bidirectional::InPlaceStore;
+                for chunk in data.chunks_exact_mut($length) {
+                    self.exec(&mut InPlaceStore::new(chunk));
+                }
+                Ok(())
+            }
+
+            fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+                self.execute_into_with_scratch(input, output, &mut [])
+            }
+
+            fn execute_into_with_scratch(
+                &self,
+                input: &[T],
+                output: &mut [T],
+                _: &mut [T],
+            ) -> Result<(), PxdctError> {
+                use crate::util::validate_oof_sizes;
+                validate_oof_sizes!(input, output, $length);
+                use crate::bidirectional::BiStore;
+                for (src, dst) in input
+                    .chunks_exact($length)
+                    .zip(output.chunks_exact_mut($length))
+                {
+                    self.exec(&mut BiStore::new(src, dst));
                 }
                 Ok(())
             }
@@ -317,11 +444,15 @@ macro_rules! define_butterfly {
             fn length(&self) -> usize {
                 $length
             }
+
+            fn scratch_size(&self) -> usize {
+                0
+            }
         }
     };
 }
 
-pub(crate) use define_butterfly;
+pub(crate) use define_in_place_butterfly;
 
 macro_rules! create_dct2_3 {
     ($clazz: ident) => {
@@ -337,11 +468,14 @@ macro_rules! create_dct2_3 {
                         *twiddle = compute_twiddle::<T>(i, len * 4);
                     }
 
+                    let fft_scratch_size = fft.scratch_length();
+
                     Ok($clazz {
                         twiddles,
                         fft_executor: fft,
                         execution_length: len,
                         spectrum_mul: T::create_mul_spectrum_to_real(),
+                        fft_scratch_size,
                     })
                 }
             }
@@ -362,11 +496,14 @@ macro_rules! create_dct2_3_real {
                         *twiddle = compute_twiddle::<T>(i, len * 4);
                     }
 
+                    let fft_scratch_size = fft.complex_scratch_length();
+
                     Ok($clazz {
                         twiddles,
                         fft_executor: fft,
                         execution_length: len,
                         spectrum_mul: T::create_mul_spectrum_to_real(),
+                        fft_scratch_size,
                     })
                 }
             }
@@ -379,6 +516,34 @@ use crate::dct2::prime_butterflies::{
     MixedRadix29Sample,
 };
 use crate::dct2::{MixedRadix5Sample, MixedRadix7Sample};
+use crate::dct4::Dct4MixedRadix9Sample;
 use crate::transpose::TransposeFactory;
 pub(crate) use create_dct2_3;
 pub(crate) use create_dct2_3_real;
+
+pub(crate) fn force_cast_real_scratch_to_complex<T: Copy + Sized>(
+    source: &mut [T],
+    new_complex_scratch_size: usize,
+) -> &mut [Complex<T>] {
+    // check if algorithm pre-request are valid
+    assert_eq!(align_of::<T>(), align_of::<Complex<T>>());
+    assert_eq!(size_of::<Complex<T>>(), 2 * size_of::<T>());
+    // size should be enough, no validate alignment
+    assert!(source.len() >= new_complex_scratch_size * 2);
+    // if align of source.ptr() is not valid to cast it to Complex<T> then we'll move
+    // one element forward and this must match the required alignment, are stated above
+    unsafe {
+        if source
+            .as_ptr()
+            .addr()
+            .is_multiple_of(align_of::<Complex<T>>())
+        {
+            std::slice::from_raw_parts_mut(
+                source.as_mut_ptr() as *mut Complex<T>,
+                new_complex_scratch_size,
+            )
+        } else {
+            panic!("Alignment check failed, that must not happen");
+        }
+    }
+}

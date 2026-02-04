@@ -26,10 +26,12 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::BidirectionalStore;
 use crate::dct4::{Dct4MixedRadix7Sample, radixq_dct4_rotation_twiddle};
 use crate::mla::fmla;
 use crate::neon::store_d::NeonStoreD;
-use crate::util::{DctSample, try_vec};
+use crate::neon::util::boring_neon_mixed_radix;
+use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{AsPrimitive, One};
 use std::sync::Arc;
@@ -118,6 +120,7 @@ pub(crate) fn dct4_radix7_rotation_twiddles_neond(q_modules: usize, len: usize) 
 
 pub(crate) struct NeonDct4MixedRadix7d {
     inner_dct4: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+    inner_dct_scratch_size: usize,
     rotation_twiddles: Vec<NeonStoreD>,
     execution_length: usize,
 }
@@ -133,288 +136,233 @@ impl NeonDct4MixedRadix7d {
             "DCT-IV Mixed-Radix-7 length DCTs must be one seventh of DCT-IV"
         );
 
+        let inner_dct4_scratch_size = dct4.scratch_size();
+
         Ok(Self {
             inner_dct4: dct4,
+            inner_dct_scratch_size: inner_dct4_scratch_size,
             execution_length: len,
             rotation_twiddles: dct4_radix7_rotation_twiddles_neond(len / 7, len),
         })
     }
 }
 
-impl PxdctExecutor<f64> for NeonDct4MixedRadix7d {
-    fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.execution_length) {
-            return Err(PxdctError::InvalidSizeMultiplier(
-                data.len(),
-                self.execution_length,
-            ));
-        }
-        let mut scratch = try_vec![f64::default(); self.execution_length];
-
+impl NeonDct4MixedRadix7d {
+    #[inline(always)]
+    fn execute_with_store<S: BidirectionalStore<f64>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
         let q_modules = self.execution_length / 7;
-
         let s = 2 * self.execution_length / 7;
+        let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules * 3);
 
-        for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
-            let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules * 3);
+        // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
+        for (n, dst) in a_buffer.iter_mut().enumerate() {
+            *dst = data[n * 7 + 3];
+        }
 
-            // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
-            for (n, dst) in a_buffer.iter_mut().enumerate() {
-                unsafe {
-                    *dst = *chunk.get_unchecked(n * 7 + 3);
-                }
-            }
+        // Extract and combine symmetric pairs with sign alternation for S buffer
+        for (m, (c_buffer, s_buffer)) in c_buffer
+            .chunks_exact_mut(q_modules)
+            .zip(s_buffer.chunks_exact_mut(q_modules))
+            .enumerate()
+        {
+            let mut sign = f64::one();
+            for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate() {
+                let u0 = data[7 * n + m];
+                let u1 = data[7 * n + 7 - m - 1];
 
-            // Extract and combine symmetric pairs with sign alternation for S buffer
-            for (m, (c_buffer, s_buffer)) in c_buffer
-                .chunks_exact_mut(q_modules)
-                .zip(s_buffer.chunks_exact_mut(q_modules))
-                .enumerate()
-            {
-                let mut sign = f64::one();
-                for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate()
-                {
-                    let u0 = unsafe { *chunk.get_unchecked(7 * n + m) };
-                    let u1 = unsafe { *chunk.get_unchecked(7 * n + 7 - m - 1) };
+                *c_dst = u0 + u1;
+                *s_dst = (u0 - u1).mulsign(sign);
 
-                    *c_dst = u0 + u1;
-                    *s_dst = (u0 - u1).mulsign(sign);
-
-                    sign = -sign;
-                }
-            }
-
-            // Step 2: Apply DCT-IV to all buffers (A, C₀, C₁, S₀, S₁)
-            self.inner_dct4.execute(&mut scratch)?;
-
-            let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
-            let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules * 3);
-
-            let mut uk = 0usize;
-            let mut k = 0usize;
-
-            // Step 4: Handle k≥0 cases with rotation twiddles
-            while k + 2 <= q_modules {
-                const S: usize = 2;
-                let c_v0 = NeonStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
-                let s_v0 = NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - S - k..) })
-                    .reverse();
-                let a_v0 = NeonStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
-
-                let c_v1 = NeonStoreD::load(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                let s_v1 =
-                    NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                        .reverse();
-
-                let c_v2 = NeonStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-                let s_v2 =
-                    NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) })
-                        .reverse();
-
-                let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-                let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-                let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-                let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-                let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
-                let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
-
-                let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-                let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-                let mut u0 = iq0;
-                let mut u1 = u0;
-                let mut v0 = siq0;
-
-                u1 *= f64::D4_R7_ROT_TWIDDLE_2;
-                v0 *= f64::D4_R7_ROT_TWIDDLE_3;
-
-                let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-                let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-                u1 = NeonStoreD::mul_f64_add(iq1, f64::D4_R7_ROT_TWIDDLE_4, u1);
-                v0 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_5, v0);
-
-                let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
-                let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
-
-                u1 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_1, u1);
-                v0 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_0, v0);
-
-                u0 += iq1 + iq2 + a_v0;
-                u1 = u1 - a_v0;
-
-                let uc0 = u1 - v0;
-                let uc1 = u1 + v0;
-
-                let mut u2 = iq0;
-                let mut v2 = siq0;
-                u2 *= f64::D4_R7_ROT_TWIDDLE_1;
-                v2 *= f64::D4_R7_ROT_TWIDDLE_0;
-                u2 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_2, u2);
-                v2 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_3, v2);
-                u2 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_4, u2);
-                v2 = NeonStoreD::mul_f64_add(siq2, -f64::D4_R7_ROT_TWIDDLE_5, v2);
-                u2 += a_v0;
-                let uc2 = u2 - v2;
-                let uc3 = u2 + v2;
-                let mut u3 = iq0;
-                let mut v3 = siq0;
-                u3 *= f64::D4_R7_ROT_TWIDDLE_4;
-                v3 *= f64::D4_R7_ROT_TWIDDLE_5;
-                u3 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_1, u3);
-                v3 = NeonStoreD::mul_f64_add(siq1, -f64::D4_R7_ROT_TWIDDLE_0, v3);
-                u3 = NeonStoreD::mul_f64_add(iq2, f64::D4_R7_ROT_TWIDDLE_2, u3);
-                v3 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_3, v3);
-                u3 = u3 - a_v0;
-                let uc4 = u3 - v3;
-                let uc5 = u3 + v3;
-
-                unsafe {
-                    u0.write(chunk.get_unchecked_mut(k..));
-                }
-
-                unsafe {
-                    uc1.write(chunk.get_unchecked_mut(s + k..));
-                }
-
-                unsafe {
-                    uc0.reverse().write(chunk.get_unchecked_mut(s - S - k..));
-                }
-
-                unsafe {
-                    uc2.reverse()
-                        .write(chunk.get_unchecked_mut(2 * s - S - k..));
-                }
-
-                unsafe {
-                    uc3.write(chunk.get_unchecked_mut(2 * s + k..));
-                }
-
-                unsafe {
-                    uc4.reverse()
-                        .write(chunk.get_unchecked_mut(3 * s - S - k..));
-                }
-
-                unsafe {
-                    uc5.write(chunk.get_unchecked_mut(3 * s + k..));
-                }
-
-                k += 2;
-                uk += 6;
-            }
-
-            let rem = q_modules - k;
-            if rem == 1 {
-                const S: usize = 1;
-                let c_v0 = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
-                let s_v0 =
-                    NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - S - k..) });
-                let a_v0 = NeonStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
-
-                let c_v1 = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                let s_v1 =
-                    NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) });
-
-                let c_v2 =
-                    NeonStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-                let s_v2 =
-                    NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) });
-
-                let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-                let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-                let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-                let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-                let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
-                let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
-
-                let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-                let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-                let mut u0 = iq0;
-                let mut u1 = u0;
-                let mut v0 = siq0;
-
-                u1 *= f64::D4_R7_ROT_TWIDDLE_2;
-                v0 *= f64::D4_R7_ROT_TWIDDLE_3;
-
-                let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-                let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-                u1 = NeonStoreD::mul_f64_add(iq1, f64::D4_R7_ROT_TWIDDLE_4, u1);
-                v0 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_5, v0);
-
-                let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
-                let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
-
-                u1 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_1, u1);
-                v0 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_0, v0);
-
-                u0 += iq1 + iq2 + a_v0;
-                u1 = u1 - a_v0;
-
-                let uc0 = u1 - v0;
-                let uc1 = u1 + v0;
-
-                let mut u2 = iq0;
-                let mut v2 = siq0;
-                u2 *= f64::D4_R7_ROT_TWIDDLE_1;
-                v2 *= f64::D4_R7_ROT_TWIDDLE_0;
-                u2 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_2, u2);
-                v2 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_3, v2);
-                u2 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_4, u2);
-                v2 = NeonStoreD::mul_f64_add(siq2, -f64::D4_R7_ROT_TWIDDLE_5, v2);
-                u2 += a_v0;
-                let uc2 = u2 - v2;
-                let uc3 = u2 + v2;
-                let mut u3 = iq0;
-                let mut v3 = siq0;
-                u3 *= f64::D4_R7_ROT_TWIDDLE_4;
-                v3 *= f64::D4_R7_ROT_TWIDDLE_5;
-                u3 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_1, u3);
-                v3 = NeonStoreD::mul_f64_add(siq1, -f64::D4_R7_ROT_TWIDDLE_0, v3);
-                u3 = NeonStoreD::mul_f64_add(iq2, f64::D4_R7_ROT_TWIDDLE_2, u3);
-                v3 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_3, v3);
-                u3 = u3 - a_v0;
-                let uc4 = u3 - v3;
-                let uc5 = u3 + v3;
-
-                unsafe {
-                    u0.write1(chunk.get_unchecked_mut(k..));
-                }
-
-                unsafe {
-                    uc1.write1(chunk.get_unchecked_mut(s + k..));
-                }
-
-                unsafe {
-                    uc0.write1(chunk.get_unchecked_mut(s - S - k..));
-                }
-
-                unsafe {
-                    uc2.write1(chunk.get_unchecked_mut(2 * s - S - k..));
-                }
-
-                unsafe {
-                    uc3.write1(chunk.get_unchecked_mut(2 * s + k..));
-                }
-
-                unsafe {
-                    uc4.write1(chunk.get_unchecked_mut(3 * s - S - k..));
-                }
-
-                unsafe {
-                    uc5.write1(chunk.get_unchecked_mut(3 * s + k..));
-                }
+                sign = -sign;
             }
         }
 
+        // Step 2: Apply DCT-IV to all buffers (A, C₀, C₁, S₀, S₁)
+        self.inner_dct4
+            .execute_with_scratch(scratch, inner_scratch)?;
+
+        let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules * 3);
+
+        let mut uk = 0usize;
+        let mut k = 0usize;
+
+        // Step 4: Handle k≥0 cases with rotation twiddles
+        while k + 2 <= q_modules {
+            const S: usize = 2;
+            let c_v0 = NeonStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
+            let s_v0 =
+                NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse();
+            let a_v0 = NeonStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
+
+            let c_v1 = NeonStoreD::load(unsafe { c_buffer.get_unchecked(q_modules + k..) });
+            let s_v1 = NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
+                .reverse();
+
+            let c_v2 = NeonStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
+            let s_v2 = NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) })
+                .reverse();
+
+            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
+            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
+            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
+            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
+            let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
+            let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
+
+            let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
+            let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
+            let mut u0 = iq0;
+            let mut u1 = u0;
+            let mut v0 = siq0;
+
+            u1 *= f64::D4_R7_ROT_TWIDDLE_2;
+            v0 *= f64::D4_R7_ROT_TWIDDLE_3;
+
+            let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
+            let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
+
+            u1 = NeonStoreD::mul_f64_add(iq1, f64::D4_R7_ROT_TWIDDLE_4, u1);
+            v0 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_5, v0);
+
+            let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
+            let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
+
+            u1 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_1, u1);
+            v0 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_0, v0);
+
+            u0 += iq1 + iq2 + a_v0;
+            u1 = u1 - a_v0;
+
+            let uc0 = u1 - v0;
+            let uc1 = u1 + v0;
+
+            let mut u2 = iq0;
+            let mut v2 = siq0;
+            u2 *= f64::D4_R7_ROT_TWIDDLE_1;
+            v2 *= f64::D4_R7_ROT_TWIDDLE_0;
+            u2 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_2, u2);
+            v2 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_3, v2);
+            u2 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_4, u2);
+            v2 = NeonStoreD::mul_f64_add(siq2, -f64::D4_R7_ROT_TWIDDLE_5, v2);
+            u2 += a_v0;
+            let uc2 = u2 - v2;
+            let uc3 = u2 + v2;
+            let mut u3 = iq0;
+            let mut v3 = siq0;
+            u3 *= f64::D4_R7_ROT_TWIDDLE_4;
+            v3 *= f64::D4_R7_ROT_TWIDDLE_5;
+            u3 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_1, u3);
+            v3 = NeonStoreD::mul_f64_add(siq1, -f64::D4_R7_ROT_TWIDDLE_0, v3);
+            u3 = NeonStoreD::mul_f64_add(iq2, f64::D4_R7_ROT_TWIDDLE_2, u3);
+            v3 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_3, v3);
+            u3 = u3 - a_v0;
+            let uc4 = u3 - v3;
+            let uc5 = u3 + v3;
+
+            u0.write(data.slice_from_mut(k..));
+            uc1.write(data.slice_from_mut(s + k..));
+            uc0.reverse().write(data.slice_from_mut(s - S - k..));
+            uc2.reverse().write(data.slice_from_mut(2 * s - S - k..));
+            uc3.write(data.slice_from_mut(2 * s + k..));
+            uc4.reverse().write(data.slice_from_mut(3 * s - S - k..));
+            uc5.write(data.slice_from_mut(3 * s + k..));
+
+            k += 2;
+            uk += 6;
+        }
+
+        let rem = q_modules - k;
+        if rem == 1 {
+            const S: usize = 1;
+            let c_v0 = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
+            let s_v0 = NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - S - k..) });
+            let a_v0 = NeonStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
+
+            let c_v1 = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules + k..) });
+            let s_v1 =
+                NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) });
+
+            let c_v2 = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
+            let s_v2 =
+                NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) });
+
+            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
+            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
+            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
+            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
+            let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
+            let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
+
+            let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
+            let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
+            let mut u0 = iq0;
+            let mut u1 = u0;
+            let mut v0 = siq0;
+
+            u1 *= f64::D4_R7_ROT_TWIDDLE_2;
+            v0 *= f64::D4_R7_ROT_TWIDDLE_3;
+
+            let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
+            let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
+
+            u1 = NeonStoreD::mul_f64_add(iq1, f64::D4_R7_ROT_TWIDDLE_4, u1);
+            v0 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_5, v0);
+
+            let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
+            let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
+
+            u1 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_1, u1);
+            v0 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_0, v0);
+
+            u0 += iq1 + iq2 + a_v0;
+            u1 = u1 - a_v0;
+
+            let uc0 = u1 - v0;
+            let uc1 = u1 + v0;
+
+            let mut u2 = iq0;
+            let mut v2 = siq0;
+            u2 *= f64::D4_R7_ROT_TWIDDLE_1;
+            v2 *= f64::D4_R7_ROT_TWIDDLE_0;
+            u2 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_2, u2);
+            v2 = NeonStoreD::mul_f64_add(siq1, f64::D4_R7_ROT_TWIDDLE_3, v2);
+            u2 = NeonStoreD::mul_f64_add(iq2, -f64::D4_R7_ROT_TWIDDLE_4, u2);
+            v2 = NeonStoreD::mul_f64_add(siq2, -f64::D4_R7_ROT_TWIDDLE_5, v2);
+            u2 += a_v0;
+            let uc2 = u2 - v2;
+            let uc3 = u2 + v2;
+            let mut u3 = iq0;
+            let mut v3 = siq0;
+            u3 *= f64::D4_R7_ROT_TWIDDLE_4;
+            v3 *= f64::D4_R7_ROT_TWIDDLE_5;
+            u3 = NeonStoreD::mul_f64_add(iq1, -f64::D4_R7_ROT_TWIDDLE_1, u3);
+            v3 = NeonStoreD::mul_f64_add(siq1, -f64::D4_R7_ROT_TWIDDLE_0, v3);
+            u3 = NeonStoreD::mul_f64_add(iq2, f64::D4_R7_ROT_TWIDDLE_2, u3);
+            v3 = NeonStoreD::mul_f64_add(siq2, f64::D4_R7_ROT_TWIDDLE_3, v3);
+            u3 = u3 - a_v0;
+            let uc4 = u3 - v3;
+            let uc5 = u3 + v3;
+
+            u0.write1(data.slice_from_mut(k..));
+            uc1.write1(data.slice_from_mut(s + k..));
+            uc0.write1(data.slice_from_mut(s - S - k..));
+            uc2.write1(data.slice_from_mut(2 * s - S - k..));
+            uc3.write1(data.slice_from_mut(2 * s + k..));
+            uc4.write1(data.slice_from_mut(3 * s - S - k..));
+            uc5.write1(data.slice_from_mut(3 * s + k..));
+        }
         Ok(())
     }
-
-    #[inline]
-    fn length(&self) -> usize {
-        self.execution_length
-    }
 }
+
+boring_neon_mixed_radix!(NeonDct4MixedRadix7d, f64);
 
 #[cfg(test)]
 mod tests {

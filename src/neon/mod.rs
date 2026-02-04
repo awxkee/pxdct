@@ -59,7 +59,9 @@ pub(crate) use dct2::{
     NeonDct2MixedRadix5f, NeonDct2MixedRadix6d, NeonDct2MixedRadix6f, NeonDct2MixedRadix7d,
     NeonDct2MixedRadix7f, NeonDct2MixedRadix9d, NeonDct2MixedRadix9f, NeonDct2MixedRadix11f,
     NeonDct2MixedRadix13f, NeonSplitRadixDct2d, NeonSplitRadixDct2f, NeonSplitRadixDst2d,
-    NeonSplitRadixDst2f,
+    NeonSplitRadixDst2f, ScaledNeonDct2Butterfly32f, ScaledNeonDct2Butterfly64f,
+    ScaledNeonDct2Butterfly128f, ScaledNeonDct2Butterfly256f, ScaledNeonDct2Butterfly512f,
+    ScaledNeonSplitRadixDct2d, ScaledNeonSplitRadixDct2f,
 };
 pub(crate) use dct3::{NeonSplitRadixDct3d, NeonSplitRadixDct3f};
 pub(crate) use dct4::{

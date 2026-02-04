@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::butterflies::Dct2Butterfly6;
 use crate::factory_dct2::Dct2Factory;
 use crate::mla::fmla;
@@ -54,9 +55,9 @@ impl Default for NeonDct2Butterfly36d {
 
 impl NeonDct2Butterfly36d {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f64>>(
         &self,
-        data: &mut [f64; 36],
+        data: &mut S,
         a_buffer: &mut [f64; 6],
         b_buffer: &mut [f64; 6],
         c_buffer: &mut [f64; 6],
@@ -70,12 +71,12 @@ impl NeonDct2Butterfly36d {
         let mut layer_i = 0;
 
         for i in (0..6).step_by(2) {
-            let ai = NeonStoreD::load(unsafe { data.get_unchecked(i..) });
-            let mut bi = NeonStoreD::load(unsafe { data.get_unchecked(s_n - i - 2..) });
-            let ci = NeonStoreD::load(unsafe { data.get_unchecked(s_n + i..) });
-            let mut di = NeonStoreD::load(unsafe { data.get_unchecked(s_2n - i - 2..) });
-            let ei = NeonStoreD::load(unsafe { data.get_unchecked(s_2n + i..) });
-            let mut fi = NeonStoreD::load(unsafe { data.get_unchecked(36 - i - 2..) });
+            let ai = NeonStoreD::load(data.slice_from(i..));
+            let mut bi = NeonStoreD::load(data.slice_from(s_n - i - 2..));
+            let ci = NeonStoreD::load(data.slice_from(s_n + i..));
+            let mut di = NeonStoreD::load(data.slice_from(s_2n - i - 2..));
+            let ei = NeonStoreD::load(data.slice_from(s_2n + i..));
+            let mut fi = NeonStoreD::load(data.slice_from(36 - i - 2..));
 
             bi = bi.reverse();
             di = di.reverse();
@@ -135,25 +136,30 @@ impl NeonDct2Butterfly36d {
             layer_i += 7;
         }
 
-        self.bf6.exec(a_buffer);
-        self.bf6.exec(b_buffer);
-        self.bf6.exec(c_buffer);
-        self.bf6.exec(d_buffer);
-        self.bf6.exec(e_buffer);
-        self.bf6.exec(f_buffer);
+        self.bf6.exec(&mut InPlaceStore::new(a_buffer));
+        self.bf6.exec(&mut InPlaceStore::new(b_buffer));
+        self.bf6.exec(&mut InPlaceStore::new(c_buffer));
+        self.bf6.exec(&mut InPlaceStore::new(d_buffer));
+        self.bf6.exec(&mut InPlaceStore::new(e_buffer));
+        self.bf6.exec(&mut InPlaceStore::new(f_buffer));
 
         data[0] = a_buffer[0];
-        data[1] = b_buffer[0] * f64::HALF;
-        data[2] = c_buffer[0] * f64::HALF;
-        data[3] = d_buffer[0] * f64::HALF;
-        data[4] = e_buffer[0] * f64::HALF;
-        data[5] = f_buffer[0] * f64::HALF;
+        let b0 = b_buffer[0] * f64::HALF;
+        data[1] = b0;
+        let c0 = c_buffer[0] * f64::HALF;
+        data[2] = c0;
+        let d0 = d_buffer[0] * f64::HALF;
+        data[3] = d0;
+        let e0 = e_buffer[0] * f64::HALF;
+        data[4] = e0;
+        let f0 = f_buffer[0] * f64::HALF;
+        data[5] = f0;
 
-        let mut b_diff = data[5];
-        let mut c_diff = data[4];
-        let mut e_diff = data[3];
-        let mut d_diff = data[2];
-        let mut f_diff = data[1];
+        let mut b_diff = f0;
+        let mut c_diff = e0;
+        let mut e_diff = d0;
+        let mut d_diff = c0;
+        let mut f_diff = b0;
 
         for k in 1..6 {
             data[6 * k] = a_buffer[k];
@@ -190,7 +196,46 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly36d {
 
         for chunk in data.chunks_exact_mut(36) {
             self.exec(
-                (&mut chunk[..36]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut a_buffer,
+                &mut b_buffer,
+                &mut c_buffer,
+                &mut d_buffer,
+                &mut e_buffer,
+                &mut f_buffer,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 36);
+
+        let mut a_buffer = [f64::zero(); 6];
+        let mut b_buffer = [f64::zero(); 6];
+        let mut c_buffer = [f64::zero(); 6];
+        let mut d_buffer = [f64::zero(); 6];
+        let mut e_buffer = [f64::zero(); 6];
+        let mut f_buffer = [f64::zero(); 6];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(36).zip(output.chunks_exact_mut(36)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut a_buffer,
                 &mut b_buffer,
                 &mut c_buffer,
@@ -204,6 +249,10 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly36d {
 
     fn length(&self) -> usize {
         36
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -224,7 +273,7 @@ impl Default for NeonDct2Butterfly216d {
 
 impl NeonDct2Butterfly216d {
     #[inline(always)]
-    fn exec(&self, data: &mut [f64; 216], scratch: &mut [f64; 216]) {
+    fn exec<S: BidirectionalStore<f64>>(&self, data: &mut S, scratch: &mut [f64; 216]) {
         let s_n = 216 / 3;
         let s_2n = 2 * 216 / 3;
 
@@ -239,12 +288,12 @@ impl NeonDct2Butterfly216d {
 
         for i in 0..18 {
             let j = i * 2;
-            let ai = NeonStoreD::load(unsafe { data.get_unchecked(j..) });
-            let mut bi = NeonStoreD::load(unsafe { data.get_unchecked(s_n - j - 2..) });
-            let ci = NeonStoreD::load(unsafe { data.get_unchecked(s_n + j..) });
-            let mut di = NeonStoreD::load(unsafe { data.get_unchecked(s_2n - j - 2..) });
-            let ei = NeonStoreD::load(unsafe { data.get_unchecked(s_2n + j..) });
-            let mut fi = NeonStoreD::load(unsafe { data.get_unchecked(216 - j - 2..) });
+            let ai = NeonStoreD::load(data.slice_from(j..));
+            let mut bi = NeonStoreD::load(data.slice_from(s_n - j - 2..));
+            let ci = NeonStoreD::load(data.slice_from(s_n + j..));
+            let mut di = NeonStoreD::load(data.slice_from(s_2n - j - 2..));
+            let ei = NeonStoreD::load(data.slice_from(s_2n + j..));
+            let mut fi = NeonStoreD::load(data.slice_from(216 - j - 2..));
 
             bi = bi.reverse();
             di = di.reverse();
@@ -313,17 +362,22 @@ impl NeonDct2Butterfly216d {
         let (f_buffer, _) = rem.split_at_mut(36);
 
         data[0] = a_buffer[0];
-        data[1] = b_buffer[0] * f64::HALF;
-        data[2] = c_buffer[0] * f64::HALF;
-        data[3] = d_buffer[0] * f64::HALF;
-        data[4] = e_buffer[0] * f64::HALF;
-        data[5] = f_buffer[0] * f64::HALF;
+        let b0 = b_buffer[0] * f64::HALF;
+        data[1] = b0;
+        let c0 = c_buffer[0] * f64::HALF;
+        data[2] = c0;
+        let d0 = d_buffer[0] * f64::HALF;
+        data[3] = d0;
+        let e0 = e_buffer[0] * f64::HALF;
+        data[4] = e0;
+        let f0 = f_buffer[0] * f64::HALF;
+        data[5] = f0;
 
-        let mut b_diff = data[5];
-        let mut c_diff = data[4];
-        let mut e_diff = data[3];
-        let mut d_diff = data[2];
-        let mut f_diff = data[1];
+        let mut b_diff = f0;
+        let mut c_diff = e0;
+        let mut e_diff = d0;
+        let mut d_diff = c0;
+        let mut f_diff = b0;
 
         for k in 1..36 {
             data[6 * k] = a_buffer[k];
@@ -347,6 +401,10 @@ impl NeonDct2Butterfly216d {
 
 impl PxdctExecutor<f64> for NeonDct2Butterfly216d {
     fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(216) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -354,13 +412,39 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly216d {
         let mut scratch = [f64::zero(); 216];
 
         for chunk in data.chunks_exact_mut(216) {
-            self.exec((&mut chunk[..216]).try_into().unwrap(), &mut scratch);
+            self.exec(&mut InPlaceStore::new(chunk), &mut scratch);
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 216);
+
+        let mut scratch = [f64::zero(); 216];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(216).zip(output.chunks_exact_mut(216)) {
+            self.exec(&mut BiStore::new(src, dst), &mut scratch);
         }
         Ok(())
     }
 
     fn length(&self) -> usize {
         216
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

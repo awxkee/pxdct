@@ -28,6 +28,7 @@
  */
 use crate::avx::util::define_avx_butterfly;
 use crate::avx::{AvxDct2Butterfly3, AvxDct2Butterfly4};
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
@@ -56,7 +57,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(&self, data: &mut [T; 12]) {
+    fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // co-prime 3x4 DCT-II algorithm
 
         let mut c0 = [data[0], data[7], data[8]];
@@ -64,18 +65,18 @@ where
         let mut c2 = [data[5], data[10], data[2]];
         let mut c3 = [data[11], data[4], data[3]];
 
-        self.bf3.exec(&mut c0);
-        self.bf3.exec(&mut c1);
-        self.bf3.exec(&mut c2);
-        self.bf3.exec(&mut c3);
+        self.bf3.exec(&mut InPlaceStore::new(&mut c0));
+        self.bf3.exec(&mut InPlaceStore::new(&mut c1));
+        self.bf3.exec(&mut InPlaceStore::new(&mut c2));
+        self.bf3.exec(&mut InPlaceStore::new(&mut c3));
 
         let mut rows0 = [c0[0], c1[0], c2[0], c3[0]];
         let mut rows1 = [c0[1], c1[1], c2[1], c3[1]];
         let mut rows2 = [c0[2], c1[2], c2[2], c3[2]];
 
-        self.bf4.exec(&mut rows0);
-        self.bf4.exec(&mut rows1);
-        self.bf4.exec(&mut rows2);
+        self.bf4.exec(&mut InPlaceStore::new(&mut rows0));
+        self.bf4.exec(&mut InPlaceStore::new(&mut rows1));
+        self.bf4.exec(&mut InPlaceStore::new(&mut rows2));
 
         data[0] = rows0[0];
         data[1] = rows1[1] + rows2[3];
