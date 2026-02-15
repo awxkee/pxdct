@@ -33,6 +33,7 @@
 #![allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 mod avx;
+mod bidirectional;
 mod butterflies;
 mod dct2;
 mod dct3;
@@ -44,11 +45,14 @@ mod factory_dct2;
 mod factory_dct3;
 mod factory_dct4;
 mod factory_dst2;
+mod factory_scaled_dct2;
 mod identity;
 mod mla;
 #[cfg(all(target_arch = "aarch64", feature = "neon"))]
 mod neon;
+mod prime_factors;
 mod pxdct_error;
+mod scaling;
 mod spectrum_mul;
 mod transpose;
 mod twiddles;
@@ -66,7 +70,10 @@ use crate::factory_dct2::Dct2Factory;
 use crate::factory_dct3::Dct3Factory;
 use crate::factory_dct4::Dct4Factory;
 use crate::factory_dst2::Dst2Factory;
+use crate::factory_scaled_dct2::ScaledDct2Factory;
 use crate::identity::DctIdentity;
+use crate::prime_factors::PrimeFactors;
+use crate::scaling::ScalingInterceptor;
 use crate::transpose::TransposeFactory;
 use crate::two_dims::TwoDimensionalDct;
 use crate::util::DctSample;
@@ -229,7 +236,14 @@ impl Pxdct {
             return T::mixed_radix13(length, Pxdct::dct2_strategy(length / 13)?);
         }
 
-        if length.is_multiple_of(2) {
+        let prime_factors = PrimeFactors::from_number(length as u64);
+
+        // if number is too big and 2^k*Q is big this is not super effective to use mixed-radix,
+        // go with FFT instead
+        let factor2 = prime_factors.factor_of_2();
+
+        if (length.is_multiple_of(2) && factor2 < 5) || (length.is_multiple_of(2) && length < 1000)
+        {
             return T::mixed_radix2(length, Pxdct::dct2_strategy(length / 2)?);
         }
 
@@ -240,6 +254,41 @@ impl Pxdct {
         Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<T> + Send + Sync>)
     }
 
+    fn strategy_scaled_dct2<T: DctSample + ScaledDct2Factory + Dct2Factory>(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    where
+        f64: AsPrimitive<T>,
+    {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        if length == 1 {
+            return Ok(Arc::new(DctIdentity::default()));
+        }
+        if length.is_power_of_two() {
+            return match length {
+                2 => Ok(T::scaled_dct2_butterfly2()),
+                4 => Ok(T::scaled_dct2_butterfly4()),
+                8 => Ok(T::scaled_dct2_butterfly8()),
+                16 => Ok(T::scaled_dct2_butterfly16()),
+                32 => Ok(T::scaled_dct2_butterfly32()),
+                64 => Ok(T::scaled_dct2_butterfly64()),
+                128 => Ok(T::scaled_dct2_butterfly128()),
+                256 => Ok(T::scaled_dct2_butterfly256()),
+                512 => Ok(T::scaled_dct2_butterfly512()),
+                _ => T::scaled_split_radix(
+                    length,
+                    Pxdct::dct2_strategy(length / 2)?,
+                    Pxdct::dct2_strategy(length / 4)?,
+                ),
+            };
+        }
+        Ok(Arc::new(ScalingInterceptor {
+            interceptor: Pxdct::dct2_strategy(length)?,
+        }))
+    }
+
     /// Creates a single-precision (f32) DCT-II executor.
     pub fn make_dct2_f32(
         length: usize,
@@ -247,11 +296,35 @@ impl Pxdct {
         Pxdct::dct2_strategy(length)
     }
 
+    /// Creates a scaled single-precision (f32) DCT-II executor.
+    ///
+    /// Results are scaled by SQRT(2/N).
+    /// Scaling routine is completely incorporated only in power of 2 executors.
+    /// For anything else if absolute performance is preferred consider to
+    /// incorporate scaling factor into your processing routine.
+    pub fn make_scaled_dct2_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Pxdct::strategy_scaled_dct2(length)
+    }
+
     /// Creates a double-precision (f64) DCT-II executor.
     pub fn make_dct2_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         Pxdct::dct2_strategy(length)
+    }
+
+    /// Creates a scaled double-precision (f64) DCT-II executor.
+    ///
+    /// Results are scaled by SQRT(2/N).
+    /// Scaling routine is completely incorporated only in power of 2 executors.
+    /// For anything else if absolute performance is preferred consider to
+    /// incorporate scaling factor into your processing routine.
+    pub fn make_scaled_dct2_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Pxdct::strategy_scaled_dct2(length)
     }
 
     fn dct3_strategy<T: Copy + Dct3Factory>(
@@ -310,11 +383,33 @@ impl Pxdct {
         Pxdct::dct3_strategy(length)
     }
 
+    /// Creates a single-precision (f32) DCT-III executor.
+    /// Results are scaled by SQRT(2/N).
+    /// Scaling routine is completely incorporated only in power of 2 executors.
+    /// For anything else if absolute performance is preferred consider to
+    /// incorporate scaling factor into your processing routine.
+    pub fn make_scaled_dct3_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Ok(Arc::new(ScalingInterceptor {
+            interceptor: Pxdct::dct3_strategy(length)?,
+        }))
+    }
+
     /// Creates a double-precision (f64) DCT-III executor.
     pub fn make_dct3_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         Pxdct::dct3_strategy(length)
+    }
+
+    /// Creates a double-precision (f64) DCT-III executor.
+    pub fn make_scaling_dct3_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Ok(Arc::new(ScalingInterceptor {
+            interceptor: Pxdct::dct3_strategy(length)?,
+        }))
     }
 
     /// Creates a single-precision (f32) DST-II executor.
@@ -635,12 +730,16 @@ impl Pxdct {
     ) -> Arc<dyn MultidimensionalDctExecutor<f32> + Send + Sync> {
         let width = width_dct.length();
         let height = height_dct.length();
+        let width_scratch_size = width_dct.scratch_size();
+        let height_scratch_size = height_dct.scratch_size();
         Arc::new(TwoDimensionalDct {
             width,
             height,
             height_executor: height_dct,
             width_executor: width_dct,
             transpose_width_to_height: f32::make_transpose(width, height),
+            width_scratch_size,
+            height_scratch_size,
         })
     }
 
@@ -653,12 +752,16 @@ impl Pxdct {
     ) -> Arc<dyn MultidimensionalDctExecutor<f64> + Send + Sync> {
         let width = width_dct.length();
         let height = height_dct.length();
+        let width_scratch_size = width_dct.scratch_size();
+        let height_scratch_size = height_dct.scratch_size();
         Arc::new(TwoDimensionalDct {
             width,
             height,
             height_executor: height_dct,
             width_executor: width_dct,
             transpose_width_to_height: f64::make_transpose(width, height),
+            width_scratch_size,
+            height_scratch_size,
         })
     }
 }
@@ -670,8 +773,17 @@ impl Pxdct {
 pub trait PxdctExecutor<T> {
     /// Executes the DCT transform in-place on the given data buffer.
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError>;
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError>;
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError>;
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError>;
     /// Returns the length of the transform supported by this executor.
     fn length(&self) -> usize;
+    fn scratch_size(&self) -> usize;
 }
 
 #[cfg(test)]
@@ -696,6 +808,46 @@ mod tests {
         result
     }
 
+    pub(crate) fn naive_scaled_dct2(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+
+        let scale = (2f64 / input.len() as f64).sqrt();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let cos_inner =
+                    (output_index as f64) * (input_index as f64 + 0.5) * std::f64::consts::PI
+                        / (input.len() as f64);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry * scale);
+        }
+
+        result
+    }
+
+    #[allow(unused)]
+    pub(crate) fn naive_scaled_dct2_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+
+        let scale = (2f32 / input.len() as f32).sqrt();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let cos_inner =
+                    (output_index as f32) * (input_index as f32 + 0.5) * std::f32::consts::PI
+                        / (input.len() as f32);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry * scale);
+        }
+
+        result
+    }
     #[allow(unused)]
     pub(crate) fn naive_dct2_f32(input: &[f32]) -> Vec<f32> {
         let mut result = Vec::new();
@@ -851,6 +1003,37 @@ mod tests {
     }
 
     #[test]
+    fn dct2_roundtrip_oof() {
+        for i in 1..250 {
+            let mut array = vec![0f32; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f32;
+            }
+            let mut working_array = array.clone();
+
+            let mut transient = vec![0f32; i];
+
+            let dct_forward = Pxdct::make_dct2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct3_f32(array.len()).unwrap();
+
+            dct_forward
+                .execute_into(&working_array, &mut transient)
+                .expect(&format!("Failed to execute DCT on size {i}"));
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .expect(&format!("Failed to execute DCT on size {i}"));
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
     fn dct2_roundtrip_f64() {
         for i in 1..250 {
             let mut array = vec![0f64; i];
@@ -863,6 +1046,36 @@ mod tests {
 
             dct_forward.execute(&mut working_array).unwrap();
             dct_inverse.execute(&mut working_array).unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f64) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct2_roundtrip_oof_f64() {
+        for i in 1..250 {
+            let mut array = vec![0f64; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let mut transient = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct2_f64(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct3_f64(array.len()).unwrap();
+
+            dct_forward
+                .execute_into(&working_array, &mut transient)
+                .expect(&format!("Failed to execute DCT on size {i}"));
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .expect(&format!("Failed to execute DCT on size {i}"));
 
             for k in working_array.iter_mut() {
                 *k = *k / (i as f64) * 2.;
@@ -899,8 +1112,38 @@ mod tests {
     }
 
     #[test]
+    fn dst2_roundtrip_oof() {
+        for i in 1..250 {
+            let mut array = vec![0f32; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f32;
+            }
+            let mut working_array = array.clone();
+            let mut transient = vec![0f32; i];
+
+            let dct_forward = Pxdct::make_dct2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct3_f32(array.len()).unwrap();
+
+            dct_forward
+                .execute_into(&working_array, &mut transient)
+                .expect(&format!("Failed to execute DST-II on size {i}"));
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .expect(&format!("Failed to execute DST-III on size {i}"));
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
     fn dct4_roundtrip() {
-        for i in 34..250 {
+        for i in 1..250 {
             let mut array = vec![0f32; i];
             for i in 1..i + 1 {
                 array[i - 1] = i as f32;
@@ -911,6 +1154,37 @@ mod tests {
 
             dct_forward.execute(&mut working_array).unwrap();
             dct_inverse.execute(&mut working_array).unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct4_roundtrip_oof() {
+        for i in 1..250 {
+            let mut array = vec![0f32; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f32;
+            }
+            let mut working_array = array.clone();
+
+            let mut transient = vec![0f32; i];
+
+            let dct_forward = Pxdct::make_dct4_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct4_f32(array.len()).unwrap();
+
+            dct_forward
+                .execute_into(&working_array, &mut transient)
+                .expect(&format!("Failed to execute DCT-IV on size {i}"));
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .expect(&format!("Failed to execute DCT-IV on size {i}"));
 
             for k in working_array.iter_mut() {
                 *k = *k / (i as f32) * 2.;
@@ -935,6 +1209,37 @@ mod tests {
 
             dct_forward.execute(&mut working_array).unwrap();
             dct_inverse.execute(&mut working_array).unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f64) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.00001, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct4_roundtrip_oof_f64() {
+        for i in 1..300 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+
+            let mut transient = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct4_f64(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct4_f64(array.len()).unwrap();
+
+            dct_forward
+                .execute_into(&working_array, &mut transient)
+                .expect(&format!("Failed to execute DCT-IV on size {i}"));
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .expect(&format!("Failed to execute DCT-IV on size {i}"));
 
             for k in working_array.iter_mut() {
                 *k = *k / (i as f64) * 2.;

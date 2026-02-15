@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::transpose::Transposition;
-use crate::util::{DctSample, try_vec};
+use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use std::sync::Arc;
 
@@ -51,7 +51,7 @@ pub trait MultidimensionalDctExecutor<T> {
     /// Returns the **height** (number of rows, Y-dimension) of the 2D input data grid.
     fn height(&self) -> usize;
     /// Required scratch size
-    fn required_scratch_size(&self) -> usize;
+    fn scratch_size(&self) -> usize;
 }
 
 pub(crate) struct TwoDimensionalDct<T> {
@@ -60,39 +60,35 @@ pub(crate) struct TwoDimensionalDct<T> {
     pub(crate) transpose_width_to_height: Arc<dyn Transposition<T> + Send + Sync>,
     pub(crate) width: usize,
     pub(crate) height: usize,
+    pub(crate) width_scratch_size: usize,
+    pub(crate) height_scratch_size: usize,
 }
 
 impl<T: DctSample> MultidimensionalDctExecutor<T> for TwoDimensionalDct<T> {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        let mut scratch = try_vec![T::default(); self.required_scratch_size()];
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
         self.execute_with_scratch(data, &mut scratch)
     }
 
     fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
-        if scratch.len() < self.required_scratch_size() {
-            return Err(PxdctError::ScratchBufferIsTooSmall(
-                scratch.len(),
-                self.required_scratch_size(),
-            ));
-        }
         let full_size = self.width * self.height;
         if !data.len().is_multiple_of(full_size) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), full_size));
         }
-        let (scratch, _) = scratch.split_at_mut(self.required_scratch_size());
+
+        let scratch = validate_scratch!(scratch, self.scratch_size());
+        let (scratch, rem_scratch) = scratch.split_at_mut(full_size);
 
         for chunk in data.chunks_exact_mut(full_size) {
-            scratch.copy_from_slice(chunk);
-
-            scratch.chunks_exact_mut(self.width).for_each(|row| {
-                _ = self.width_executor.execute(row);
-            });
+            let (width_scratch, _) = rem_scratch.split_at_mut(self.width_scratch_size);
+            self.width_executor
+                .execute_into_with_scratch(chunk, scratch, width_scratch)?;
 
             self.transpose_width_to_height.transpose(scratch, chunk);
 
-            chunk.chunks_exact_mut(self.height).for_each(|column| {
-                _ = self.height_executor.execute(column);
-            });
+            let (height_scratch, _) = rem_scratch.split_at_mut(self.height_scratch_size);
+            self.height_executor
+                .execute_with_scratch(chunk, height_scratch)?;
         }
         Ok(())
     }
@@ -108,7 +104,7 @@ impl<T: DctSample> MultidimensionalDctExecutor<T> for TwoDimensionalDct<T> {
     }
 
     #[inline]
-    fn required_scratch_size(&self) -> usize {
-        self.width * self.height
+    fn scratch_size(&self) -> usize {
+        self.width * self.height + self.width_scratch_size.max(self.height_scratch_size)
     }
 }

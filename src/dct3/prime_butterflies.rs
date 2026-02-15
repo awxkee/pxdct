@@ -26,9 +26,10 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::BidirectionalStore;
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::{DctSample, define_butterfly};
+use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -51,7 +52,7 @@ where
 
 impl<T: DctSample> Dct3Butterfly3<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 3]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let buffer0_half = data[0] * T::HALF;
         let buffer1 = data[1];
         let buffer2 = data[2];
@@ -65,24 +66,7 @@ impl<T: DctSample> Dct3Butterfly3<T> {
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct3Butterfly3<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(3) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(3) {
-            self.exec((&mut chunk[..3]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        3
-    }
-}
+define_in_place_butterfly!(Dct3Butterfly3, 3);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly5<T> {
@@ -104,7 +88,7 @@ where
 
 impl<T: DctSample> Dct3Butterfly5<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 5]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let x0 = data[0] * T::HALF;
         let x1 = data[1];
         let x2 = data[2];
@@ -140,7 +124,7 @@ impl<T: DctSample> Dct3Butterfly5<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly5, 5);
+define_in_place_butterfly!(Dct3Butterfly5, 5);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly7<T> {
@@ -164,7 +148,7 @@ where
 
 impl<T: DctSample> Dct3Butterfly7<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 7]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let x0 = data[0] * T::HALF;
         let x1 = data[1];
         let x2 = data[2];
@@ -221,7 +205,7 @@ impl<T: DctSample> Dct3Butterfly7<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly7, 7);
+define_in_place_butterfly!(Dct3Butterfly7, 7);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly11<T> {
@@ -252,7 +236,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 11]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let x0 = data[0] * T::HALF;
         let x1 = data[1];
         let x2 = data[2];
@@ -387,7 +371,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly11, 11);
+define_in_place_butterfly!(Dct3Butterfly11, 11);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly13<T> {
@@ -420,7 +404,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 13]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let x0 = data[0] * T::HALF;
         let x1 = data[1];
         let x2 = data[2];
@@ -605,7 +589,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly13, 13);
+define_in_place_butterfly!(Dct3Butterfly13, 13);
 
 #[cfg(test)]
 mod tests {

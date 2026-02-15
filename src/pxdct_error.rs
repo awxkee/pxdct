@@ -37,6 +37,8 @@ pub enum PxdctError {
     FftError(String),
     ZeroSizedDct,
     ScratchBufferIsTooSmall(usize, usize),
+    InvalidScratchSize(usize, usize),
+    OutOfPlaceSizeDoesntMatch(usize, usize),
 }
 
 impl Error for PxdctError {}
@@ -55,6 +57,12 @@ impl Display for PxdctError {
             PxdctError::ZeroSizedDct => f.write_str("Zero sized DCT is not allowed"),
             PxdctError::ScratchBufferIsTooSmall(a, b) => f.write_fmt(format_args!(
                 "Scratch is expected to be at least {a} bytes, but was {b}"
+            )),
+            PxdctError::InvalidScratchSize(u0, u1) => f.write_fmt(format_args!(
+                "Scratch is expected to be at least {u0} bytes, but was {u1}"
+            )),
+            PxdctError::OutOfPlaceSizeDoesntMatch(u0, u1) => f.write_fmt(format_args!(
+                "Input and output sizes doesn't match {u0} vs {u1}"
             )),
         }
     }

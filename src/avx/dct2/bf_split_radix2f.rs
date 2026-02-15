@@ -29,6 +29,7 @@
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::fma;
 use crate::avx::{AvxDct2Butterfly8, AvxDct2Butterfly16};
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::factory_dct2::Dct2Factory;
 use crate::twiddles::compute_twiddle;
 use crate::{PxdctError, PxdctExecutor};
@@ -100,9 +101,9 @@ impl Default for AvxDct2Butterfly32f {
 
 impl AvxDct2Butterfly32f {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f32>>(
         &self,
-        data: &mut [f32; 32],
+        data: &mut S,
         input_dct2: &mut [f32; 16],
         input_dct4_even: &mut [f32; 8],
         input_dct4_odd: &mut [f32; 8],
@@ -116,11 +117,12 @@ impl AvxDct2Butterfly32f {
                 let i = 0;
                 let twiddle_re = self.twiddles[i * 2];
                 let twiddle_im = self.twiddles[i * 2 + 1];
-                let input_bottom = AvxStoreF::load(&data[i * 4..]);
-                let input_top = AvxStoreF::load(&data[32 - i * 4 - 8..]).reverse();
+                let input_bottom = AvxStoreF::load(data.slice_from(i * 4..));
+                let input_top = AvxStoreF::load(data.slice_from(32 - i * 4 - 8..)).reverse();
 
-                let input_half_bottom = AvxStoreF::load(&data[16 - i * 4 - 8..]).reverse();
-                let input_half_top = AvxStoreF::load(&data[16 + i * 4..]);
+                let input_half_bottom =
+                    AvxStoreF::load(data.slice_from(16 - i * 4 - 8..)).reverse();
+                let input_half_top = AvxStoreF::load(data.slice_from(16 + i * 4..));
 
                 //prepare the inner DCT2
                 let q = input_top + input_bottom;
@@ -141,9 +143,9 @@ impl AvxDct2Butterfly32f {
                 conj_odd.write(input_dct4_odd.get_unchecked_mut(8 - i * 4 - 8..));
             }
 
-            self.bf16.exec(input_dct2);
-            self.bf8.exec(input_dct4_even);
-            self.bf8.exec(input_dct4_odd);
+            self.bf16.exec(&mut InPlaceStore::new(input_dct2));
+            self.bf8.exec(&mut InPlaceStore::new(input_dct4_even));
+            self.bf8.exec(&mut InPlaceStore::new(input_dct4_odd));
 
             data[0] = *input_dct2.get_unchecked(0);
             data[1] = *input_dct4_even.get_unchecked(0);
@@ -157,14 +159,14 @@ impl AvxDct2Butterfly32f {
                     *input_dct4_odd.get_unchecked(8 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(32 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[32 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -182,7 +184,28 @@ impl AvxDct2Butterfly32f {
 
         for chunk in data.chunks_exact_mut(32) {
             self.exec(
-                (&mut chunk[..32]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4_even,
+                &mut input_dct4_odd,
+            );
+        }
+        Ok(())
+    }
+
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 32);
+
+        let mut input_dct2 = [f32::default(); 16];
+        let mut input_dct4_even = [f32::default(); 8];
+        let mut input_dct4_odd = [f32::default(); 8];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(32).zip(output.chunks_exact_mut(32)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4_even,
                 &mut input_dct4_odd,
@@ -197,8 +220,29 @@ impl PxdctExecutor<f32> for AvxDct2Butterfly32f {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         32
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -222,9 +266,9 @@ impl Default for AvxDct2Butterfly64f {
 
 impl AvxDct2Butterfly64f {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f32>>(
         &self,
-        data: &mut [f32; 64],
+        data: &mut S,
         input_dct2: &mut [f32; 32],
         input_dct4_even: &mut [f32; 16],
         input_dct4_odd: &mut [f32; 16],
@@ -239,11 +283,12 @@ impl AvxDct2Butterfly64f {
             for i in 0..2 {
                 let twiddle_re = self.twiddles[i * 2];
                 let twiddle_im = self.twiddles[i * 2 + 1];
-                let input_bottom = AvxStoreF::load(&data[i * 8..]);
-                let input_top = AvxStoreF::load(&data[64 - i * 8 - 8..]).reverse();
+                let input_bottom = AvxStoreF::load(data.slice_from(i * 8..));
+                let input_top = AvxStoreF::load(data.slice_from(64 - i * 8 - 8..)).reverse();
 
-                let input_half_bottom = AvxStoreF::load(&data[32 - i * 8 - 8..]).reverse();
-                let input_half_top = AvxStoreF::load(&data[32 + i * 8..]);
+                let input_half_bottom =
+                    AvxStoreF::load(data.slice_from(32 - i * 8 - 8..)).reverse();
+                let input_half_top = AvxStoreF::load(data.slice_from(32 + i * 8..));
 
                 //prepare the inner DCT2
                 let q = input_top + input_bottom;
@@ -265,10 +310,14 @@ impl AvxDct2Butterfly64f {
                 conj_odd.write(input_dct4_odd.get_unchecked_mut(16 - i * 8 - 8..));
             }
 
-            self.bf32
-                .exec(input_dct2, input_dct21, input_dct4_even1, input_dct4_odd1);
-            self.bf16.exec(input_dct4_even);
-            self.bf16.exec(input_dct4_odd);
+            self.bf32.exec(
+                &mut InPlaceStore::new(input_dct2),
+                input_dct21,
+                input_dct4_even1,
+                input_dct4_odd1,
+            );
+            self.bf16.exec(&mut InPlaceStore::new(input_dct4_even));
+            self.bf16.exec(&mut InPlaceStore::new(input_dct4_odd));
 
             data[0] = *input_dct2.get_unchecked(0);
             data[1] = *input_dct4_even.get_unchecked(0);
@@ -298,10 +347,10 @@ impl AvxDct2Butterfly64f {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 15..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 23..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 15..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 23..));
                 i += 8;
             }
 
@@ -328,13 +377,13 @@ impl AvxDct2Butterfly64f {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 15..));
-                zipped1[1].write4(data.get_unchecked_mut(i * 4 + 23..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 15..));
+                zipped1[1].write4(data.slice_from_mut(i * 4 + 23..));
             }
 
-            *data.get_unchecked_mut(64 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[64 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -356,7 +405,35 @@ impl AvxDct2Butterfly64f {
 
         for chunk in data.chunks_exact_mut(64) {
             self.exec(
-                (&mut chunk[..64]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4_even,
+                &mut input_dct4_odd,
+                &mut input_dct21,
+                &mut input_dct4_even1,
+                &mut input_dct4_odd1,
+            );
+        }
+        Ok(())
+    }
+
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 64);
+
+        let mut input_dct2 = [f32::default(); 32];
+        let mut input_dct4_even = [f32::default(); 16];
+        let mut input_dct4_odd = [f32::default(); 16];
+
+        let mut input_dct21 = [f32::default(); 16];
+        let mut input_dct4_even1 = [f32::default(); 8];
+        let mut input_dct4_odd1 = [f32::default(); 8];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(64).zip(output.chunks_exact_mut(64)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4_even,
                 &mut input_dct4_odd,
@@ -374,8 +451,29 @@ impl PxdctExecutor<f32> for AvxDct2Butterfly64f {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         64
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -399,7 +497,12 @@ impl Default for AvxDct2Butterfly128f {
 
 impl AvxDct2Butterfly128f {
     #[inline(always)]
-    fn exec(&self, data: &mut [f32; 128], input_dct2: &mut [f32; 64], input_dct4: &mut [f32; 64]) {
+    fn exec<S: BidirectionalStore<f32>>(
+        &self,
+        data: &mut S,
+        input_dct2: &mut [f32; 64],
+        input_dct4: &mut [f32; 64],
+    ) {
         unsafe {
             let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(32);
 
@@ -409,11 +512,12 @@ impl AvxDct2Butterfly128f {
             for i in 0..4 {
                 let twiddle_re = self.twiddles[i * 2];
                 let twiddle_im = self.twiddles[i * 2 + 1];
-                let input_bottom = AvxStoreF::load(&data[i * 8..]);
-                let input_top = AvxStoreF::load(&data[128 - i * 8 - 8..]).reverse();
+                let input_bottom = AvxStoreF::load(data.slice_from(i * 8..));
+                let input_top = AvxStoreF::load(data.slice_from(128 - i * 8 - 8..)).reverse();
 
-                let input_half_bottom = AvxStoreF::load(&data[64 - i * 8 - 8..]).reverse();
-                let input_half_top = AvxStoreF::load(&data[64 + i * 8..]);
+                let input_half_bottom =
+                    AvxStoreF::load(data.slice_from(64 - i * 8 - 8..)).reverse();
+                let input_half_top = AvxStoreF::load(data.slice_from(64 + i * 8..));
 
                 //prepare the inner DCT2
                 let q = input_top + input_bottom;
@@ -468,10 +572,10 @@ impl AvxDct2Butterfly128f {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 15..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 23..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 15..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 23..));
                 i += 8;
             }
 
@@ -493,8 +597,8 @@ impl AvxDct2Butterfly128f {
 
                 let zipped0 = sums0.zip(input0);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
                 i += 4;
             }
 
@@ -506,14 +610,14 @@ impl AvxDct2Butterfly128f {
                     *input_dct4_odd.get_unchecked(32 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(128 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[128 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -530,7 +634,7 @@ impl AvxDct2Butterfly128f {
 
         for chunk in data.chunks_exact_mut(128) {
             self.exec(
-                (&mut chunk[..128]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -538,8 +642,23 @@ impl AvxDct2Butterfly128f {
         Ok(())
     }
 
-    fn length(&self) -> usize {
-        128
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 128);
+
+        let mut input_dct2 = [f32::zero(); 64];
+        let mut input_dct4 = [f32::zero(); 64];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(128).zip(output.chunks_exact_mut(128)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
     }
 }
 
@@ -548,8 +667,29 @@ impl PxdctExecutor<f32> for AvxDct2Butterfly128f {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         128
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -573,9 +713,9 @@ impl Default for AvxDct2Butterfly256f {
 
 impl AvxDct2Butterfly256f {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f32>>(
         &self,
-        data: &mut [f32; 256],
+        data: &mut S,
         input_dct2: &mut [f32; 128],
         input_dct4: &mut [f32; 128],
     ) {
@@ -589,11 +729,12 @@ impl AvxDct2Butterfly256f {
             for i in 0..8 {
                 let twiddle_re = self.twiddles[i * 2];
                 let twiddle_im = self.twiddles[i * 2 + 1];
-                let input_bottom = AvxStoreF::load(&data[i * 8..]);
-                let input_top = AvxStoreF::load(&data[256 - i * 8 - 8..]).reverse();
+                let input_bottom = AvxStoreF::load(data.slice_from(i * 8..));
+                let input_top = AvxStoreF::load(data.slice_from(256 - i * 8 - 8..)).reverse();
 
-                let input_half_bottom = AvxStoreF::load(&data[128 - i * 8 - 8..]).reverse();
-                let input_half_top = AvxStoreF::load(&data[128 + i * 8..]);
+                let input_half_bottom =
+                    AvxStoreF::load(data.slice_from(128 - i * 8 - 8..)).reverse();
+                let input_half_top = AvxStoreF::load(data.slice_from(128 + i * 8..));
 
                 //prepare the inner DCT2
                 let q = input_top + input_bottom;
@@ -646,10 +787,10 @@ impl AvxDct2Butterfly256f {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 15..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 23..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 15..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 23..));
                 i += 8;
             }
 
@@ -671,8 +812,8 @@ impl AvxDct2Butterfly256f {
 
                 let zipped0 = sums0.zip(input0);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
                 i += 4;
             }
 
@@ -684,14 +825,14 @@ impl AvxDct2Butterfly256f {
                     *input_dct4_odd.get_unchecked(64 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(256 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[256 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -708,7 +849,7 @@ impl AvxDct2Butterfly256f {
 
         for chunk in data.chunks_exact_mut(256) {
             self.exec(
-                (&mut chunk[..256]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -716,8 +857,23 @@ impl AvxDct2Butterfly256f {
         Ok(())
     }
 
-    fn length(&self) -> usize {
-        256
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 256);
+
+        let mut input_dct2 = [f32::zero(); 128];
+        let mut input_dct4 = [f32::zero(); 128];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(256).zip(output.chunks_exact_mut(256)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
     }
 }
 
@@ -726,8 +882,29 @@ impl PxdctExecutor<f32> for AvxDct2Butterfly256f {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         256
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -751,9 +928,9 @@ impl Default for AvxDct2Butterfly512f {
 
 impl AvxDct2Butterfly512f {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f32>>(
         &self,
-        data: &mut [f32; 512],
+        data: &mut S,
         input_dct2: &mut [f32; 256],
         input_dct4: &mut [f32; 256],
     ) {
@@ -767,11 +944,12 @@ impl AvxDct2Butterfly512f {
             for i in 0..16 {
                 let twiddle_re = self.twiddles[i * 2];
                 let twiddle_im = self.twiddles[i * 2 + 1];
-                let input_bottom = AvxStoreF::load(&data[i * 8..]);
-                let input_top = AvxStoreF::load(&data[512 - i * 8 - 8..]).reverse();
+                let input_bottom = AvxStoreF::load(data.slice_from(i * 8..));
+                let input_top = AvxStoreF::load(data.slice_from(512 - i * 8 - 8..)).reverse();
 
-                let input_half_bottom = AvxStoreF::load(&data[256 - i * 8 - 8..]).reverse();
-                let input_half_top = AvxStoreF::load(&data[256 + i * 8..]);
+                let input_half_bottom =
+                    AvxStoreF::load(data.slice_from(256 - i * 8 - 8..)).reverse();
+                let input_half_top = AvxStoreF::load(data.slice_from(256 + i * 8..));
 
                 //prepare the inner DCT2
                 let q = input_top + input_bottom;
@@ -825,10 +1003,10 @@ impl AvxDct2Butterfly512f {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 15..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 23..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 15..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 23..));
                 i += 8;
             }
 
@@ -850,8 +1028,8 @@ impl AvxDct2Butterfly512f {
 
                 let zipped0 = sums0.zip(input0);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 7..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 7..));
                 i += 4;
             }
 
@@ -863,14 +1041,14 @@ impl AvxDct2Butterfly512f {
                     *input_dct4_odd.get_unchecked(128 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(512 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[512 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -887,7 +1065,26 @@ impl AvxDct2Butterfly512f {
 
         for chunk in data.chunks_exact_mut(512) {
             self.exec(
-                (&mut chunk[..512]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 512);
+
+        let mut input_dct2 = [f32::zero(); 256];
+        let mut input_dct4 = [f32::zero(); 256];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(512).zip(output.chunks_exact_mut(512)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -901,8 +1098,29 @@ impl PxdctExecutor<f32> for AvxDct2Butterfly512f {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         512
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

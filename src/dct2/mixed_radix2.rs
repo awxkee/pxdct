@@ -26,7 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::util::{DctSample, try_vec};
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
+use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
@@ -35,6 +36,7 @@ pub(crate) struct Dct2MixedRadix2<T> {
     twiddles: Vec<T>,
     half_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     execution_length: usize,
+    half_dct_length: usize,
 }
 
 impl<T: DctSample> Dct2MixedRadix2<T>
@@ -67,7 +69,49 @@ where
             half_dct,
             twiddles,
             execution_length: len,
+            half_dct_length: half_size,
         })
+    }
+}
+
+impl<T: DctSample> Dct2MixedRadix2<T>
+where
+    f64: AsPrimitive<T>,
+{
+    #[inline(always)]
+    fn execute_store<S: BidirectionalStore<T>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
+        let (a_buffer, b_buffer) = scratch.split_at_mut(self.half_dct_length);
+
+        for (i, &twiddle) in self.twiddles.iter().enumerate() {
+            let left = data[i];
+            let right = data[self.execution_length - i - 1];
+
+            unsafe {
+                *a_buffer.get_unchecked_mut(i) = left + right;
+                *b_buffer.get_unchecked_mut(i) = (left - right) * twiddle;
+            }
+        }
+
+        if a_buffer.len() > 1 {
+            self.half_dct.execute_with_scratch(scratch, inner_scratch)?;
+        }
+
+        let (a_buffer, b_buffer) = scratch.split_at_mut(self.half_dct_length);
+        b_buffer[0] *= T::HALF;
+
+        let mut last_odd = T::zero();
+
+        for (i, (&even, &odd)) in a_buffer.iter().zip(b_buffer.iter()).enumerate() {
+            data[i * 2] = even;
+            last_odd = odd - last_odd;
+            data[i * 2 + 1] = last_odd;
+        }
+        Ok(())
     }
 }
 
@@ -76,6 +120,11 @@ where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(self.execution_length) {
             return Err(PxdctError::InvalidSizeMultiplier(
                 data.len(),
@@ -83,52 +132,49 @@ where
             ));
         }
 
-        let mut scratch = try_vec![T::default(); self.execution_length];
-
-        let half_len = self.half_dct.length();
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (a_buffer, b_buffer) = scratch.split_at_mut(half_len);
-
-            let (left, right) = chunk.split_at(half_len);
-
-            for ((((dst_l, dst_r), &l), &r), &twiddle) in a_buffer
-                .iter_mut()
-                .zip(b_buffer.iter_mut())
-                .zip(left.iter())
-                .zip(right.iter().rev())
-                .zip(self.twiddles.iter())
-            {
-                *dst_l = l + r;
-                *dst_r = (l - r) * twiddle;
-            }
-
-            if a_buffer.len() > 1 {
-                self.half_dct.execute(&mut scratch)?;
-            }
-
-            let (a_buffer, b_buffer) = scratch.split_at_mut(half_len);
-            b_buffer[0] *= T::HALF;
-
-            let mut last_odd = T::zero();
-
-            for ((dst, &even), &odd) in chunk
-                .chunks_exact_mut(2)
-                .zip(a_buffer.iter())
-                .zip(b_buffer.iter())
-            {
-                dst[0] = even;
-                last_odd = odd - last_odd;
-                dst[1] = last_odd;
-            }
+            self.execute_store(&mut InPlaceStore::new(chunk), full_scratch)?;
         }
 
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            self.execute_store(&mut BiStore::new(src, dst), full_scratch)?;
+        }
         Ok(())
     }
 
     #[inline]
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length + self.half_dct.scratch_size()
     }
 }
 #[cfg(test)]

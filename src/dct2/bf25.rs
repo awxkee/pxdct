@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::mixed_radix5::MixedRadix5Sample;
 use crate::dct2::prime_butterflies::Dct2Butterfly5;
 use crate::dct2::util::{radixq_cos_twiddle, radixq_rotation_twiddle};
@@ -121,9 +122,9 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(
+    pub(crate) fn exec<S: BidirectionalStore<T>>(
         &self,
-        data: &mut [T; 25],
+        data: &mut S,
         a_buffer: &mut [T; 5],
         c_buffer: &mut [T; 10],
         s_buffer: &mut [T; 10],
@@ -132,7 +133,7 @@ where
             a_buffer[n] = data[n * 5 + 2];
         }
 
-        self.bf5.exec(a_buffer);
+        self.bf5.exec(&mut InPlaceStore::new(a_buffer));
 
         for m in 0..2 {
             let mut sign = T::one();
@@ -147,9 +148,9 @@ where
             }
 
             self.bf5
-                .exec((&mut c_buffer[m * 5..(m + 1) * 5]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut c_buffer[m * 5..(m + 1) * 5]));
             self.bf5
-                .exec((&mut s_buffer[m * 5..(m + 1) * 5]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut s_buffer[m * 5..(m + 1) * 5]));
         }
 
         {
@@ -268,7 +269,7 @@ where
 
         for chunk in data.chunks_exact_mut(25) {
             self.exec(
-                (&mut chunk[..25]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
                 &mut c_buffer,
                 &mut s_buffer,
@@ -277,8 +278,45 @@ where
         Ok(())
     }
 
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 25);
+
+        let mut a_buffer = [T::zero(); 5];
+        let mut c_buffer = [T::zero(); 10];
+        let mut s_buffer = [T::zero(); 10];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(25).zip(output.chunks_exact_mut(25)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
+                &mut a_buffer,
+                &mut c_buffer,
+                &mut s_buffer,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
     fn length(&self) -> usize {
         25
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

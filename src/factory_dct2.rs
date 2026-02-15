@@ -345,9 +345,9 @@ impl Dct2Factory for f32 {
     }
 
     fn dct2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::power2_butterflies::Dct2Butterfly2;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
+            use crate::dct2::power2_butterflies::Dct2Butterfly2;
             Arc::new(Dct2Butterfly2::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()

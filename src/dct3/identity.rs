@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::util::DctSample;
+use crate::util::{DctSample, validate_oof_sizes};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
 
@@ -54,7 +54,35 @@ where
         Ok(())
     }
 
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+        for x in data.iter_mut() {
+            *x *= T::HALF;
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        validate_oof_sizes!(input, output, 1);
+        for (dst, &src) in output.iter_mut().zip(input.iter()) {
+            *dst = src * T::HALF;
+        }
+        Ok(())
+    }
+
     fn length(&self) -> usize {
         1
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }

@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::util::{DctSample, try_vec};
+use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -35,6 +35,7 @@ use zaft::{FftDirection, FftExecutor};
 
 pub struct Dct4Fft<T> {
     fft_executor: Arc<dyn FftExecutor<T> + Send + Sync>,
+    fft_scratch_size: usize,
     execution_length: usize,
 }
 
@@ -48,6 +49,7 @@ impl<T: DctSample> Dct4Fft<T> {
         );
 
         let len = fft_executor.length();
+        let fft_scratch_size = fft_executor.scratch_length();
 
         assert!(
             !len.is_multiple_of(2),
@@ -58,6 +60,7 @@ impl<T: DctSample> Dct4Fft<T> {
         Self {
             execution_length: len,
             fft_executor,
+            fft_scratch_size,
         }
     }
 }
@@ -67,13 +70,22 @@ where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(self.execution_length) {
             return Err(PxdctError::InvalidSizeMultiplier(
                 data.len(),
                 self.execution_length,
             ));
         }
-        let mut scratch = try_vec![Complex::<T>::default(); self.execution_length];
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (unprepared_scratch, c1) = full_scratch.split_at_mut(self.execution_length * 2);
+        let scratch = force_cast_real_scratch_to_complex(unprepared_scratch, self.execution_length);
+        let fft_scratch = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
 
         let len = self.length();
         let half_len = len / 2;
@@ -82,11 +94,12 @@ where
             let mut input_index = half_len;
             let mut fft_index = 0;
             while input_index < len {
-                scratch[fft_index] = Complex {
-                    re: chunk[input_index],
-                    im: T::zero(),
-                };
-
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: *chunk.get_unchecked(input_index),
+                        im: T::zero(),
+                    };
+                }
                 input_index += 4;
                 fft_index += 1;
             }
@@ -94,10 +107,12 @@ where
             //subtract len to simulate modular arithmetic
             input_index -= len;
             while input_index < len {
-                scratch[fft_index] = Complex {
-                    re: -chunk[len - input_index - 1],
-                    im: T::zero(),
-                };
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: -*chunk.get_unchecked(len - input_index - 1),
+                        im: T::zero(),
+                    };
+                }
 
                 input_index += 4;
                 fft_index += 1;
@@ -105,10 +120,12 @@ where
 
             input_index -= len;
             while input_index < len {
-                scratch[fft_index] = Complex {
-                    re: -chunk[input_index],
-                    im: T::zero(),
-                };
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: -*chunk.get_unchecked(input_index),
+                        im: T::zero(),
+                    };
+                }
 
                 input_index += 4;
                 fft_index += 1;
@@ -116,10 +133,12 @@ where
 
             input_index -= len;
             while input_index < len {
-                scratch[fft_index] = Complex {
-                    re: chunk[len - input_index - 1],
-                    im: T::zero(),
-                };
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: *chunk.get_unchecked(len - input_index - 1),
+                        im: T::zero(),
+                    };
+                }
 
                 input_index += 4;
                 fft_index += 1;
@@ -127,18 +146,19 @@ where
 
             input_index -= len;
             while fft_index < len {
-                scratch[fft_index] = Complex {
-                    re: chunk[input_index],
-                    im: T::zero(),
-                };
-
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: *chunk.get_unchecked(input_index),
+                        im: T::zero(),
+                    };
+                }
                 input_index += 4;
                 fft_index += 1;
             }
 
             // run the fft
             self.fft_executor
-                .execute(&mut scratch)
+                .execute_with_scratch(scratch, fft_scratch)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?;
 
             let result_scale = T::SQRT_2 * T::HALF;
@@ -181,9 +201,149 @@ where
         Ok(())
     }
 
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (unprepared_scratch, c1) = full_scratch.split_at_mut(self.execution_length * 2);
+        let scratch = force_cast_real_scratch_to_complex(unprepared_scratch, self.execution_length);
+        let fft_scratch = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
+
+        let len = self.length();
+        let half_len = len / 2;
+
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            let mut input_index = half_len;
+            let mut fft_index = 0;
+            while input_index < len {
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: *src.get_unchecked(input_index),
+                        im: T::zero(),
+                    };
+                }
+                input_index += 4;
+                fft_index += 1;
+            }
+
+            //subtract len to simulate modular arithmetic
+            input_index -= len;
+            while input_index < len {
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: -*src.get_unchecked(len - input_index - 1),
+                        im: T::zero(),
+                    };
+                }
+
+                input_index += 4;
+                fft_index += 1;
+            }
+
+            input_index -= len;
+            while input_index < len {
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: -*src.get_unchecked(input_index),
+                        im: T::zero(),
+                    };
+                }
+
+                input_index += 4;
+                fft_index += 1;
+            }
+
+            input_index -= len;
+            while input_index < len {
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: *src.get_unchecked(len - input_index - 1),
+                        im: T::zero(),
+                    };
+                }
+
+                input_index += 4;
+                fft_index += 1;
+            }
+
+            input_index -= len;
+            while fft_index < len {
+                unsafe {
+                    *scratch.get_unchecked_mut(fft_index) = Complex {
+                        re: *src.get_unchecked(input_index),
+                        im: T::zero(),
+                    };
+                }
+                input_index += 4;
+                fft_index += 1;
+            }
+
+            // run the fft
+            self.fft_executor
+                .execute_with_scratch(scratch, fft_scratch)
+                .map_err(|x| PxdctError::FftError(x.to_string()))?;
+
+            let result_scale = T::SQRT_2 * T::HALF;
+            let second_half_sign = if len % 4 == 1 { T::one() } else { -T::one() };
+
+            //post-process the results 4 at a time
+            let mut output_sign = T::one();
+
+            let (left, right) = dst.split_at_mut(half_len);
+
+            for ((l_dst, r_dst), scratch) in left
+                .chunks_exact_mut(2)
+                .zip(right.rchunks_exact_mut(2))
+                .zip(scratch.chunks_exact(4))
+            {
+                let fft_result = scratch[1] * (output_sign * result_scale);
+                let next_result = scratch[3] * (output_sign * result_scale);
+
+                l_dst[0] = fft_result.re + fft_result.im;
+                l_dst[1] = -next_result.re + next_result.im;
+
+                r_dst[0] = (next_result.re + next_result.im) * second_half_sign;
+                r_dst[1] = (fft_result.re - fft_result.im) * second_half_sign;
+
+                output_sign = output_sign.neg();
+            }
+
+            //we either have 1 or 3 elements left over that we couldn't get in the above loop, handle them here
+            if len % 4 == 1 {
+                dst[half_len] = scratch[0].re * output_sign * result_scale;
+            } else {
+                let fft_result = scratch[len - 2] * (output_sign * result_scale);
+
+                dst[half_len - 1] = fft_result.re + fft_result.im;
+                dst[half_len + 1] = -fft_result.re + fft_result.im;
+                dst[half_len] = -scratch[0].re * output_sign * result_scale;
+            }
+        }
+        Ok(())
+    }
+
     #[inline]
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length * 2 + self.fft_scratch_size * 2
     }
 }
 

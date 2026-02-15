@@ -28,7 +28,7 @@
  */
 use crate::neon::store_d::NeonStoreD;
 use crate::neon::util::NeonStoreF;
-use crate::util::{DctConstants, DctSample, try_vec};
+use crate::util::{DctConstants, DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
@@ -366,6 +366,7 @@ impl MixedRadix2Differences<f64> for f64 {
 pub(crate) struct NeonDct2MixedRadix2<T> {
     twiddles: Vec<T>,
     half_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    half_dct_scratch_size: usize,
     execution_length: usize,
 }
 
@@ -394,8 +395,11 @@ where
             *twiddle = 2f64.as_() * (((i as f64 * 2.).as_() + 1f64.as_()) * length_scale).cospi();
         }
 
+        let half_dct_scratch_size = half_dct.scratch_size();
+
         Ok(NeonDct2MixedRadix2 {
             half_dct,
+            half_dct_scratch_size,
             twiddles,
             execution_length: len,
         })
@@ -408,6 +412,11 @@ where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(self.execution_length) {
             return Err(PxdctError::InvalidSizeMultiplier(
                 data.len(),
@@ -415,7 +424,8 @@ where
             ));
         }
 
-        let mut scratch = try_vec![T::default(); self.execution_length];
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (scratch, inner_scratch) = full_scratch.split_at_mut(self.execution_length);
 
         let half_len = self.half_dct.length();
 
@@ -427,7 +437,7 @@ where
             T::modulate_input(a_buffer, b_buffer, left, right, &self.twiddles);
 
             if a_buffer.len() > 1 {
-                self.half_dct.execute(&mut scratch)?;
+                self.half_dct.execute_with_scratch(scratch, inner_scratch)?;
             }
 
             let (a_buffer, b_buffer) = scratch.split_at_mut(half_len);
@@ -438,9 +448,54 @@ where
         Ok(())
     }
 
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (scratch, inner_scratch) = full_scratch.split_at_mut(self.execution_length);
+
+        let half_len = self.half_dct.length();
+
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            let (a_buffer, b_buffer) = scratch.split_at_mut(half_len);
+
+            let (left, right) = src.split_at(half_len);
+
+            T::modulate_input(a_buffer, b_buffer, left, right, &self.twiddles);
+
+            if a_buffer.len() > 1 {
+                self.half_dct.execute_with_scratch(scratch, inner_scratch)?;
+            }
+
+            let (a_buffer, b_buffer) = scratch.split_at_mut(half_len);
+
+            T::accumulate(a_buffer, b_buffer, dst);
+        }
+        Ok(())
+    }
+
     #[inline]
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length + self.half_dct_scratch_size
     }
 }
 #[cfg(test)]

@@ -27,6 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::avx::util::{define_avx_butterfly, fma};
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct3::{Dct3Butterfly4, Dct3Butterfly8};
 use crate::dst3_butterfly::Dst3Butterfly4;
 use crate::factory_dct3::Dct3Factory;
@@ -66,12 +67,12 @@ where
 
 impl<T: DctSample> AvxDct3Butterfly16<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 16]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         //process the evens
         let mut dct3_buffer = [
             data[0], data[2], data[4], data[6], data[8], data[10], data[12], data[14],
         ];
-        self.bf8.exec(&mut dct3_buffer);
+        self.bf8.exec(&mut InPlaceStore::new(&mut dct3_buffer));
 
         //process the odds
         let mut odds_n1 = [
@@ -86,8 +87,8 @@ impl<T: DctSample> AvxDct3Butterfly16<T> {
             data[11] - data[13],
             data[15] * T::TWO,
         ];
-        self.bf4.exec(&mut odds_n1);
-        self.bf4_dst.exec(&mut odds_n3);
+        self.bf4.exec(&mut InPlaceStore::new(&mut odds_n1));
+        self.bf4_dst.exec(&mut InPlaceStore::new(&mut odds_n3));
 
         let lower_dct4_0 = fma(
             odds_n1[0],
@@ -180,7 +181,7 @@ where
 
 impl<T: DctSample> AvxDct3Butterfly32<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 32]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let mut evens = [
             data[0], data[2], data[4], data[6], data[8], data[10], data[12], data[14], data[16],
             data[18], data[20], data[22], data[24], data[26], data[28], data[30],
@@ -206,9 +207,11 @@ impl<T: DctSample> AvxDct3Butterfly32<T> {
             data[3] - data[5],
         ];
 
-        self.bf16.exec(&mut evens);
-        self.bf8.exec(&mut recursive_input_n1);
-        self.bf8.exec(&mut recursive_input_n3);
+        self.bf16.exec(&mut InPlaceStore::new(&mut evens));
+        self.bf8
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n1));
+        self.bf8
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n3));
 
         let tw0 = self.twiddles[0];
         let cosine_value0 = recursive_input_n1[0];
@@ -325,7 +328,7 @@ where
 
 impl<T: DctSample> AvxDct3Butterfly64<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 64]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let mut evens = [
             data[0], data[2], data[4], data[6], data[8], data[10], data[12], data[14], data[16],
             data[18], data[20], data[22], data[24], data[26], data[28], data[30], data[32],
@@ -370,8 +373,10 @@ impl<T: DctSample> AvxDct3Butterfly64<T> {
         ];
 
         _ = self.bf32.execute(&mut evens);
-        self.bf16.exec(&mut recursive_input_n1);
-        self.bf16.exec(&mut recursive_input_n3);
+        self.bf16
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n1));
+        self.bf16
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n3));
 
         let tw0 = self.twiddles[0];
         let cosine_value0 = recursive_input_n1[0];
@@ -560,7 +565,6 @@ mod tests {
     use crate::PxdctExecutor;
     use crate::avx::dct2_bf_power2::gen_test_avx_butterfly;
     use crate::tests::naive_dct3;
-    use rand::Rng;
 
     gen_test_avx_butterfly!(test_bf_dct3_16, AvxDct3Butterfly16, 16, 1e-7, naive_dct3);
     gen_test_avx_butterfly!(test_bf_dct3_32, AvxDct3Butterfly32, 32, 1e-7, naive_dct3);

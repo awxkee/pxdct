@@ -40,6 +40,7 @@ mod mixed_radix7;
 mod mixed_radix9;
 pub mod power2_butterflies;
 pub mod prime_butterflies;
+mod scaled_butterflies;
 mod split_radix;
 mod util;
 
@@ -63,8 +64,15 @@ pub(crate) use mixed_radix7::{Dct2MixedRadix7, MixedRadix7Sample};
 pub(crate) use mixed_radix9::Dct2MixedRadix9;
 pub(crate) use mixed_radix11::Dct2MixedRadix11;
 pub(crate) use mixed_radix13::Dct2MixedRadix13;
+pub(crate) use power2_butterflies::{
+    ScaledDct2Butterfly32, ScaledDct2Butterfly64, ScaledDct2Butterfly128, ScaledDct2Butterfly256,
+    ScaledDct2Butterfly512,
+};
+pub(crate) use scaled_butterflies::{
+    ScaledDct2Butterfly4, ScaledDct2Butterfly8, ScaledDct2Butterfly16,
+};
 #[allow(unused)]
-pub(crate) use split_radix::{SplitRadixDct2, SplitRadixDst2};
+pub(crate) use split_radix::{ScaledSplitRadixDct2, SplitRadixDct2, SplitRadixDst2};
 #[allow(unused)]
 pub(crate) use util::{
     radixq_cos_twiddle, radixq_even_twiddle, radixq_odd_twiddlej, radixq_rotation_twiddle,

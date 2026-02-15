@@ -27,10 +27,11 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #![allow(unused)]
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::factory_dct2::Dct2Factory;
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::{DctSample, define_butterfly};
+use crate::util::{DctSample, define_in_place_butterfly, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -44,7 +45,7 @@ pub(crate) struct Dst2Butterfly2<T> {
 
 impl<T: DctSample> Dst2Butterfly2<T> {
     #[inline(always)]
-    pub(crate) fn exec(data: &mut [T; 2]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let u0 = data[0];
         let u1 = data[1];
         let sum = u0 - u1;
@@ -55,28 +56,7 @@ impl<T: DctSample> Dst2Butterfly2<T> {
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dst2Butterfly2<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(2) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(2) {
-            let u0 = chunk[0];
-            let u1 = chunk[1];
-            let sum = u0 - u1;
-            chunk[0] = (u0 + u1) * T::FRAC_1_SQRT_2;
-            chunk[1] = sum;
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        2
-    }
-}
+define_in_place_butterfly!(Dst2Butterfly2, 2);
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Dct2Butterfly2<T> {
@@ -85,7 +65,7 @@ pub(crate) struct Dct2Butterfly2<T> {
 
 impl<T: DctSample> Dct2Butterfly2<T> {
     #[inline(always)]
-    pub(crate) fn exec(data: &mut [T; 2]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let sum = data[0] + data[1];
         let v1 = (data[0] - data[1]) * T::FRAC_1_SQRT_2;
         let v0 = sum;
@@ -94,30 +74,12 @@ impl<T: DctSample> Dct2Butterfly2<T> {
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct2Butterfly2<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(2) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(2) {
-            let sum = chunk[0] + chunk[1];
-            chunk[1] = (chunk[0] - chunk[1]) * T::FRAC_1_SQRT_2;
-            chunk[0] = sum;
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        2
-    }
-}
+define_in_place_butterfly!(Dct2Butterfly2, 2);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct2Butterfly4<T: DctSample> {
     twiddle: Complex<T>,
+    bf2: Dct2Butterfly2<T>,
 }
 
 impl<T: DctSample> Default for Dct2Butterfly4<T>
@@ -127,6 +89,7 @@ where
     fn default() -> Self {
         Self {
             twiddle: compute_twiddle(1, 16).conj(),
+            bf2: Dct2Butterfly2::default(),
         }
     }
 }
@@ -136,7 +99,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 4]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let u0 = data[0];
         let u1 = data[1];
         let u2 = data[2];
@@ -147,7 +110,7 @@ where
 
         let mut dct_evens = [u0 + u3, u2 + u1];
 
-        Dct2Butterfly2::exec(&mut dct_evens);
+        self.bf2.exec(&mut InPlaceStore::new(&mut dct_evens));
 
         let v1 = fmla(lower_dct4, self.twiddle.re, -upper_dct4 * self.twiddle.im);
         let v3 = fmla(upper_dct4, self.twiddle.re, lower_dct4 * self.twiddle.im);
@@ -158,11 +121,12 @@ where
     }
 }
 
-define_butterfly!(Dct2Butterfly4, 4);
+define_in_place_butterfly!(Dct2Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dst2Butterfly4<T: DctSample> {
     twiddle: Complex<T>,
+    bf2: Dct2Butterfly2<T>,
 }
 
 impl<T: DctSample> Default for Dst2Butterfly4<T>
@@ -172,6 +136,7 @@ where
     fn default() -> Self {
         Self {
             twiddle: compute_twiddle(1, 16).conj(),
+            bf2: Dct2Butterfly2::default(),
         }
     }
 }
@@ -181,7 +146,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(&self, data: &[T; 4]) -> [T; 4] {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let u0 = data[0];
         let u1 = data[1];
         let u2 = data[2];
@@ -192,45 +157,24 @@ where
 
         let mut dct_evens = [u0 - u3, u2 - u1];
 
-        Dct2Butterfly2::exec(&mut dct_evens);
+        self.bf2.exec(&mut InPlaceStore::new(&mut dct_evens));
 
         let v2 = fmla(lower_dct4, self.twiddle.re, -upper_dct4 * self.twiddle.im);
         let v0 = fmla(upper_dct4, self.twiddle.re, lower_dct4 * self.twiddle.im);
-        [v0, dct_evens[1], v2, dct_evens[0]]
+        data[0] = v0;
+        data[1] = dct_evens[1];
+        data[2] = v2;
+        data[3] = dct_evens[0];
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dst2Butterfly4<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(4) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(4) {
-            let u0 = chunk[0];
-            let u1 = chunk[1];
-            let u2 = chunk[2];
-            let u3 = chunk[3];
-
-            let w = self.exec(&[u0, u1, u2, u3]);
-            chunk[0] = w[0];
-            chunk[1] = w[1];
-            chunk[2] = w[2];
-            chunk[3] = w[3];
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        4
-    }
-}
+define_in_place_butterfly!(Dst2Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct2Butterfly8<T: DctSample> {
-    bf4: Dct2Butterfly4<T>,
+    pub(crate) bf4: Dct2Butterfly4<T>,
+    bf2_dct: Dct2Butterfly2<T>,
+    bf2_dst: Dst2Butterfly2<T>,
     twiddle0: Complex<T>,
     twiddle1: Complex<T>,
 }
@@ -244,6 +188,8 @@ where
             bf4: Dct2Butterfly4::default(),
             twiddle0: compute_twiddle(1, 32).conj(),
             twiddle1: compute_twiddle(3, 32).conj(),
+            bf2_dct: Dct2Butterfly2::default(),
+            bf2_dst: Dst2Butterfly2::default(),
         }
     }
 }
@@ -253,7 +199,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 8]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let u0 = data[0];
         let u1 = data[1];
         let u2 = data[2];
@@ -264,7 +210,7 @@ where
         let u7 = data[7];
 
         let mut dct2_buffer = [u0 + u7, u1 + u6, u2 + u5, u3 + u4];
-        self.bf4.exec(&mut dct2_buffer);
+        self.bf4.exec(&mut InPlaceStore::new(&mut dct2_buffer));
 
         // odds
         let differences = [u0 - u7, u3 - u4, u1 - u6, u2 - u5];
@@ -282,7 +228,8 @@ where
             ),
         ];
 
-        Dct2Butterfly2::exec(&mut dct4_even_buffer);
+        self.bf2_dct
+            .exec(&mut InPlaceStore::new(&mut dct4_even_buffer));
         let mut dct4_odd_buffer = [
             fmla(
                 differences[3],
@@ -295,7 +242,8 @@ where
                 -differences[0] * self.twiddle0.im,
             ),
         ];
-        Dst2Butterfly2::exec(&mut dct4_odd_buffer);
+        self.bf2_dst
+            .exec(&mut InPlaceStore::new(&mut dct4_odd_buffer));
 
         // combine the results
         data[0] = dct2_buffer[0];
@@ -309,7 +257,7 @@ where
     }
 }
 
-define_butterfly!(Dct2Butterfly8, 8);
+define_in_place_butterfly!(Dct2Butterfly8, 8);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct2Butterfly16<T: DctSample> {
@@ -342,7 +290,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, chunk: &mut [T; 16]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, chunk: &mut S) {
         let u0 = chunk[0];
         let u1 = chunk[1];
         let u2 = chunk[2];
@@ -371,7 +319,7 @@ where
             u6 + u9,
             u7 + u8,
         ];
-        self.bf8.exec(&mut dct2_buffer);
+        self.bf8.exec(&mut InPlaceStore::new(&mut dct2_buffer));
 
         //process the odds
         let differences = [
@@ -407,7 +355,7 @@ where
                 differences[7] * self.twiddle3.im,
             ),
         ];
-        let dct4_odd_buffer = [
+        let mut dct4_odd_buffer = [
             fmla(
                 differences[7],
                 self.twiddle3.re,
@@ -430,8 +378,11 @@ where
             ),
         ];
 
-        self.bf8.bf4.exec(&mut dct4_even_buffer);
-        let dct4_odd_buffer = self.bf4_dst.exec(&dct4_odd_buffer);
+        self.bf8
+            .bf4
+            .exec(&mut InPlaceStore::new(&mut dct4_even_buffer));
+        self.bf4_dst
+            .exec(&mut InPlaceStore::new(&mut dct4_odd_buffer));
 
         // combine the results
         chunk[0] = dct2_buffer[0];
@@ -453,16 +404,16 @@ where
     }
 }
 
-define_butterfly!(Dct2Butterfly16, 16);
+define_in_place_butterfly!(Dct2Butterfly16, 16);
 
 #[derive(Debug, Clone)]
-pub(crate) struct Dct2Butterfly32<T: DctSample> {
+pub(crate) struct Dct2Butterfly32Impl<T: DctSample, const SCALED: bool> {
     bf8: Dct2Butterfly8<T>,
     bf16: Dct2Butterfly16<T>,
     twiddles: [Complex<T>; 8],
 }
 
-impl<T: DctSample> Default for Dct2Butterfly32<T>
+impl<T: DctSample, const SCALED: bool> Default for Dct2Butterfly32Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -471,7 +422,11 @@ where
         use crate::twiddles::compute_twiddle;
         let mut twiddles = [Complex::<T>::default(); 8];
         for (i, twiddle) in twiddles.iter_mut().enumerate() {
-            *twiddle = compute_twiddle::<T>(2 * i + 1, 32 * 4).conj();
+            if SCALED {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 32 * 4).conj() * T::QUARTER;
+            } else {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 32 * 4).conj();
+            }
         }
         Self {
             twiddles,
@@ -481,14 +436,14 @@ where
     }
 }
 
-impl<T: DctSample> Dct2Butterfly32<T>
+impl<T: DctSample, const SCALED: bool> Dct2Butterfly32Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<T>>(
         &self,
-        data: &mut [T; 32],
+        data: &mut S,
         input_dct2: &mut [T; 16],
         dct4_even: &mut [T; 8],
         dct4_odd: &mut [T; 8],
@@ -504,10 +459,20 @@ where
             let input_half_top = data[16 + i];
 
             //prepare the inner DCT2
-            unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
-            unsafe {
-                *input_dct2.get_unchecked_mut(16 - i - 1) = input_half_bottom + input_half_top
-            };
+            if SCALED {
+                unsafe {
+                    *input_dct2.get_unchecked_mut(i) = (input_top + input_bottom) * T::QUARTER
+                };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(16 - i - 1) =
+                        (input_half_bottom + input_half_top) * T::QUARTER
+                };
+            } else {
+                unsafe { *input_dct2.get_unchecked_mut(i) = (input_top + input_bottom) };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(16 - i - 1) = (input_half_bottom + input_half_top)
+                };
+            }
 
             //prepare the inner DCT4 - which consists of two DCT2s of half size
             let lower_dct4 = input_bottom - input_top;
@@ -523,9 +488,9 @@ where
             };
         }
 
-        self.bf16.exec(input_dct2);
-        self.bf8.exec(dct4_even);
-        self.bf8.exec(dct4_odd);
+        self.bf16.exec(&mut InPlaceStore::new(input_dct2));
+        self.bf8.exec(&mut InPlaceStore::new(dct4_even));
+        self.bf8.exec(&mut InPlaceStore::new(dct4_odd));
 
         unsafe {
             data[0] = *input_dct2.get_unchecked(0);
@@ -540,19 +505,19 @@ where
                     *dct4_odd.get_unchecked(8 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(32 - 1) = -*dct4_odd.get_unchecked(0);
+            data[32 - 1] = -*dct4_odd.get_unchecked(0);
         }
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct2Butterfly32<T>
+impl<T: DctSample, const SCALED: bool> PxdctExecutor<T> for Dct2Butterfly32Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
@@ -567,7 +532,40 @@ where
 
         for chunk in data.chunks_exact_mut(32) {
             self.exec(
-                (&mut chunk[..32]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut dct4_even,
+                &mut dct4_odd,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 32);
+
+        let mut input_dct2 = [T::zero(); 16];
+        let mut dct4_even = [T::zero(); 8];
+        let mut dct4_odd = [T::zero(); 8];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(32).zip(output.chunks_exact_mut(32)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut dct4_even,
                 &mut dct4_odd,
@@ -579,16 +577,23 @@ where
     fn length(&self) -> usize {
         32
     }
+
+    fn scratch_size(&self) -> usize {
+        32
+    }
 }
 
+pub(crate) type Dct2Butterfly32<T> = Dct2Butterfly32Impl<T, false>;
+pub(crate) type ScaledDct2Butterfly32<T> = Dct2Butterfly32Impl<T, true>;
+
 #[derive(Debug, Clone)]
-pub(crate) struct Dct2Butterfly64<T: DctSample> {
+pub(crate) struct Dct2Butterfly64Impl<T: DctSample, const SCALED: bool> {
     bf32: Dct2Butterfly32<T>,
     bf16: Dct2Butterfly16<T>,
     twiddles: [Complex<T>; 16],
 }
 
-impl<T: DctSample> Default for Dct2Butterfly64<T>
+impl<T: DctSample, const SCALED: bool> Default for Dct2Butterfly64Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -597,7 +602,11 @@ where
         use crate::twiddles::compute_twiddle;
         let mut twiddles = [Complex::<T>::default(); 16];
         for (i, twiddle) in twiddles.iter_mut().enumerate() {
-            *twiddle = compute_twiddle::<T>(2 * i + 1, 64 * 4).conj();
+            if SCALED {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 64 * 4).conj() * T::SQRT_2_OVER_64;
+            } else {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 64 * 4).conj();
+            }
         }
         Self {
             twiddles,
@@ -607,14 +616,14 @@ where
     }
 }
 
-impl<T: DctSample> Dct2Butterfly64<T>
+impl<T: DctSample, const SCALED: bool> Dct2Butterfly64Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<T>>(
         &self,
-        data: &mut [T; 64],
+        data: &mut S,
         input_dct2: &mut [T; 32],
         input_dct4_even: &mut [T; 16],
         input_dct4_odd: &mut [T; 16],
@@ -633,10 +642,21 @@ where
             let input_half_top = data[32 + i];
 
             //prepare the inner DCT2
-            unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
-            unsafe {
-                *input_dct2.get_unchecked_mut(32 - i - 1) = input_half_bottom + input_half_top
-            };
+            if SCALED {
+                unsafe {
+                    *input_dct2.get_unchecked_mut(i) =
+                        (input_top + input_bottom) * T::SQRT_2_OVER_64
+                };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(32 - i - 1) =
+                        (input_half_bottom + input_half_top) * T::SQRT_2_OVER_64
+                };
+            } else {
+                unsafe { *input_dct2.get_unchecked_mut(i) = (input_top + input_bottom) };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(32 - i - 1) = (input_half_bottom + input_half_top)
+                };
+            }
 
             //prepare the inner DCT4 - which consists of two DCT2s of half size
             let lower_dct4 = input_bottom - input_top;
@@ -652,10 +672,14 @@ where
             };
         }
 
-        self.bf32
-            .exec(input_dct2, input_dct21, dct4_even1, dct4_odd1);
-        self.bf16.exec(input_dct4_even);
-        self.bf16.exec(input_dct4_odd);
+        self.bf32.exec(
+            &mut InPlaceStore::new(input_dct2),
+            input_dct21,
+            dct4_even1,
+            dct4_odd1,
+        );
+        self.bf16.exec(&mut InPlaceStore::new(input_dct4_even));
+        self.bf16.exec(&mut InPlaceStore::new(input_dct4_odd));
 
         unsafe {
             data[0] = *input_dct2.get_unchecked(0);
@@ -670,19 +694,19 @@ where
                     *input_dct4_odd.get_unchecked(16 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(64 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[64 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct2Butterfly64<T>
+impl<T: DctSample, const SCALED: bool> PxdctExecutor<T> for Dct2Butterfly64Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
@@ -701,7 +725,47 @@ where
 
         for chunk in data.chunks_exact_mut(64) {
             self.exec(
-                (&mut chunk[..64]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4_even,
+                &mut input_dct4_odd,
+                &mut input_dct21,
+                &mut dct4_even,
+                &mut dct4_odd,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 64);
+
+        let mut input_dct2 = [T::zero(); 32];
+        let mut input_dct4_even = [T::zero(); 16];
+        let mut input_dct4_odd = [T::zero(); 16];
+
+        let mut input_dct21 = [T::zero(); 16];
+        let mut dct4_even = [T::zero(); 8];
+        let mut dct4_odd = [T::zero(); 8];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(64).zip(output.chunks_exact_mut(64)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4_even,
                 &mut input_dct4_odd,
@@ -716,16 +780,23 @@ where
     fn length(&self) -> usize {
         64
     }
+
+    fn scratch_size(&self) -> usize {
+        0
+    }
 }
 
+pub(crate) type Dct2Butterfly64<T> = Dct2Butterfly64Impl<T, false>;
+pub(crate) type ScaledDct2Butterfly64<T> = Dct2Butterfly64Impl<T, true>;
+
 #[derive(Clone)]
-pub(crate) struct Dct2Butterfly128<T: DctSample> {
+pub(crate) struct Dct2Butterfly128Impl<T: DctSample, const SCALED: bool> {
     bf64: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     bf32: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     twiddles: [Complex<T>; 32],
 }
 
-impl<T: DctSample + Dct2Factory> Default for Dct2Butterfly128<T>
+impl<T: DctSample + Dct2Factory, const SCALED: bool> Default for Dct2Butterfly128Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -734,7 +805,11 @@ where
         use crate::twiddles::compute_twiddle;
         let mut twiddles = [Complex::<T>::default(); 32];
         for (i, twiddle) in twiddles.iter_mut().enumerate() {
-            *twiddle = compute_twiddle::<T>(2 * i + 1, 128 * 4).conj();
+            if SCALED {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 128 * 4).conj() * T::ONE_EIGHT;
+            } else {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 128 * 4).conj();
+            }
         }
         Self {
             twiddles,
@@ -744,12 +819,17 @@ where
     }
 }
 
-impl<T: DctSample> Dct2Butterfly128<T>
+impl<T: DctSample, const SCALED: bool> Dct2Butterfly128Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(&self, data: &mut [T; 128], input_dct2: &mut [T; 64], input_dct4: &mut [T; 64]) {
+    fn exec<S: BidirectionalStore<T>>(
+        &self,
+        data: &mut S,
+        input_dct2: &mut [T; 64],
+        input_dct4: &mut [T; 64],
+    ) {
         let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(32);
 
         //preprocess the data by splitting it up into vectors of size n/2, n/4, and n/4
@@ -763,10 +843,20 @@ where
             let input_half_top = data[64 + i];
 
             //prepare the inner DCT2
-            unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
-            unsafe {
-                *input_dct2.get_unchecked_mut(64 - i - 1) = input_half_bottom + input_half_top
-            };
+            if SCALED {
+                unsafe {
+                    *input_dct2.get_unchecked_mut(i) = (input_top + input_bottom) * T::ONE_EIGHT
+                };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(64 - i - 1) =
+                        (input_half_bottom + input_half_top) * T::ONE_EIGHT
+                };
+            } else {
+                unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(64 - i - 1) = input_half_bottom + input_half_top
+                };
+            }
 
             //prepare the inner DCT4 - which consists of two DCT2s of half size
             let lower_dct4 = input_bottom - input_top;
@@ -800,23 +890,27 @@ where
                     *input_dct4_odd.get_unchecked(32 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(128 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[128 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct2Butterfly128<T>
+impl<T: DctSample, const SCALED: bool> PxdctExecutor<T> for Dct2Butterfly128Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(128) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -826,7 +920,34 @@ where
 
         for chunk in data.chunks_exact_mut(128) {
             self.exec(
-                (&mut chunk[..128]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 128);
+
+        let mut input_dct2 = [T::zero(); 64];
+        let mut input_dct4 = [T::zero(); 64];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(128).zip(output.chunks_exact_mut(128)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -837,16 +958,23 @@ where
     fn length(&self) -> usize {
         128
     }
+
+    fn scratch_size(&self) -> usize {
+        128
+    }
 }
 
+pub(crate) type Dct2Butterfly128<T> = Dct2Butterfly128Impl<T, false>;
+pub(crate) type ScaledDct2Butterfly128<T> = Dct2Butterfly128Impl<T, true>;
+
 #[derive(Clone)]
-pub(crate) struct Dct2Butterfly256<T: DctSample> {
+pub(crate) struct Dct2Butterfly256Impl<T: DctSample, const SCALE: bool> {
     bf128: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     bf64: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     twiddles: [Complex<T>; 64],
 }
 
-impl<T: DctSample + Dct2Factory> Default for Dct2Butterfly256<T>
+impl<T: DctSample + Dct2Factory, const SCALE: bool> Default for Dct2Butterfly256Impl<T, SCALE>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -855,7 +983,11 @@ where
         use crate::twiddles::compute_twiddle;
         let mut twiddles = [Complex::<T>::default(); 64];
         for (i, twiddle) in twiddles.iter_mut().enumerate() {
-            *twiddle = compute_twiddle::<T>(2 * i + 1, 256 * 4).conj();
+            if SCALE {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 256 * 4).conj() * T::SQRT_2_OVER_256;
+            } else {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 256 * 4).conj();
+            }
         }
         Self {
             twiddles,
@@ -865,12 +997,17 @@ where
     }
 }
 
-impl<T: DctSample> Dct2Butterfly256<T>
+impl<T: DctSample, const SCALE: bool> Dct2Butterfly256Impl<T, SCALE>
 where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(&self, data: &mut [T; 256], input_dct2: &mut [T; 128], input_dct4: &mut [T; 128]) {
+    fn exec<S: BidirectionalStore<T>>(
+        &self,
+        data: &mut S,
+        input_dct2: &mut [T; 128],
+        input_dct4: &mut [T; 128],
+    ) {
         let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(64);
 
         //preprocess the data by splitting it up into vectors of size n/2, n/4, and n/4
@@ -884,10 +1021,21 @@ where
             let input_half_top = data[128 + i];
 
             //prepare the inner DCT2
-            unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
-            unsafe {
-                *input_dct2.get_unchecked_mut(128 - i - 1) = input_half_bottom + input_half_top
-            };
+            if SCALE {
+                unsafe {
+                    *input_dct2.get_unchecked_mut(i) =
+                        (input_top + input_bottom) * T::SQRT_2_OVER_256
+                };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(128 - i - 1) =
+                        (input_half_bottom + input_half_top) * T::SQRT_2_OVER_256
+                };
+            } else {
+                unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(128 - i - 1) = input_half_bottom + input_half_top
+                };
+            }
 
             //prepare the inner DCT4 - which consists of two DCT2s of half size
             let lower_dct4 = input_bottom - input_top;
@@ -921,23 +1069,26 @@ where
                     *input_dct4_odd.get_unchecked(64 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
-
-            *data.get_unchecked_mut(256 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[256 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct2Butterfly256<T>
+impl<T: DctSample, const SCALE: bool> PxdctExecutor<T> for Dct2Butterfly256Impl<T, SCALE>
 where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(256) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -947,7 +1098,34 @@ where
 
         for chunk in data.chunks_exact_mut(256) {
             self.exec(
-                (&mut chunk[..256]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 256);
+
+        let mut input_dct2 = [T::zero(); 128];
+        let mut input_dct4 = [T::zero(); 128];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(256).zip(output.chunks_exact_mut(256)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -958,16 +1136,23 @@ where
     fn length(&self) -> usize {
         256
     }
+
+    fn scratch_size(&self) -> usize {
+        0
+    }
 }
 
+pub(crate) type Dct2Butterfly256<T> = Dct2Butterfly256Impl<T, false>;
+pub(crate) type ScaledDct2Butterfly256<T> = Dct2Butterfly256Impl<T, true>;
+
 #[derive(Clone)]
-pub(crate) struct Dct2Butterfly512<T: DctSample> {
+pub(crate) struct Dct2Butterfly512Impl<T: DctSample, const SCALE: bool> {
     bf128: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     bf256: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     twiddles: [Complex<T>; 128],
 }
 
-impl<T: DctSample + Dct2Factory> Default for Dct2Butterfly512<T>
+impl<T: DctSample + Dct2Factory, const SCALE: bool> Default for Dct2Butterfly512Impl<T, SCALE>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -976,7 +1161,11 @@ where
         use crate::twiddles::compute_twiddle;
         let mut twiddles = [Complex::<T>::default(); 128];
         for (i, twiddle) in twiddles.iter_mut().enumerate() {
-            *twiddle = compute_twiddle::<T>(2 * i + 1, 512 * 4).conj();
+            if SCALE {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 512 * 4).conj() * T::SQRT_2_OVER_512;
+            } else {
+                *twiddle = compute_twiddle::<T>(2 * i + 1, 512 * 4).conj();
+            }
         }
         Self {
             twiddles,
@@ -986,12 +1175,17 @@ where
     }
 }
 
-impl<T: DctSample> Dct2Butterfly512<T>
+impl<T: DctSample, const SCALED: bool> Dct2Butterfly512Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    fn exec(&self, data: &mut [T; 512], input_dct2: &mut [T; 256], input_dct4: &mut [T; 256]) {
+    fn exec<S: BidirectionalStore<T>>(
+        &self,
+        data: &mut S,
+        input_dct2: &mut [T; 256],
+        input_dct4: &mut [T; 256],
+    ) {
         let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(128);
 
         //preprocess the data by splitting it up into vectors of size n/2, n/4, and n/4
@@ -1005,10 +1199,21 @@ where
             let input_half_top = data[256 + i];
 
             //prepare the inner DCT2
-            unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
-            unsafe {
-                *input_dct2.get_unchecked_mut(256 - i - 1) = input_half_bottom + input_half_top
-            };
+            if SCALED {
+                unsafe {
+                    *input_dct2.get_unchecked_mut(i) =
+                        (input_top + input_bottom) * T::SQRT_2_OVER_512
+                };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(256 - i - 1) =
+                        (input_half_bottom + input_half_top) * T::SQRT_2_OVER_512
+                };
+            } else {
+                unsafe { *input_dct2.get_unchecked_mut(i) = input_top + input_bottom };
+                unsafe {
+                    *input_dct2.get_unchecked_mut(256 - i - 1) = input_half_bottom + input_half_top
+                };
+            }
 
             //prepare the inner DCT4 - which consists of two DCT2s of half size
             let lower_dct4 = input_bottom - input_top;
@@ -1042,23 +1247,27 @@ where
                     *input_dct4_odd.get_unchecked(128 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(512 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[512 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct2Butterfly512<T>
+impl<T: DctSample, const SCALED: bool> PxdctExecutor<T> for Dct2Butterfly512Impl<T, SCALED>
 where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(512) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -1068,7 +1277,34 @@ where
 
         for chunk in data.chunks_exact_mut(512) {
             self.exec(
-                (&mut chunk[..512]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 512);
+
+        let mut input_dct2 = [T::zero(); 256];
+        let mut input_dct4 = [T::zero(); 256];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(512).zip(output.chunks_exact_mut(512)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -1079,14 +1315,21 @@ where
     fn length(&self) -> usize {
         512
     }
+
+    fn scratch_size(&self) -> usize {
+        0
+    }
 }
+
+pub(crate) type Dct2Butterfly512<T> = Dct2Butterfly512Impl<T, false>;
+pub(crate) type ScaledDct2Butterfly512<T> = Dct2Butterfly512Impl<T, true>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
-    use crate::tests::{naive_dct2, naive_dst2};
+    use crate::tests::{naive_dct2, naive_dst2, naive_scaled_dct2};
     use rand::Rng;
 
     gen_test_butterfly!(test_bf_dst2, f64, Dst2Butterfly2, 2, 1e-7, naive_dst2);
@@ -1101,4 +1344,45 @@ mod tests {
     gen_test_butterfly!(test_bf128, f64, Dct2Butterfly128, 128, 1e-7, naive_dct2);
     gen_test_butterfly!(test_bf256, f64, Dct2Butterfly256, 256, 1e-7, naive_dct2);
     gen_test_butterfly!(test_bf512, f64, Dct2Butterfly512, 512, 1e-7, naive_dct2);
+
+    gen_test_butterfly!(
+        test_scaled_bf32,
+        f64,
+        ScaledDct2Butterfly32,
+        32,
+        1e-7,
+        naive_scaled_dct2
+    );
+    gen_test_butterfly!(
+        test_scaled_bf64,
+        f64,
+        ScaledDct2Butterfly64,
+        64,
+        1e-7,
+        naive_scaled_dct2
+    );
+    gen_test_butterfly!(
+        test_scaled_bf128,
+        f64,
+        ScaledDct2Butterfly128,
+        128,
+        1e-7,
+        naive_scaled_dct2
+    );
+    gen_test_butterfly!(
+        test_scaled_bf256,
+        f64,
+        ScaledDct2Butterfly256,
+        256,
+        1e-7,
+        naive_scaled_dct2
+    );
+    gen_test_butterfly!(
+        test_scaled_bf512,
+        f64,
+        ScaledDct2Butterfly512,
+        512,
+        1e-7,
+        naive_scaled_dct2
+    );
 }

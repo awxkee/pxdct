@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
 use crate::factory_dct2::Dct2Factory;
 use crate::mla::fmla;
@@ -35,7 +36,9 @@ use crate::{PxdctError, PxdctExecutor};
 use num_traits::Zero;
 use std::sync::Arc;
 
-pub(crate) fn dct2_split_radix_rotation_twiddles_neond(len: usize) -> Vec<NeonStoreD> {
+pub(crate) fn dct2_split_radix_rotation_twiddles_neond<const SCALED: bool>(
+    len: usize,
+) -> Vec<NeonStoreD> {
     let twiddles_len = len / 4;
     let simd_groups = len.div_ceil(2);
 
@@ -44,13 +47,19 @@ pub(crate) fn dct2_split_radix_rotation_twiddles_neond(len: usize) -> Vec<NeonSt
     // Times inner_groups for each m
     let mut twiddles = Vec::with_capacity(simd_groups * 2);
 
+    let scale = (2. / len as f64).sqrt();
+
     let mut uk = 0usize;
     while uk + 2 <= twiddles_len {
         let mut array_re = [0.; 2];
         let mut array_im = [0.; 2];
         for ki in 0..2 {
             let i = uk + ki;
-            let twiddle = compute_twiddle::<f64>(2 * i + 1, len * 4).conj();
+            let twiddle = if SCALED {
+                compute_twiddle::<f64>(2 * i + 1, len * 4).conj() * scale
+            } else {
+                compute_twiddle::<f64>(2 * i + 1, len * 4).conj()
+            };
             array_re[ki] = twiddle.re;
             array_im[ki] = twiddle.im;
         }
@@ -67,7 +76,11 @@ pub(crate) fn dct2_split_radix_rotation_twiddles_neond(len: usize) -> Vec<NeonSt
         let mut array_im = [0.; 2];
         for i in 0..remainder {
             let i = uk + i;
-            let twiddle = compute_twiddle::<f64>(2 * i + 1, len * 4).conj();
+            let twiddle = if SCALED {
+                compute_twiddle::<f64>(2 * i + 1, len * 4).conj() * scale
+            } else {
+                compute_twiddle::<f64>(2 * i + 1, len * 4).conj()
+            };
             array_re[i] = twiddle.re;
             array_im[i] = twiddle.im;
         }
@@ -88,7 +101,7 @@ pub(crate) struct NeonDct2Butterfly32d {
 
 impl Default for NeonDct2Butterfly32d {
     fn default() -> Self {
-        let twiddles = dct2_split_radix_rotation_twiddles_neond(32);
+        let twiddles = dct2_split_radix_rotation_twiddles_neond::<false>(32);
         Self {
             twiddles: twiddles.try_into().unwrap(),
             bf8: Dct2Butterfly8::default(),
@@ -99,9 +112,9 @@ impl Default for NeonDct2Butterfly32d {
 
 impl NeonDct2Butterfly32d {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f64>>(
         &self,
-        data: &mut [f64; 32],
+        data: &mut S,
         input_dct2: &mut [f64; 16],
         input_dct4_even: &mut [f64; 8],
         input_dct4_odd: &mut [f64; 8],
@@ -113,11 +126,11 @@ impl NeonDct2Butterfly32d {
         for i in 0..4 {
             let twiddle_re = self.twiddles[i * 2];
             let twiddle_im = self.twiddles[i * 2 + 1];
-            let input_bottom = NeonStoreD::load(&data[i * 2..]);
-            let input_top = NeonStoreD::load(&data[32 - i * 2 - 2..]).reverse();
+            let input_bottom = NeonStoreD::load(data.slice_from(i * 2..));
+            let input_top = NeonStoreD::load(data.slice_from(32 - i * 2 - 2..)).reverse();
 
-            let input_half_bottom = NeonStoreD::load(&data[16 - i * 2 - 2..]).reverse();
-            let input_half_top = NeonStoreD::load(&data[16 + i * 2..]);
+            let input_half_bottom = NeonStoreD::load(data.slice_from(16 - i * 2 - 2..)).reverse();
+            let input_half_top = NeonStoreD::load(data.slice_from(16 + i * 2..));
 
             //prepare the inner DCT2
             unsafe {
@@ -144,9 +157,9 @@ impl NeonDct2Butterfly32d {
             };
         }
 
-        self.bf16.exec(input_dct2);
-        self.bf8.exec(input_dct4_even);
-        self.bf8.exec(input_dct4_odd);
+        self.bf16.exec(&mut InPlaceStore::new(input_dct2));
+        self.bf8.exec(&mut InPlaceStore::new(input_dct4_even));
+        self.bf8.exec(&mut InPlaceStore::new(input_dct4_odd));
 
         unsafe {
             data[0] = *input_dct2.get_unchecked(0);
@@ -161,14 +174,14 @@ impl NeonDct2Butterfly32d {
                     *input_dct4_odd.get_unchecked(8 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(32 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[32 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -185,7 +198,40 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly32d {
 
         for chunk in data.chunks_exact_mut(32) {
             self.exec(
-                (&mut chunk[..32]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4_even,
+                &mut input_dct4_odd,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 32);
+
+        let mut input_dct2 = [f64::zero(); 16];
+        let mut input_dct4_even = [f64::zero(); 8];
+        let mut input_dct4_odd = [f64::zero(); 8];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(32).zip(output.chunks_exact_mut(32)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4_even,
                 &mut input_dct4_odd,
@@ -196,6 +242,10 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly32d {
 
     fn length(&self) -> usize {
         32
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -208,7 +258,7 @@ pub(crate) struct NeonDct2Butterfly64d {
 
 impl Default for NeonDct2Butterfly64d {
     fn default() -> Self {
-        let twiddles = dct2_split_radix_rotation_twiddles_neond(64);
+        let twiddles = dct2_split_radix_rotation_twiddles_neond::<false>(64);
         Self {
             twiddles: twiddles.try_into().unwrap(),
             bf16: Dct2Butterfly16::default(),
@@ -219,9 +269,9 @@ impl Default for NeonDct2Butterfly64d {
 
 impl NeonDct2Butterfly64d {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f64>>(
         &self,
-        data: &mut [f64; 64],
+        data: &mut S,
         input_dct2: &mut [f64; 32],
         input_dct4_even: &mut [f64; 16],
         input_dct4_odd: &mut [f64; 16],
@@ -235,11 +285,11 @@ impl NeonDct2Butterfly64d {
         for i in 0..8 {
             let twiddle_re = self.twiddles[i * 2];
             let twiddle_im = self.twiddles[i * 2 + 1];
-            let input_bottom = NeonStoreD::load(&data[i * 2..]);
-            let input_top = NeonStoreD::load(&data[64 - i * 2 - 2..]).reverse();
+            let input_bottom = NeonStoreD::load(data.slice_from(i * 2..));
+            let input_top = NeonStoreD::load(data.slice_from(64 - i * 2 - 2..)).reverse();
 
-            let input_half_bottom = NeonStoreD::load(&data[32 - i * 2 - 2..]).reverse();
-            let input_half_top = NeonStoreD::load(&data[32 + i * 2..]);
+            let input_half_bottom = NeonStoreD::load(data.slice_from(32 - i * 2 - 2..)).reverse();
+            let input_half_top = NeonStoreD::load(data.slice_from(32 + i * 2..));
 
             //prepare the inner DCT2
             unsafe {
@@ -266,10 +316,14 @@ impl NeonDct2Butterfly64d {
             };
         }
 
-        self.bf32
-            .exec(input_dct2, input_dct21, input_dct4_even1, input_dct4_odd1);
-        self.bf16.exec(input_dct4_even);
-        self.bf16.exec(input_dct4_odd);
+        self.bf32.exec(
+            &mut InPlaceStore::new(input_dct2),
+            input_dct21,
+            input_dct4_even1,
+            input_dct4_odd1,
+        );
+        self.bf16.exec(&mut InPlaceStore::new(input_dct4_even));
+        self.bf16.exec(&mut InPlaceStore::new(input_dct4_odd));
 
         unsafe {
             data[0] = *input_dct2.get_unchecked(0);
@@ -286,14 +340,14 @@ impl NeonDct2Butterfly64d {
 
                 let q0 = dct4_cos_output + dct4_sin_output;
 
-                *data.get_unchecked_mut(i * 4 - 1) = q0;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = q0;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(64 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[64 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
@@ -313,7 +367,46 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly64d {
 
         for chunk in data.chunks_exact_mut(64) {
             self.exec(
-                (&mut chunk[..64]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4_even,
+                &mut input_dct4_odd,
+                &mut input_dct21,
+                &mut input_dct4_even1,
+                &mut input_dct4_odd1,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 64);
+
+        let mut input_dct2 = [f64::zero(); 32];
+        let mut input_dct4_even = [f64::zero(); 16];
+        let mut input_dct4_odd = [f64::zero(); 16];
+        let mut input_dct21 = [f64::zero(); 16];
+        let mut input_dct4_even1 = [f64::zero(); 8];
+        let mut input_dct4_odd1 = [f64::zero(); 8];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(64).zip(output.chunks_exact_mut(64)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4_even,
                 &mut input_dct4_odd,
@@ -328,6 +421,10 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly64d {
     fn length(&self) -> usize {
         64
     }
+
+    fn scratch_size(&self) -> usize {
+        0
+    }
 }
 
 #[derive(Clone)]
@@ -339,7 +436,7 @@ pub(crate) struct NeonDct2Butterfly128d {
 
 impl Default for NeonDct2Butterfly128d {
     fn default() -> Self {
-        let twiddles = dct2_split_radix_rotation_twiddles_neond(128);
+        let twiddles = dct2_split_radix_rotation_twiddles_neond::<false>(128);
         Self {
             twiddles: twiddles.try_into().unwrap(),
             bf64: f64::dct2_butterfly64(),
@@ -350,7 +447,12 @@ impl Default for NeonDct2Butterfly128d {
 
 impl NeonDct2Butterfly128d {
     #[inline(always)]
-    fn exec(&self, data: &mut [f64; 128], input_dct2: &mut [f64; 64], input_dct4: &mut [f64; 64]) {
+    fn exec<S: BidirectionalStore<f64>>(
+        &self,
+        data: &mut S,
+        input_dct2: &mut [f64; 64],
+        input_dct4: &mut [f64; 64],
+    ) {
         let (input_dct4_even, input_dct4_odd) = input_dct4.split_at_mut(32);
 
         //preprocess the data by splitting it up into vectors of size n/2, n/4, and n/4
@@ -359,11 +461,11 @@ impl NeonDct2Butterfly128d {
         for i in 0..16 {
             let twiddle_re = self.twiddles[i * 2];
             let twiddle_im = self.twiddles[i * 2 + 1];
-            let input_bottom = NeonStoreD::load(&data[i * 2..]);
-            let input_top = NeonStoreD::load(&data[128 - i * 2 - 2..]).reverse();
+            let input_bottom = NeonStoreD::load(data.slice_from(i * 2..));
+            let input_top = NeonStoreD::load(data.slice_from(128 - i * 2 - 2..)).reverse();
 
-            let input_half_bottom = NeonStoreD::load(&data[64 - i * 2 - 2..]).reverse();
-            let input_half_top = NeonStoreD::load(&data[64 + i * 2..]);
+            let input_half_bottom = NeonStoreD::load(data.slice_from(64 - i * 2 - 2..)).reverse();
+            let input_half_top = NeonStoreD::load(data.slice_from(64 + i * 2..));
 
             //prepare the inner DCT2
             unsafe {
@@ -427,10 +529,10 @@ impl NeonDct2Butterfly128d {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 1..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 3..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 5..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 1..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 3..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 5..));
                 i += 2;
             }
 
@@ -442,20 +544,24 @@ impl NeonDct2Butterfly128d {
                     *input_dct4_odd.get_unchecked(32 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(128 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[128 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
 impl PxdctExecutor<f64> for NeonDct2Butterfly128d {
     fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(128) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -465,7 +571,34 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly128d {
 
         for chunk in data.chunks_exact_mut(128) {
             self.exec(
-                (&mut chunk[..128]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 128);
+
+        let mut input_dct2 = [f64::zero(); 64];
+        let mut input_dct4 = [f64::zero(); 64];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(128).zip(output.chunks_exact_mut(128)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -474,6 +607,10 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly128d {
     }
 
     fn length(&self) -> usize {
+        128
+    }
+
+    fn scratch_size(&self) -> usize {
         128
     }
 }
@@ -487,7 +624,7 @@ pub(crate) struct NeonDct2Butterfly256d {
 
 impl Default for NeonDct2Butterfly256d {
     fn default() -> Self {
-        let twiddles = dct2_split_radix_rotation_twiddles_neond(256);
+        let twiddles = dct2_split_radix_rotation_twiddles_neond::<false>(256);
         Self {
             twiddles: twiddles.try_into().unwrap(),
             bf64: f64::dct2_butterfly64(),
@@ -498,9 +635,9 @@ impl Default for NeonDct2Butterfly256d {
 
 impl NeonDct2Butterfly256d {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f64>>(
         &self,
-        data: &mut [f64; 256],
+        data: &mut S,
         input_dct2: &mut [f64; 128],
         input_dct4: &mut [f64; 128],
     ) {
@@ -513,11 +650,11 @@ impl NeonDct2Butterfly256d {
         for i in 0..32 {
             let twiddle_re = self.twiddles[i * 2];
             let twiddle_im = self.twiddles[i * 2 + 1];
-            let input_bottom = NeonStoreD::load(&data[i * 2..]);
-            let input_top = NeonStoreD::load(&data[256 - i * 2 - 2..]).reverse();
+            let input_bottom = NeonStoreD::load(data.slice_from(i * 2..));
+            let input_top = NeonStoreD::load(data.slice_from(256 - i * 2 - 2..)).reverse();
 
-            let input_half_bottom = NeonStoreD::load(&data[128 - i * 2 - 2..]).reverse();
-            let input_half_top = NeonStoreD::load(&data[128 + i * 2..]);
+            let input_half_bottom = NeonStoreD::load(data.slice_from(128 - i * 2 - 2..)).reverse();
+            let input_half_top = NeonStoreD::load(data.slice_from(128 + i * 2..));
 
             //prepare the inner DCT2
             unsafe {
@@ -579,10 +716,10 @@ impl NeonDct2Butterfly256d {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 1..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 3..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 5..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 1..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 3..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 5..));
                 i += 2;
             }
 
@@ -594,20 +731,24 @@ impl NeonDct2Butterfly256d {
                     *input_dct4_odd.get_unchecked(64 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(256 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[256 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
 impl PxdctExecutor<f64> for NeonDct2Butterfly256d {
     fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(256) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -617,7 +758,34 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly256d {
 
         for chunk in data.chunks_exact_mut(256) {
             self.exec(
-                (&mut chunk[..256]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 256);
+
+        let mut input_dct2 = [f64::zero(); 128];
+        let mut input_dct4 = [f64::zero(); 128];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(256).zip(output.chunks_exact_mut(256)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -627,6 +795,10 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly256d {
 
     fn length(&self) -> usize {
         256
+    }
+
+    fn scratch_size(&self) -> usize {
+        self.bf128.scratch_size()
     }
 }
 
@@ -639,7 +811,7 @@ pub(crate) struct NeonDct2Butterfly512d {
 
 impl Default for NeonDct2Butterfly512d {
     fn default() -> Self {
-        let twiddles = dct2_split_radix_rotation_twiddles_neond(512);
+        let twiddles = dct2_split_radix_rotation_twiddles_neond::<false>(512);
         Self {
             twiddles: twiddles.try_into().unwrap(),
             bf256: f64::dct2_butterfly256(),
@@ -650,9 +822,9 @@ impl Default for NeonDct2Butterfly512d {
 
 impl NeonDct2Butterfly512d {
     #[inline(always)]
-    fn exec(
+    fn exec<S: BidirectionalStore<f64>>(
         &self,
-        data: &mut [f64; 512],
+        data: &mut S,
         input_dct2: &mut [f64; 256],
         input_dct4: &mut [f64; 256],
     ) {
@@ -665,11 +837,11 @@ impl NeonDct2Butterfly512d {
         for i in 0..64 {
             let twiddle_re = self.twiddles[i * 2];
             let twiddle_im = self.twiddles[i * 2 + 1];
-            let input_bottom = NeonStoreD::load(&data[i * 2..]);
-            let input_top = NeonStoreD::load(&data[512 - i * 2 - 2..]).reverse();
+            let input_bottom = NeonStoreD::load(data.slice_from(i * 2..));
+            let input_top = NeonStoreD::load(data.slice_from(512 - i * 2 - 2..)).reverse();
 
-            let input_half_bottom = NeonStoreD::load(&data[256 - i * 2 - 2..]).reverse();
-            let input_half_top = NeonStoreD::load(&data[256 + i * 2..]);
+            let input_half_bottom = NeonStoreD::load(data.slice_from(256 - i * 2 - 2..)).reverse();
+            let input_half_top = NeonStoreD::load(data.slice_from(256 + i * 2..));
 
             //prepare the inner DCT2
             unsafe {
@@ -730,10 +902,10 @@ impl NeonDct2Butterfly512d {
                 let zipped0 = sums0.zip(input0);
                 let zipped1 = sums1.zip(input1);
 
-                zipped0[0].write(data.get_unchecked_mut(i * 4 - 1..));
-                zipped0[1].write(data.get_unchecked_mut(i * 4 + 1..));
-                zipped1[0].write(data.get_unchecked_mut(i * 4 + 3..));
-                zipped1[1].write(data.get_unchecked_mut(i * 4 + 5..));
+                zipped0[0].write(data.slice_from_mut(i * 4 - 1..));
+                zipped0[1].write(data.slice_from_mut(i * 4 + 1..));
+                zipped1[0].write(data.slice_from_mut(i * 4 + 3..));
+                zipped1[1].write(data.slice_from_mut(i * 4 + 5..));
                 i += 2;
             }
 
@@ -745,20 +917,24 @@ impl NeonDct2Butterfly512d {
                     *input_dct4_odd.get_unchecked(128 - i)
                 };
 
-                *data.get_unchecked_mut(i * 4 - 1) = dct4_cos_output + dct4_sin_output;
-                *data.get_unchecked_mut(i * 4) = *input_dct2.get_unchecked(i * 2);
+                data[i * 4 - 1] = dct4_cos_output + dct4_sin_output;
+                data[i * 4] = *input_dct2.get_unchecked(i * 2);
 
-                *data.get_unchecked_mut(i * 4 + 1) = dct4_cos_output - dct4_sin_output;
-                *data.get_unchecked_mut(i * 4 + 2) = *input_dct2.get_unchecked(i * 2 + 1);
+                data[i * 4 + 1] = dct4_cos_output - dct4_sin_output;
+                data[i * 4 + 2] = *input_dct2.get_unchecked(i * 2 + 1);
             }
 
-            *data.get_unchecked_mut(512 - 1) = -*input_dct4_odd.get_unchecked(0);
+            data[512 - 1] = -*input_dct4_odd.get_unchecked(0);
         }
     }
 }
 
 impl PxdctExecutor<f64> for NeonDct2Butterfly512d {
     fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_with_scratch(data, &mut [])
+    }
+
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(512) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
@@ -768,7 +944,34 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly512d {
 
         for chunk in data.chunks_exact_mut(512) {
             self.exec(
-                (&mut chunk[..512]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut input_dct2,
+                &mut input_dct4,
+            );
+        }
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 512);
+
+        let mut input_dct2 = [f64::zero(); 256];
+        let mut input_dct4 = [f64::zero(); 256];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(512).zip(output.chunks_exact_mut(512)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut input_dct2,
                 &mut input_dct4,
             );
@@ -778,6 +981,10 @@ impl PxdctExecutor<f64> for NeonDct2Butterfly512d {
 
     fn length(&self) -> usize {
         512
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

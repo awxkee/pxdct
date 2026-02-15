@@ -32,6 +32,7 @@ use crate::avx::dct2::mixed_radix7d::{
 };
 use crate::avx::stored::AvxStoreD;
 use crate::avx::util::fma;
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::MixedRadix7Sample;
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
@@ -66,9 +67,9 @@ impl AvxDct2Butterfly49d {
 
 impl AvxDct2Butterfly49d {
     #[inline(always)]
-    pub(crate) fn exec(
+    pub(crate) fn exec<S: BidirectionalStore<f64>>(
         &self,
-        data: &mut [f64; 49],
+        data: &mut S,
         a_buffer: &mut [f64; 7],
         c_buffer: &mut [f64; 21],
         s_buffer: &mut [f64; 21],
@@ -77,7 +78,7 @@ impl AvxDct2Butterfly49d {
             a_buffer[n] = data[n * 7 + 3];
         }
 
-        self.bf7.exec(a_buffer);
+        self.bf7.exec(&mut InPlaceStore::new(a_buffer));
 
         let q_modules = 7;
 
@@ -94,9 +95,9 @@ impl AvxDct2Butterfly49d {
             }
 
             self.bf7
-                .exec((&mut c_buffer[m * 7..(m + 1) * 7]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut c_buffer[m * 7..(m + 1) * 7]));
             self.bf7
-                .exec((&mut s_buffer[m * 7..(m + 1) * 7]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut s_buffer[m * 7..(m + 1) * 7]));
         }
 
         {
@@ -245,44 +246,44 @@ impl AvxDct2Butterfly49d {
 
                 let a0 = AvxStoreD::load(&a_buffer[k..]);
                 let dc = dc0 + a0;
-                dc.write(&mut data[k..]);
+                dc.write(data.slice_from_mut(k..));
 
                 let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
                 {
                     let q = dss1.reverse();
-                    q.write(&mut data[q_modules * 2 - k - 3..]);
+                    q.write(data.slice_from_mut(q_modules * 2 - k - 3..));
                 }
 
                 dc2 = -(dc2 + a0); // negated 2j
                 dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
                 {
-                    dc2.write(&mut data[q_modules * 2 + k..]);
+                    dc2.write(data.slice_from_mut(q_modules * 2 + k..));
                 }
 
                 let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
                 {
                     let q = dss3.reverse();
-                    q.write(&mut data[q_modules * 4 - k - 3..]);
+                    q.write(data.slice_from_mut(q_modules * 4 - k - 3..));
                 }
 
                 dc4 += a0;
 
                 let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
                 {
-                    mdc4.write(&mut data[q_modules * 4 + k..]);
+                    mdc4.write(data.slice_from_mut(q_modules * 4 + k..));
                 }
 
                 let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
                 {
                     let q = dss5.reverse();
-                    q.write(&mut data[q_modules * 6 - k - 3..]);
+                    q.write(data.slice_from_mut(q_modules * 6 - k - 3..));
                 }
 
                 dc6 += a0;
                 dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
 
                 {
-                    dc6.write(&mut data[q_modules * 6 + k..]);
+                    dc6.write(data.slice_from_mut(q_modules * 6 + k..));
                 }
             }
 
@@ -371,45 +372,45 @@ impl AvxDct2Butterfly49d {
                 let a0 = AvxStoreD::load2(&a_buffer[k..]);
                 let dc = dc0 + a0;
                 {
-                    dc.write2(&mut data[k..]);
+                    dc.write2(data.slice_from_mut(k..));
                 }
 
                 let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
                 {
                     let q = dss1.reverse2();
-                    q.write2(&mut data[q_modules * 2 - k - 1..]);
+                    q.write2(data.slice_from_mut(q_modules * 2 - k - 1..));
                 }
 
                 dc2 = -(dc2 + a0); // negated 2j
                 dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
                 {
-                    dc2.write2(&mut data[q_modules * 2 + k..]);
+                    dc2.write2(data.slice_from_mut(q_modules * 2 + k..));
                 }
 
                 let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
                 {
                     let q = dss3.reverse2();
-                    q.write2(&mut data[q_modules * 4 - k - 1..]);
+                    q.write2(data.slice_from_mut(q_modules * 4 - k - 1..));
                 }
 
                 dc4 += a0;
 
                 let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
                 {
-                    mdc4.write2(&mut data[q_modules * 4 + k..]);
+                    mdc4.write2(data.slice_from_mut(q_modules * 4 + k..));
                 }
 
                 let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
                 {
                     let q = dss5.reverse2();
-                    q.write2(&mut data[q_modules * 6 - k - 1..]);
+                    q.write2(data.slice_from_mut(q_modules * 6 - k - 1..));
                 }
 
                 dc6 += a0;
                 dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
 
                 {
-                    dc6.write2(&mut data[q_modules * 6 + k..]);
+                    dc6.write2(data.slice_from_mut(q_modules * 6 + k..));
                 }
             }
         }
@@ -429,7 +430,28 @@ impl AvxDct2Butterfly49d {
 
         for chunk in data.chunks_exact_mut(49) {
             self.exec(
-                (&mut chunk[..49]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut a_buffer,
+                &mut c_buffer,
+                &mut s_buffer,
+            );
+        }
+        Ok(())
+    }
+
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 49);
+
+        let mut a_buffer = [f64::zero(); 7];
+        let mut c_buffer = [f64::zero(); 21];
+        let mut s_buffer = [f64::zero(); 21];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(49).zip(output.chunks_exact_mut(49)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut a_buffer,
                 &mut c_buffer,
                 &mut s_buffer,
@@ -444,8 +466,29 @@ impl PxdctExecutor<f64> for AvxDct2Butterfly49d {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f64], _: &mut [f64]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f64],
+        output: &mut [f64],
+        _: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         49
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

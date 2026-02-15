@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::transpose::Transposition;
-use crate::util::{DctSample, try_vec};
+use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
@@ -476,6 +476,11 @@ where
     f64: AsPrimitive<T>,
 {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(self.execution_length) {
             return Err(PxdctError::InvalidSizeMultiplier(
                 data.len(),
@@ -483,22 +488,66 @@ where
             ));
         }
 
-        let mut f_scratch = try_vec![T::default(); self.execution_length * 2];
-        let (scratch0, scratch1) = f_scratch.split_at_mut(self.execution_length);
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (left, right) = full_scratch.split_at_mut(self.execution_length * 2);
+        let (height_dct_scratch, width_dct_scratch) =
+            right.split_at_mut(self.height_dct.scratch_size());
+        let (scratch0, scratch1) = left.split_at_mut(self.execution_length);
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
             self.remap_input(chunk, scratch0);
-            self.height_dct.execute(scratch0)?;
+            self.height_dct
+                .execute_with_scratch(scratch0, height_dct_scratch)?;
             self.transposition.transpose(scratch0, scratch1);
-            self.width_dct.execute(scratch1)?;
+            self.width_dct
+                .execute_with_scratch(scratch1, width_dct_scratch)?;
             self.remap_output(scratch1, chunk);
         }
 
         Ok(())
     }
 
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (left, right) = full_scratch.split_at_mut(self.execution_length * 2);
+        let (height_dct_scratch, width_dct_scratch) =
+            right.split_at_mut(self.height_dct.scratch_size());
+        let (scratch0, scratch1) = left.split_at_mut(self.execution_length);
+
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            self.remap_input(src, scratch0);
+            self.height_dct
+                .execute_with_scratch(scratch0, height_dct_scratch)?;
+            self.transposition.transpose(scratch0, scratch1);
+            self.width_dct
+                .execute_with_scratch(scratch1, width_dct_scratch)?;
+            self.remap_output(scratch1, dst);
+        }
+        Ok(())
+    }
+
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    fn scratch_size(&self) -> usize {
+        self.execution_length * 2 + self.height_dct.scratch_size() + self.width_dct.scratch_size()
     }
 }
 

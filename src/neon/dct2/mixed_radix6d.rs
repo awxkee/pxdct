@@ -26,9 +26,11 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::BidirectionalStore;
 use crate::mla::fmla;
 use crate::neon::store_d::NeonStoreD;
-use crate::util::{DctConstants, mixed_radix_inner_twiddle, try_vec};
+use crate::neon::util::boring_neon_mixed_radix;
+use crate::util::{DctConstants, mixed_radix_inner_twiddle, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
@@ -36,6 +38,8 @@ use std::sync::Arc;
 pub(crate) struct NeonDct2MixedRadix6d {
     inner_layer: Vec<NeonStoreD>,
     sixth_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+    inner_dct_scratch_size: usize,
+    sixth_length: usize,
     execution_length: usize,
 }
 
@@ -96,235 +100,238 @@ impl NeonDct2MixedRadix6d {
             sixth_dct.length() * 6,
             "Invalid DCT was received, third size is not multiple of full size"
         );
+
+        let sixth_dct_scratch_size = sixth_dct.scratch_size();
+        let sixth_length = sixth_dct.length();
+
         Ok(NeonDct2MixedRadix6d {
             inner_layer: dct2_radix6_neon_groupd(len),
             sixth_dct,
+            inner_dct_scratch_size: sixth_dct_scratch_size,
             execution_length: len,
+            sixth_length,
         })
     }
 }
 
-impl PxdctExecutor<f64> for NeonDct2MixedRadix6d {
-    fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.execution_length) {
-            return Err(PxdctError::InvalidSizeMultiplier(
-                data.len(),
-                self.execution_length,
-            ));
-        }
-
-        let mut scratch = try_vec![f64::default(); self.execution_length];
+impl NeonDct2MixedRadix6d {
+    #[inline(always)]
+    fn execute_with_store<S: BidirectionalStore<f64>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
 
         let len = self.length();
-        let sixth_length = self.sixth_dct.length();
+        let sixth_length = self.sixth_length;
         let s_n = len / 3;
         let s_2n = 2 * len / 3;
+        let (a_buffer, rem) = scratch.split_at_mut(sixth_length);
+        let (b_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (c_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (d_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (e_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (f_buffer, _) = rem.split_at_mut(sixth_length);
 
-        for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (a_buffer, rem) = scratch.split_at_mut(sixth_length);
-            let (b_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (c_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (d_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (e_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (f_buffer, _) = rem.split_at_mut(sixth_length);
+        let mut j = 0usize;
 
-            let mut j = 0usize;
+        let mut twiddle_idx = 0usize;
 
-            let mut twiddle_idx = 0usize;
+        while j + 2 <= sixth_length {
+            let ai = NeonStoreD::load(data.slice_from(j..));
+            let mut bi = NeonStoreD::load(data.slice_from(s_n - j - 2..));
+            let ci = NeonStoreD::load(data.slice_from(s_n + j..));
+            let mut di = NeonStoreD::load(data.slice_from(s_2n - j - 2..));
+            let ei = NeonStoreD::load(data.slice_from(s_2n + j..));
+            let mut fi = NeonStoreD::load(data.slice_from(len - j - 2..));
 
-            while j + 2 <= sixth_length {
-                let ai = NeonStoreD::load(unsafe { chunk.get_unchecked(j..) });
-                let mut bi = NeonStoreD::load(unsafe { chunk.get_unchecked(s_n - j - 2..) });
-                let ci = NeonStoreD::load(unsafe { chunk.get_unchecked(s_n + j..) });
-                let mut di = NeonStoreD::load(unsafe { chunk.get_unchecked(s_2n - j - 2..) });
-                let ei = NeonStoreD::load(unsafe { chunk.get_unchecked(s_2n + j..) });
-                let mut fi = NeonStoreD::load(unsafe { chunk.get_unchecked(len - j - 2..) });
+            bi = bi.reverse();
+            di = di.reverse();
+            fi = fi.reverse();
 
-                bi = bi.reverse();
-                di = di.reverse();
-                fi = fi.reverse();
+            let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
+            let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
+            let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
+            let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
+            let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
+            let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
+            let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
 
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
+            let s2 = bi + ei;
+            let dcd = ci - di;
+            let dbe = bi - ei;
 
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
+            let ai2 = f64::TWO * ai;
+            let fi2 = f64::TWO * fi;
+            let scd = ci + di;
 
-                let ai2 = f64::TWO * ai;
-                let fi2 = f64::TWO * fi;
-                let scd = ci + di;
+            let sdbedcd = dbe + dcd;
+            let ai2dbedcd = ai2 + sdbedcd - fi2;
 
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
+            let s2scd = s2 + scd;
 
-                let s2scd = s2 + scd;
+            let a_comp = ai + s2scd + fi;
+            let c_comp = ai2 - s2scd + fi2;
+            let d_comp = f64::TWO * (ai - sdbedcd - fi);
 
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f64::TWO * (ai - sdbedcd - fi);
+            let dbedcd = dbe - dcd;
 
-                let dbedcd = dbe - dcd;
+            let c_img = s2 - ci - di;
+            let b_zet = dbedcd * cos_sin_ai_im;
+            let c_zet = c_img * cos_sin_2ai_im;
+            let f_zet = dbedcd * cos_sin_5ai_im;
 
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
+            let e_comp = fmla(
+                f64::TWO * cos_sin_2ai_re,
+                fmla(c_comp, cos_sin_2ai_re, -c_zet),
+                -c_comp,
+            );
 
-                let e_comp = fmla(
-                    f64::TWO * cos_sin_2ai_re,
-                    fmla(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
-                );
-
-                unsafe {
-                    a_comp.write(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fmla(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fmla(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fmla(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write(f_buffer.get_unchecked_mut(j..));
-                }
-                j += 2;
-                twiddle_idx += 7;
+            unsafe {
+                a_comp.write(a_buffer.get_unchecked_mut(j..));
+                let q0 = fmla(ai2dbedcd, cos_sin_ai_re, b_zet);
+                q0.write(b_buffer.get_unchecked_mut(j..));
+                let q1 = fmla(c_comp, cos_sin_2ai_re, c_zet);
+                q1.write(c_buffer.get_unchecked_mut(j..));
+                let q2 = d_comp * cos_sin_3ai_re;
+                q2.write(d_buffer.get_unchecked_mut(j..));
+                e_comp.write(e_buffer.get_unchecked_mut(j..));
+                let q3 = fmla(ai2dbedcd, cos_sin_5ai_re, f_zet);
+                q3.write(f_buffer.get_unchecked_mut(j..));
             }
+            j += 2;
+            twiddle_idx += 7;
+        }
 
-            let rem = sixth_length - j;
+        let rem = sixth_length - j;
 
-            if rem == 1 {
-                let ai = NeonStoreD::load1(unsafe { chunk.get_unchecked(j..) });
-                let bi = NeonStoreD::load1(unsafe { chunk.get_unchecked(s_n - j - 1..) });
-                let ci = NeonStoreD::load1(unsafe { chunk.get_unchecked(s_n + j..) });
-                let di = NeonStoreD::load1(unsafe { chunk.get_unchecked(s_2n - j - 1..) });
-                let ei = NeonStoreD::load1(unsafe { chunk.get_unchecked(s_2n + j..) });
-                let fi = NeonStoreD::load1(unsafe { chunk.get_unchecked(len - j - 1..) });
+        if rem == 1 {
+            let ai = NeonStoreD::load1(data.slice_from(j..));
+            let bi = NeonStoreD::load1(data.slice_from(s_n - j - 1..));
+            let ci = NeonStoreD::load1(data.slice_from(s_n + j..));
+            let di = NeonStoreD::load1(data.slice_from(s_2n - j - 1..));
+            let ei = NeonStoreD::load1(data.slice_from(s_2n + j..));
+            let fi = NeonStoreD::load1(data.slice_from(len - j - 1..));
 
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
+            let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
+            let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
+            let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
+            let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
+            let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
+            let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
+            let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
 
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
+            let s2 = bi + ei;
+            let dcd = ci - di;
+            let dbe = bi - ei;
 
-                let ai2 = f64::TWO * ai;
-                let fi2 = f64::TWO * fi;
-                let scd = ci + di;
+            let ai2 = f64::TWO * ai;
+            let fi2 = f64::TWO * fi;
+            let scd = ci + di;
 
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
+            let sdbedcd = dbe + dcd;
+            let ai2dbedcd = ai2 + sdbedcd - fi2;
 
-                let s2scd = s2 + scd;
+            let s2scd = s2 + scd;
 
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f64::TWO * (ai - sdbedcd - fi);
+            let a_comp = ai + s2scd + fi;
+            let c_comp = ai2 - s2scd + fi2;
+            let d_comp = f64::TWO * (ai - sdbedcd - fi);
 
-                let dbedcd = dbe - dcd;
+            let dbedcd = dbe - dcd;
 
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
+            let c_img = s2 - ci - di;
+            let b_zet = dbedcd * cos_sin_ai_im;
+            let c_zet = c_img * cos_sin_2ai_im;
+            let f_zet = dbedcd * cos_sin_5ai_im;
 
-                let e_comp = fmla(
-                    f64::TWO * cos_sin_2ai_re,
-                    fmla(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
-                );
+            let e_comp = fmla(
+                f64::TWO * cos_sin_2ai_re,
+                fmla(c_comp, cos_sin_2ai_re, -c_zet),
+                -c_comp,
+            );
 
-                unsafe {
-                    a_comp.write1(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fmla(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write1(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fmla(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write1(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write1(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write1(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fmla(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write1(f_buffer.get_unchecked_mut(j..));
-                }
-            }
-
-            if a_buffer.len() > 1 {
-                self.sixth_dct.execute(&mut scratch)?;
-            }
-
-            let (a_buffer, rem) = scratch.split_at_mut(sixth_length);
-            let (b_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (c_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (d_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (e_buffer, rem) = rem.split_at_mut(sixth_length);
-            let (f_buffer, _) = rem.split_at_mut(sixth_length);
-
-            chunk[0] = a_buffer[0];
-            chunk[1] = b_buffer[0] * f64::HALF;
-            chunk[2] = c_buffer[0] * f64::HALF;
-            chunk[3] = d_buffer[0] * f64::HALF;
-            chunk[4] = e_buffer[0] * f64::HALF;
-            chunk[5] = f_buffer[0] * f64::HALF;
-
-            let mut b_diff = chunk[5];
-            let mut c_diff = chunk[4];
-            let mut e_diff = chunk[3];
-            let mut d_diff = chunk[2];
-            let mut f_diff = chunk[1];
-
-            for k in 1..sixth_length {
-                let deferred_d_diff;
-                let deferred_f_diff;
-                unsafe {
-                    *chunk.get_unchecked_mut(6 * k) = *a_buffer.get_unchecked(k);
-                }
-                unsafe {
-                    deferred_f_diff = *b_buffer.get_unchecked(k) - b_diff;
-                    *chunk.get_unchecked_mut(6 * k + 1) = deferred_f_diff;
-                }
-                unsafe {
-                    deferred_d_diff = *c_buffer.get_unchecked(k) - c_diff;
-                    *chunk.get_unchecked_mut(6 * k + 2) = deferred_d_diff;
-                }
-                unsafe {
-                    e_diff = *d_buffer.get_unchecked(k) - e_diff;
-                    *chunk.get_unchecked_mut(6 * k + 3) = e_diff;
-                }
-                unsafe {
-                    let new_d = *e_buffer.get_unchecked(k) - d_diff;
-                    *chunk.get_unchecked_mut(6 * k + 4) = new_d;
-                    c_diff = new_d;
-                    d_diff = deferred_d_diff;
-                }
-                unsafe {
-                    let new_f = *f_buffer.get_unchecked(k) - f_diff;
-                    b_diff = new_f;
-                    f_diff = deferred_f_diff;
-                    *chunk.get_unchecked_mut(6 * k + 5) = new_f;
-                }
+            unsafe {
+                a_comp.write1(a_buffer.get_unchecked_mut(j..));
+                let q0 = fmla(ai2dbedcd, cos_sin_ai_re, b_zet);
+                q0.write1(b_buffer.get_unchecked_mut(j..));
+                let q1 = fmla(c_comp, cos_sin_2ai_re, c_zet);
+                q1.write1(c_buffer.get_unchecked_mut(j..));
+                let q2 = d_comp * cos_sin_3ai_re;
+                q2.write1(d_buffer.get_unchecked_mut(j..));
+                e_comp.write1(e_buffer.get_unchecked_mut(j..));
+                let q3 = fmla(ai2dbedcd, cos_sin_5ai_re, f_zet);
+                q3.write1(f_buffer.get_unchecked_mut(j..));
             }
         }
 
+        if a_buffer.len() > 1 {
+            self.sixth_dct
+                .execute_with_scratch(scratch, inner_scratch)?;
+        }
+
+        let (a_buffer, rem) = scratch.split_at_mut(sixth_length);
+        let (b_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (c_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (d_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (e_buffer, rem) = rem.split_at_mut(sixth_length);
+        let (f_buffer, _) = rem.split_at_mut(sixth_length);
+
+        data[0] = a_buffer[0];
+        let b0 = b_buffer[0] * f64::HALF;
+        data[1] = b0;
+        let c0 = c_buffer[0] * f64::HALF;
+        data[2] = c0;
+        let d0 = d_buffer[0] * f64::HALF;
+        data[3] = d0;
+        let e0 = e_buffer[0] * f64::HALF;
+        data[4] = e0;
+        let f0 = f_buffer[0] * f64::HALF;
+        data[5] = f0;
+
+        let mut b_diff = f0;
+        let mut c_diff = e0;
+        let mut e_diff = d0;
+        let mut d_diff = c0;
+        let mut f_diff = b0;
+
+        for k in 1..sixth_length {
+            let deferred_d_diff;
+            let deferred_f_diff;
+            unsafe {
+                data[6 * k] = *a_buffer.get_unchecked(k);
+            }
+            unsafe {
+                deferred_f_diff = *b_buffer.get_unchecked(k) - b_diff;
+                data[6 * k + 1] = deferred_f_diff;
+            }
+            unsafe {
+                deferred_d_diff = *c_buffer.get_unchecked(k) - c_diff;
+                data[6 * k + 2] = deferred_d_diff;
+            }
+            unsafe {
+                e_diff = *d_buffer.get_unchecked(k) - e_diff;
+                data[6 * k + 3] = e_diff;
+            }
+            unsafe {
+                let new_d = *e_buffer.get_unchecked(k) - d_diff;
+                data[6 * k + 4] = new_d;
+                c_diff = new_d;
+                d_diff = deferred_d_diff;
+            }
+            unsafe {
+                let new_f = *f_buffer.get_unchecked(k) - f_diff;
+                b_diff = new_f;
+                f_diff = deferred_f_diff;
+                data[6 * k + 5] = new_f;
+            }
+        }
         Ok(())
     }
-
-    #[inline]
-    fn length(&self) -> usize {
-        self.execution_length
-    }
 }
+
+boring_neon_mixed_radix!(NeonDct2MixedRadix6d, f64);
 
 #[cfg(test)]
 mod tests {

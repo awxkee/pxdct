@@ -27,7 +27,9 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::spectrum_mul::DctSpectrumMul;
-use crate::util::{DctSample, create_dct2_3, try_vec};
+use crate::util::{
+    DctSample, create_dct2_3, force_cast_real_scratch_to_complex, try_vec, validate_scratch,
+};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -39,12 +41,18 @@ pub(crate) struct Dst3Fft<T> {
     fft_executor: Arc<dyn FftExecutor<T> + Send + Sync>,
     execution_length: usize,
     spectrum_mul: Arc<dyn DctSpectrumMul<T> + Send + Sync>,
+    fft_scratch_size: usize,
 }
 
 create_dct2_3!(Dst3Fft);
 
 impl<T: DctSample> PxdctExecutor<T> for Dst3Fft<T> {
     fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
         if !data.len().is_multiple_of(self.execution_length) {
             return Err(PxdctError::InvalidSizeMultiplier(
                 data.len(),
@@ -52,16 +60,19 @@ impl<T: DctSample> PxdctExecutor<T> for Dst3Fft<T> {
             ));
         }
 
-        let mut scratch = try_vec![Complex::<T>::default(); self.execution_length];
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (unprepared_scratch, c1) = full_scratch.split_at_mut(self.execution_length * 2);
+        let scratch = force_cast_real_scratch_to_complex(unprepared_scratch, self.execution_length);
+        let fft_scratch = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
             // compute the FFT buffer based on the twiddle factors
             self.spectrum_mul
-                .mul_spectrum_and_half_rev(chunk, &self.twiddles, &mut scratch);
+                .mul_spectrum_and_half_rev(chunk, &self.twiddles, scratch);
 
             // run the fft
             self.fft_executor
-                .execute(&mut scratch)
+                .execute_with_scratch(scratch, fft_scratch)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?;
 
             // copy the first half of the fft output into the even elements of the buffer
@@ -95,8 +106,70 @@ impl<T: DctSample> PxdctExecutor<T> for Dst3Fft<T> {
         Ok(())
     }
 
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![T::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        scratch: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+        let (unprepared_scratch, c1) = full_scratch.split_at_mut(self.execution_length * 2);
+        let scratch = force_cast_real_scratch_to_complex(unprepared_scratch, self.execution_length);
+        let fft_scratch = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
+
+        for (src, dst) in input
+            .chunks_exact(self.execution_length)
+            .zip(output.chunks_exact_mut(self.execution_length))
+        {
+            // compute the FFT buffer based on the twiddle factors
+            self.spectrum_mul
+                .mul_spectrum_and_half_rev(src, &self.twiddles, scratch);
+
+            // run the fft
+            self.fft_executor
+                .execute_with_scratch(scratch, fft_scratch)
+                .map_err(|x| PxdctError::FftError(x.to_string()))?;
+
+            // copy the first half of the fft output into the even elements of the buffer
+            let even_end = src.len().div_ceil(2);
+            for (dst, src) in dst.iter_mut().step_by(2).zip(scratch.iter()).take(even_end) {
+                *dst = src.re;
+            }
+
+            // copy the second half of the fft buffer into the odd elements, reversed
+            if self.execution_length > 1 {
+                let odd_end = self.execution_length - self.execution_length % 2;
+                let buffer = &mut dst[..odd_end];
+                let data_cutoff = &scratch[even_end..even_end + self.execution_length / 2];
+                for (dst, src) in buffer
+                    .iter_mut()
+                    .rev()
+                    .step_by(2)
+                    .zip(data_cutoff.iter())
+                    .take(self.execution_length / 2)
+                {
+                    *dst = -src.re;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn length(&self) -> usize {
         self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length * 2 + self.fft_scratch_size * 2
     }
 }
 

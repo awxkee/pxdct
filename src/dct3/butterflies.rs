@@ -26,13 +26,14 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct3::prime_butterflies::Dct3Butterfly3;
 use crate::dct3::{
     Dct3Butterfly2, Dct3Butterfly4, Dct3Butterfly5, Dct3Butterfly7, Dct3Butterfly8, Dct3Butterfly13,
 };
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::{DctSample, define_butterfly};
+use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -60,21 +61,21 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 6]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 2x3
         let mut col0 = [data[0], data[3]];
         let mut col1 = [data[2] * T::TWO, data[1] + data[5]];
         let mut col2 = [data[4] * T::TWO, data[1] - data[5]];
 
-        self.bf2.exec(&mut col0);
-        self.bf2.exec(&mut col1);
-        self.bf2.exec(&mut col2);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col2));
 
         let mut row0 = [col0[0] * T::TWO, col1[0], col2[0]];
         let mut row1 = [col0[1] * T::TWO, col1[1], col2[1]];
 
-        self.bf3.exec(&mut row0);
-        self.bf3.exec(&mut row1);
+        self.bf3.exec(&mut InPlaceStore::new(&mut row0));
+        self.bf3.exec(&mut InPlaceStore::new(&mut row1));
 
         data[0] = row0[0];
         data[4] = row0[1];
@@ -85,7 +86,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly6, 6);
+define_in_place_butterfly!(Dct3Butterfly6, 6);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly9<T> {
@@ -114,7 +115,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 9]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let x0 = data[0] * T::HALF;
         let x1 = data[1];
         let x2 = data[2];
@@ -199,7 +200,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly9, 9);
+define_in_place_butterfly!(Dct3Butterfly9, 9);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly10<T> {
@@ -224,7 +225,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 10]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 2x5
         let mut col0 = [data[0], data[5]];
         let mut col1 = [data[2] * T::TWO, data[3] + data[7]];
@@ -232,17 +233,17 @@ where
         let mut col3 = [data[6] * T::TWO, data[1] - data[9]];
         let mut col4 = [data[8] * T::TWO, data[3] - data[7]];
 
-        self.bf2.exec(&mut col0);
-        self.bf2.exec(&mut col1);
-        self.bf2.exec(&mut col2);
-        self.bf2.exec(&mut col3);
-        self.bf2.exec(&mut col4);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col3));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col4));
 
         let mut row0 = [col0[0] * T::TWO, col1[0], col2[0], col3[0], col4[0]];
         let mut row1 = [col0[1] * T::TWO, col1[1], col2[1], col3[1], col4[1]];
 
-        self.bf5.exec(&mut row0);
-        self.bf5.exec(&mut row1);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row0));
+        self.bf5.exec(&mut InPlaceStore::new(&mut row1));
 
         data[0] = row0[0];
         data[8] = row0[1];
@@ -257,7 +258,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly10, 10);
+define_in_place_butterfly!(Dct3Butterfly10, 10);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly12<T> {
@@ -282,7 +283,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 12]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated Prime-Factor algorithm for size 4x3
         let mut col0 = [data[0], data[3], data[6], data[9]];
         let mut col1 = [
@@ -298,19 +299,19 @@ where
             data[1] - data[7],
         ];
 
-        self.bf4.exec(&mut col0);
-        self.bf4.exec(&mut col1);
-        self.bf4.exec(&mut col2);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col2));
 
         let mut row0 = [col0[0] * T::TWO, col1[0], col2[0]];
         let mut row1 = [col0[1] * T::TWO, col1[1], col2[1]];
         let mut row2 = [col0[2] * T::TWO, col1[2], col2[2]];
         let mut row3 = [col0[3] * T::TWO, col1[3], col2[3]];
 
-        self.bf3.exec(&mut row0);
-        self.bf3.exec(&mut row1);
-        self.bf3.exec(&mut row2);
-        self.bf3.exec(&mut row3);
+        self.bf3.exec(&mut InPlaceStore::new(&mut row0));
+        self.bf3.exec(&mut InPlaceStore::new(&mut row1));
+        self.bf3.exec(&mut InPlaceStore::new(&mut row2));
+        self.bf3.exec(&mut InPlaceStore::new(&mut row3));
 
         data[0] = row0[0];
         data[7] = row0[1];
@@ -327,7 +328,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly12, 12);
+define_in_place_butterfly!(Dct3Butterfly12, 12);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly14<T> {
@@ -352,22 +353,22 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 14]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 2x7
         let mut col0 = [data[0], data[7]];
         let mut col1 = [data[2] * T::TWO, data[5] + data[9]];
         let mut col2 = [data[4] * T::TWO, data[3] + data[11]];
-        self.bf2.exec(&mut col0);
-        self.bf2.exec(&mut col1);
-        self.bf2.exec(&mut col2);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col2));
         let mut col3 = [data[6] * T::TWO, data[1] + data[13]];
         let mut col4 = [data[8] * T::TWO, data[1] - data[13]];
         let mut col5 = [data[10] * T::TWO, data[3] - data[11]];
         let mut col6 = [data[12] * T::TWO, data[5] - data[9]];
-        self.bf2.exec(&mut col3);
-        self.bf2.exec(&mut col4);
-        self.bf2.exec(&mut col5);
-        self.bf2.exec(&mut col6);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col3));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col5));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col6));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -388,8 +389,8 @@ where
             col6[1],
         ];
 
-        self.bf7.exec(&mut row0);
-        self.bf7.exec(&mut row1);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row0));
+        self.bf7.exec(&mut InPlaceStore::new(&mut row1));
 
         data[0] = row0[0];
         data[12] = row0[1];
@@ -408,7 +409,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly14, 14);
+define_in_place_butterfly!(Dct3Butterfly14, 14);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly15<T> {
@@ -433,26 +434,26 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 15]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 3x5
         let mut col0 = [data[0], data[5], data[10]];
         let mut col1 = [data[3] * T::TWO, data[2] + data[8], data[7] + data[13]];
         let mut col2 = [data[6] * T::TWO, data[1] + data[11], data[4] - data[14]];
-        self.bf3.exec(&mut col0);
-        self.bf3.exec(&mut col1);
-        self.bf3.exec(&mut col2);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col2));
         let mut col3 = [data[9] * T::TWO, data[4] + data[14], data[1] - data[11]];
         let mut col4 = [data[12] * T::TWO, data[7] - data[13], data[2] - data[8]];
 
-        self.bf3.exec(&mut col3);
-        self.bf3.exec(&mut col4);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col3));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col4));
 
         let mut row0 = [col0[0] * T::TWO, col1[0], col2[0], col3[0], col4[0]];
-        self.bf5.exec(&mut row0);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [col0[1] * T::TWO, col1[1], col2[1], col3[1], col4[1]];
-        self.bf5.exec(&mut row1);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [col0[2] * T::TWO, col1[2], col2[2], col3[2], col4[2]];
-        self.bf5.exec(&mut row2);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row2));
 
         data[0] = row0[0];
         data[11] = row0[1];
@@ -472,7 +473,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly15, 15);
+define_in_place_butterfly!(Dct3Butterfly15, 15);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly18<T> {
@@ -497,31 +498,31 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 18]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 2x9
         let mut col0 = [data[0], data[9]];
         let mut col1 = [data[2] * T::TWO, data[7] + data[11]];
         let mut col2 = [data[4] * T::TWO, data[5] + data[13]];
         let mut col3 = [data[6] * T::TWO, data[3] + data[15]];
 
-        self.bf2.exec(&mut col0);
-        self.bf2.exec(&mut col1);
-        self.bf2.exec(&mut col2);
-        self.bf2.exec(&mut col3);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col3));
 
         let mut col4 = [data[8] * T::TWO, data[1] + data[17]];
         let mut col5 = [data[10] * T::TWO, data[1] - data[17]];
         let mut col6 = [data[12] * T::TWO, data[3] - data[15]];
         let mut col7 = [data[14] * T::TWO, data[5] - data[13]];
 
-        self.bf2.exec(&mut col4);
-        self.bf2.exec(&mut col5);
-        self.bf2.exec(&mut col6);
-        self.bf2.exec(&mut col7);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col5));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col6));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col7));
 
         let mut col8 = [data[16] * T::TWO, data[7] - data[11]];
 
-        self.bf2.exec(&mut col8);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col8));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -535,7 +536,7 @@ where
             col8[0],
         ];
 
-        self.bf9.exec(&mut row0);
+        self.bf9.exec(&mut InPlaceStore::new(&mut row0));
 
         let mut row1 = [
             col0[1] * T::TWO,
@@ -549,7 +550,7 @@ where
             col8[1],
         ];
 
-        self.bf9.exec(&mut row1);
+        self.bf9.exec(&mut InPlaceStore::new(&mut row1));
 
         data[0] = row0[0];
         data[16] = row0[1];
@@ -572,7 +573,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly18, 18);
+define_in_place_butterfly!(Dct3Butterfly18, 18);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly20<T> {
@@ -597,7 +598,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 20]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 4x5
         let mut col0 = [data[0], data[5], data[10], data[15]];
         let mut col1 = [
@@ -607,8 +608,8 @@ where
             data[11] + data[19],
         ];
 
-        self.bf4.exec(&mut col0);
-        self.bf4.exec(&mut col1);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col1));
 
         let mut col2 = [
             data[8] * T::TWO,
@@ -623,8 +624,8 @@ where
             data[3] - data[13],
         ];
 
-        self.bf4.exec(&mut col2);
-        self.bf4.exec(&mut col3);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col3));
 
         let mut col4 = [
             data[16] * T::TWO,
@@ -633,16 +634,16 @@ where
             data[1] - data[9],
         ];
 
-        self.bf4.exec(&mut col4);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col4));
 
         let mut row0 = [col0[0] * T::TWO, col1[0], col2[0], col3[0], col4[0]];
-        self.bf5.exec(&mut row0);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [col0[1] * T::TWO, col1[1], col2[1], col3[1], col4[1]];
-        self.bf5.exec(&mut row1);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [col0[2] * T::TWO, col1[2], col2[2], col3[2], col4[2]];
-        self.bf5.exec(&mut row2);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row2));
         let mut row3 = [col0[3] * T::TWO, col1[3], col2[3], col3[3], col4[3]];
-        self.bf5.exec(&mut row3);
+        self.bf5.exec(&mut InPlaceStore::new(&mut row3));
 
         data[0] = row0[0];
         data[8] = row0[1];
@@ -667,7 +668,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly20, 20);
+define_in_place_butterfly!(Dct3Butterfly20, 20);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly21<T> {
@@ -692,25 +693,25 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 21]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 3x7
         let mut col0 = [data[0], data[7], data[14]];
         let mut col1 = [data[3] * T::TWO, data[4] + data[10], data[11] + data[17]];
         let mut col2 = [data[6] * T::TWO, data[1] + data[13], data[8] + data[20]];
-        self.bf3.exec(&mut col0);
-        self.bf3.exec(&mut col1);
-        self.bf3.exec(&mut col2);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col2));
         let mut col3 = [data[9] * T::TWO, data[2] + data[16], data[5] - data[19]];
         let mut col4 = [data[12] * T::TWO, data[5] + data[19], data[2] - data[16]];
         let mut col5 = [data[15] * T::TWO, data[8] - data[20], data[1] - data[13]];
 
-        self.bf3.exec(&mut col3);
-        self.bf3.exec(&mut col4);
-        self.bf3.exec(&mut col5);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col3));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col5));
 
         let mut col6 = [data[18] * T::TWO, data[11] - data[17], data[4] - data[10]];
 
-        self.bf3.exec(&mut col6);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col6));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -721,7 +722,7 @@ where
             col5[0],
             col6[0],
         ];
-        self.bf7.exec(&mut row0);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [
             col0[1] * T::TWO,
             col1[1],
@@ -731,7 +732,7 @@ where
             col5[1],
             col6[1],
         ];
-        self.bf7.exec(&mut row1);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [
             col0[2] * T::TWO,
             col1[2],
@@ -742,7 +743,7 @@ where
             col6[2],
         ];
 
-        self.bf7.exec(&mut row2);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row2));
 
         data[0] = row0[0];
         data[12] = row0[1];
@@ -768,7 +769,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly21, 21);
+define_in_place_butterfly!(Dct3Butterfly21, 21);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly24<T> {
@@ -793,29 +794,29 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 24]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 3x8
         let mut col0 = [data[0], data[8], data[16]];
         let mut col1 = [data[3] * T::TWO, data[5] + data[11], data[13] + data[19]];
         let mut col2 = [data[6] * T::TWO, data[2] + data[14], data[10] + data[22]];
 
-        self.bf3.exec(&mut col0);
-        self.bf3.exec(&mut col1);
-        self.bf3.exec(&mut col2);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col2));
 
         let mut col3 = [data[9] * T::TWO, data[1] + data[17], data[7] - data[23]];
         let mut col4 = [data[12] * T::TWO, data[4] + data[20], data[4] - data[20]];
         let mut col5 = [data[15] * T::TWO, data[7] + data[23], data[1] - data[17]];
 
-        self.bf3.exec(&mut col3);
-        self.bf3.exec(&mut col4);
-        self.bf3.exec(&mut col5);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col3));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col5));
 
         let mut col6 = [data[18] * T::TWO, data[10] - data[22], data[2] - data[14]];
         let mut col7 = [data[21] * T::TWO, data[13] - data[19], data[5] - data[11]];
 
-        self.bf3.exec(&mut col6);
-        self.bf3.exec(&mut col7);
+        self.bf3.exec(&mut InPlaceStore::new(&mut col6));
+        self.bf3.exec(&mut InPlaceStore::new(&mut col7));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -827,7 +828,7 @@ where
             col6[0],
             col7[0],
         ];
-        self.bf8.exec(&mut row0);
+        self.bf8.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [
             col0[1] * T::TWO,
             col1[1],
@@ -838,7 +839,7 @@ where
             col6[1],
             col7[1],
         ];
-        self.bf8.exec(&mut row1);
+        self.bf8.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [
             col0[2] * T::TWO,
             col1[2],
@@ -850,7 +851,7 @@ where
             col7[2],
         ];
 
-        self.bf8.exec(&mut row2);
+        self.bf8.exec(&mut InPlaceStore::new(&mut row2));
 
         data[0] = row0[0];
         data[17] = row0[1];
@@ -879,7 +880,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly24, 24);
+define_in_place_butterfly!(Dct3Butterfly24, 24);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly26<T> {
@@ -904,35 +905,39 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 26]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 2x13
         let mut col0 = [data[0], data[13]];
         let mut col1 = [data[2] * T::TWO, data[11] + data[15]];
         let mut col2 = [data[4] * T::TWO, data[9] + data[17]];
         let mut col3 = [data[6] * T::TWO, data[7] + data[19]];
+
+        self.bf2.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col3));
+
         let mut col4 = [data[8] * T::TWO, data[5] + data[21]];
         let mut col5 = [data[10] * T::TWO, data[3] + data[23]];
         let mut col6 = [data[12] * T::TWO, data[1] + data[25]];
         let mut col7 = [data[14] * T::TWO, data[1] - data[25]];
+
+        self.bf2.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col5));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col6));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col7));
+
         let mut col8 = [data[16] * T::TWO, data[3] - data[23]];
         let mut col9 = [data[18] * T::TWO, data[5] - data[21]];
         let mut col10 = [data[20] * T::TWO, data[7] - data[19]];
         let mut col11 = [data[22] * T::TWO, data[9] - data[17]];
         let mut col12 = [data[24] * T::TWO, data[11] - data[15]];
 
-        self.bf2.exec(&mut col0);
-        self.bf2.exec(&mut col1);
-        self.bf2.exec(&mut col2);
-        self.bf2.exec(&mut col3);
-        self.bf2.exec(&mut col4);
-        self.bf2.exec(&mut col5);
-        self.bf2.exec(&mut col6);
-        self.bf2.exec(&mut col7);
-        self.bf2.exec(&mut col8);
-        self.bf2.exec(&mut col9);
-        self.bf2.exec(&mut col10);
-        self.bf2.exec(&mut col11);
-        self.bf2.exec(&mut col12);
+        self.bf2.exec(&mut InPlaceStore::new(&mut col8));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col9));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col10));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col11));
+        self.bf2.exec(&mut InPlaceStore::new(&mut col12));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -965,8 +970,8 @@ where
             col12[1],
         ];
 
-        self.bf13.exec(&mut row0);
-        self.bf13.exec(&mut row1);
+        self.bf13.exec(&mut InPlaceStore::new(&mut row0));
+        self.bf13.exec(&mut InPlaceStore::new(&mut row1));
 
         data[0] = row0[0];
         data[24] = row0[1];
@@ -997,7 +1002,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly26, 26);
+define_in_place_butterfly!(Dct3Butterfly26, 26);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly28<T> {
@@ -1022,7 +1027,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 28]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 4x7
         let mut col0 = [data[0], data[7], data[14], data[21]];
         let mut col1 = [
@@ -1038,9 +1043,9 @@ where
             data[13] - data[27],
         ];
 
-        self.bf4.exec(&mut col0);
-        self.bf4.exec(&mut col1);
-        self.bf4.exec(&mut col2);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col1));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col2));
 
         let mut col3 = [
             data[12] * T::TWO,
@@ -1061,9 +1066,9 @@ where
             data[1] - data[15],
         ];
 
-        self.bf4.exec(&mut col3);
-        self.bf4.exec(&mut col4);
-        self.bf4.exec(&mut col5);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col3));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col5));
 
         let mut col6 = [
             data[24] * T::TWO,
@@ -1072,7 +1077,7 @@ where
             data[3] - data[11],
         ];
 
-        self.bf4.exec(&mut col6);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col6));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -1083,7 +1088,7 @@ where
             col5[0],
             col6[0],
         ];
-        self.bf7.exec(&mut row0);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [
             col0[1] * T::TWO,
             col1[1],
@@ -1093,7 +1098,7 @@ where
             col5[1],
             col6[1],
         ];
-        self.bf7.exec(&mut row1);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [
             col0[2] * T::TWO,
             col1[2],
@@ -1103,7 +1108,7 @@ where
             col5[2],
             col6[2],
         ];
-        self.bf7.exec(&mut row2);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row2));
         let mut row3 = [
             col0[3] * T::TWO,
             col1[3],
@@ -1114,7 +1119,7 @@ where
             col6[3],
         ];
 
-        self.bf7.exec(&mut row3);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row3));
 
         data[0] = row0[0];
         data[15] = row0[1];
@@ -1147,7 +1152,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly28, 28);
+define_in_place_butterfly!(Dct3Butterfly28, 28);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly30<T> {
@@ -1172,7 +1177,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 30]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 5x6
         let mut col0 = [data[0], data[6], data[12], data[18], data[24]];
         let mut col1 = [
@@ -1183,8 +1188,8 @@ where
             data[19] + data[29],
         ];
 
-        self.bf5.exec(&mut col0);
-        self.bf5.exec(&mut col1);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf5.exec(&mut InPlaceStore::new(&mut col1));
 
         let mut col2 = [
             data[10] * T::TWO,
@@ -1201,8 +1206,8 @@ where
             data[9] - data[21],
         ];
 
-        self.bf5.exec(&mut col2);
-        self.bf5.exec(&mut col3);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf5.exec(&mut InPlaceStore::new(&mut col3));
 
         let mut col4 = [
             data[20] * T::TWO,
@@ -1219,8 +1224,8 @@ where
             data[1] - data[11],
         ];
 
-        self.bf5.exec(&mut col4);
-        self.bf5.exec(&mut col5);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf5.exec(&mut InPlaceStore::new(&mut col5));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -1239,8 +1244,8 @@ where
             col5[1],
         ];
 
-        self.bf6.exec(&mut row0);
-        self.bf6.exec(&mut row1);
+        self.bf6.exec(&mut InPlaceStore::new(&mut row0));
+        self.bf6.exec(&mut InPlaceStore::new(&mut row1));
 
         let mut row2 = [
             col0[2] * T::TWO,
@@ -1259,8 +1264,8 @@ where
             col5[3],
         ];
 
-        self.bf6.exec(&mut row2);
-        self.bf6.exec(&mut row3);
+        self.bf6.exec(&mut InPlaceStore::new(&mut row2));
+        self.bf6.exec(&mut InPlaceStore::new(&mut row3));
 
         let mut row4 = [
             col0[4] * T::TWO,
@@ -1271,7 +1276,7 @@ where
             col5[4],
         ];
 
-        self.bf6.exec(&mut row4);
+        self.bf6.exec(&mut InPlaceStore::new(&mut row4));
 
         data[0] = row0[0];
         data[10] = row0[1];
@@ -1306,7 +1311,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly30, 30);
+define_in_place_butterfly!(Dct3Butterfly30, 30);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly36<T> {
@@ -1331,7 +1336,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 36]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 4x9
         let mut col0 = [data[0], data[9], data[18], data[27]];
         let mut col1 = [
@@ -1340,8 +1345,8 @@ where
             data[14] + data[22],
             data[23] + data[31],
         ];
-        self.bf4.exec(&mut col0);
-        self.bf4.exec(&mut col1);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col1));
         let mut col2 = [
             data[8] * T::TWO,
             data[1] + data[17],
@@ -1354,8 +1359,8 @@ where
             data[6] + data[30],
             data[15] - data[33],
         ];
-        self.bf4.exec(&mut col2);
-        self.bf4.exec(&mut col3);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col3));
         let mut col4 = [
             data[16] * T::TWO,
             data[7] + data[25],
@@ -1368,8 +1373,8 @@ where
             data[2] - data[34],
             data[7] - data[25],
         ];
-        self.bf4.exec(&mut col4);
-        self.bf4.exec(&mut col5);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col5));
         let mut col6 = [
             data[24] * T::TWO,
             data[15] + data[33],
@@ -1382,15 +1387,15 @@ where
             data[10] - data[26],
             data[1] - data[17],
         ];
-        self.bf4.exec(&mut col6);
-        self.bf4.exec(&mut col7);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col6));
+        self.bf4.exec(&mut InPlaceStore::new(&mut col7));
         let mut col8 = [
             data[32] * T::TWO,
             data[23] - data[31],
             data[14] - data[22],
             data[5] - data[13],
         ];
-        self.bf4.exec(&mut col8);
+        self.bf4.exec(&mut InPlaceStore::new(&mut col8));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -1403,7 +1408,7 @@ where
             col7[0],
             col8[0],
         ];
-        self.bf9.exec(&mut row0);
+        self.bf9.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [
             col0[1] * T::TWO,
             col1[1],
@@ -1415,7 +1420,7 @@ where
             col7[1],
             col8[1],
         ];
-        self.bf9.exec(&mut row1);
+        self.bf9.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [
             col0[2] * T::TWO,
             col1[2],
@@ -1427,7 +1432,7 @@ where
             col7[2],
             col8[2],
         ];
-        self.bf9.exec(&mut row2);
+        self.bf9.exec(&mut InPlaceStore::new(&mut row2));
         let mut row3 = [
             col0[3] * T::TWO,
             col1[3],
@@ -1439,7 +1444,7 @@ where
             col7[3],
             col8[3],
         ];
-        self.bf9.exec(&mut row3);
+        self.bf9.exec(&mut InPlaceStore::new(&mut row3));
 
         data[0] = row0[0];
         data[16] = row0[1];
@@ -1480,7 +1485,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly36, 36);
+define_in_place_butterfly!(Dct3Butterfly36, 36);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly35<T> {
@@ -1505,7 +1510,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 35]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated DCT-III Prime-Factor algorithm for size 5x7
         let mut col0 = [data[0], data[7], data[14], data[21], data[28]];
         let mut col1 = [
@@ -1515,8 +1520,8 @@ where
             data[16] + data[26],
             data[23] + data[33],
         ];
-        self.bf5.exec(&mut col0);
-        self.bf5.exec(&mut col1);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col0));
+        self.bf5.exec(&mut InPlaceStore::new(&mut col1));
         let mut col2 = [
             data[10] * T::TWO,
             data[3] + data[17],
@@ -1531,8 +1536,8 @@ where
             data[6] - data[34],
             data[13] - data[27],
         ];
-        self.bf5.exec(&mut col2);
-        self.bf5.exec(&mut col3);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col2));
+        self.bf5.exec(&mut InPlaceStore::new(&mut col3));
         let mut col4 = [
             data[20] * T::TWO,
             data[13] + data[27],
@@ -1547,8 +1552,8 @@ where
             data[4] - data[24],
             data[3] - data[17],
         ];
-        self.bf5.exec(&mut col4);
-        self.bf5.exec(&mut col5);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col4));
+        self.bf5.exec(&mut InPlaceStore::new(&mut col5));
         let mut col6 = [
             data[30] * T::TWO,
             data[23] - data[33],
@@ -1556,7 +1561,7 @@ where
             data[9] - data[19],
             data[2] - data[12],
         ];
-        self.bf5.exec(&mut col6);
+        self.bf5.exec(&mut InPlaceStore::new(&mut col6));
 
         let mut row0 = [
             col0[0] * T::TWO,
@@ -1567,7 +1572,7 @@ where
             col5[0],
             col6[0],
         ];
-        self.bf7.exec(&mut row0);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row0));
         let mut row1 = [
             col0[1] * T::TWO,
             col1[1],
@@ -1577,7 +1582,7 @@ where
             col5[1],
             col6[1],
         ];
-        self.bf7.exec(&mut row1);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row1));
         let mut row2 = [
             col0[2] * T::TWO,
             col1[2],
@@ -1587,7 +1592,7 @@ where
             col5[2],
             col6[2],
         ];
-        self.bf7.exec(&mut row2);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row2));
         let mut row3 = [
             col0[3] * T::TWO,
             col1[3],
@@ -1597,7 +1602,7 @@ where
             col5[3],
             col6[3],
         ];
-        self.bf7.exec(&mut row3);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row3));
         let mut row4 = [
             col0[4] * T::TWO,
             col1[4],
@@ -1607,7 +1612,7 @@ where
             col5[4],
             col6[4],
         ];
-        self.bf7.exec(&mut row4);
+        self.bf7.exec(&mut InPlaceStore::new(&mut row4));
 
         data[0] = row0[0];
         data[29] = row0[1];
@@ -1647,7 +1652,7 @@ where
     }
 }
 
-define_butterfly!(Dct3Butterfly35, 35);
+define_in_place_butterfly!(Dct3Butterfly35, 35);
 
 #[cfg(test)]
 mod tests {

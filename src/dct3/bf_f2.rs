@@ -26,11 +26,12 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dst3_butterfly::{Dst3Butterfly2, Dst3Butterfly4};
 use crate::factory_dct3::Dct3Factory;
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::{DctSample, define_butterfly};
+use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -44,7 +45,7 @@ pub(crate) struct Dct3Butterfly2<T> {
 
 impl<T: DctSample> Dct3Butterfly2<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 2]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         #[cfg(any(
             all(
                 any(target_arch = "x86", target_arch = "x86_64"),
@@ -73,24 +74,7 @@ impl<T: DctSample> Dct3Butterfly2<T> {
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct3Butterfly2<T>
-where
-    f64: AsPrimitive<T>,
-{
-    fn execute(&self, data: &mut [T]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(2) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
-        }
-        for chunk in data.chunks_exact_mut(2) {
-            self.exec((&mut chunk[..2]).try_into().unwrap());
-        }
-        Ok(())
-    }
-
-    fn length(&self) -> usize {
-        2
-    }
-}
+define_in_place_butterfly!(Dct3Butterfly2, 2);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly4<T> {
@@ -112,10 +96,10 @@ where
 
 impl<T: DctSample> Dct3Butterfly4<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 4]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // DCT-3 split radix with n = 4
         let mut evens = [data[0], data[2]];
-        self.bf2.exec(&mut evens);
+        self.bf2.exec(&mut InPlaceStore::new(&mut evens));
         let lower_dct4 = fmla(data[1], self.twiddle.re, data[3] * self.twiddle.im);
         let upper_dct4 = fmla(data[1], self.twiddle.im, -data[3] * self.twiddle.re);
 
@@ -126,7 +110,7 @@ impl<T: DctSample> Dct3Butterfly4<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly4, 4);
+define_in_place_butterfly!(Dct3Butterfly4, 4);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly8<T> {
@@ -152,17 +136,17 @@ where
 
 impl<T: DctSample> Dct3Butterfly8<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 8]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         //process the evens
         let mut dct3_buffer = [data[0], data[2], data[4], data[6]];
-        self.bf4.exec(&mut dct3_buffer);
+        self.bf4.exec(&mut InPlaceStore::new(&mut dct3_buffer));
 
         //process the odds
         let mut odds_n1 = [data[1] * T::TWO, data[3] + data[5]];
         let mut odds_n3 = [data[3] - data[5], data[7] * T::TWO];
 
-        self.bf2.exec(&mut odds_n1);
-        self.bf2_dst.exec(&mut odds_n3);
+        self.bf2.exec(&mut InPlaceStore::new(&mut odds_n1));
+        self.bf2_dst.exec(&mut InPlaceStore::new(&mut odds_n3));
 
         let twiddle0 = self.twiddles[0];
 
@@ -194,7 +178,7 @@ impl<T: DctSample> Dct3Butterfly8<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly8, 8);
+define_in_place_butterfly!(Dct3Butterfly8, 8);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly16<T> {
@@ -225,12 +209,12 @@ where
 
 impl<T: DctSample> Dct3Butterfly16<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 16]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         //process the evens
         let mut dct3_buffer = [
             data[0], data[2], data[4], data[6], data[8], data[10], data[12], data[14],
         ];
-        self.bf8.exec(&mut dct3_buffer);
+        self.bf8.exec(&mut InPlaceStore::new(&mut dct3_buffer));
 
         //process the odds
         let mut odds_n1 = [
@@ -245,8 +229,8 @@ impl<T: DctSample> Dct3Butterfly16<T> {
             data[11] - data[13],
             data[15] * T::TWO,
         ];
-        self.bf4.exec(&mut odds_n1);
-        self.bf4_dst.exec(&mut odds_n3);
+        self.bf4.exec(&mut InPlaceStore::new(&mut odds_n1));
+        self.bf4_dst.exec(&mut InPlaceStore::new(&mut odds_n3));
 
         for i in 0..4 {
             let lower_dct4 = fmla(
@@ -272,7 +256,7 @@ impl<T: DctSample> Dct3Butterfly16<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly16, 16);
+define_in_place_butterfly!(Dct3Butterfly16, 16);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct3Butterfly32<T> {
@@ -296,7 +280,7 @@ where
 
 impl<T: DctSample> Dct3Butterfly32<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 32]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let mut evens = [
             data[0], data[2], data[4], data[6], data[8], data[10], data[12], data[14], data[16],
             data[18], data[20], data[22], data[24], data[26], data[28], data[30],
@@ -322,9 +306,11 @@ impl<T: DctSample> Dct3Butterfly32<T> {
             data[3] - data[5],
         ];
 
-        self.bf16.exec(&mut evens);
-        self.bf8.exec(&mut recursive_input_n1);
-        self.bf8.exec(&mut recursive_input_n3);
+        self.bf16.exec(&mut InPlaceStore::new(&mut evens));
+        self.bf8
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n1));
+        self.bf8
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n3));
 
         let tw0 = self.twiddles[0];
         let cosine_value0 = recursive_input_n1[0];
@@ -417,7 +403,7 @@ impl<T: DctSample> Dct3Butterfly32<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly32, 32);
+define_in_place_butterfly!(Dct3Butterfly32, 32);
 
 #[derive(Clone)]
 pub(crate) struct Dct3Butterfly64<T> {
@@ -441,7 +427,7 @@ where
 
 impl<T: DctSample> Dct3Butterfly64<T> {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 64]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         let mut evens = [
             data[0], data[2], data[4], data[6], data[8], data[10], data[12], data[14], data[16],
             data[18], data[20], data[22], data[24], data[26], data[28], data[30], data[32],
@@ -486,8 +472,10 @@ impl<T: DctSample> Dct3Butterfly64<T> {
         ];
 
         _ = self.bf32.execute(&mut evens);
-        self.bf16.exec(&mut recursive_input_n1);
-        self.bf16.exec(&mut recursive_input_n3);
+        self.bf16
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n1));
+        self.bf16
+            .exec(&mut InPlaceStore::new(&mut recursive_input_n3));
 
         let tw0 = self.twiddles[0];
         let cosine_value0 = recursive_input_n1[0];
@@ -668,7 +656,7 @@ impl<T: DctSample> Dct3Butterfly64<T> {
     }
 }
 
-define_butterfly!(Dct3Butterfly64, 64);
+define_in_place_butterfly!(Dct3Butterfly64, 64);
 
 #[cfg(test)]
 mod tests {

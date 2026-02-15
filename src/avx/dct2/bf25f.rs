@@ -29,6 +29,7 @@
 use crate::avx::AvxDct2Butterfly5;
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::fma;
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::MixedRadix5Sample;
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
@@ -112,9 +113,9 @@ impl AvxDct2Butterfly25f {
 
 impl AvxDct2Butterfly25f {
     #[inline(always)]
-    pub(crate) fn exec(
+    pub(crate) fn exec<S: BidirectionalStore<f32>>(
         &self,
-        data: &mut [f32; 25],
+        data: &mut S,
         a_buffer: &mut [f32; 5],
         c_buffer: &mut [f32; 10],
         s_buffer: &mut [f32; 10],
@@ -123,7 +124,7 @@ impl AvxDct2Butterfly25f {
             a_buffer[n] = data[n * 5 + 2];
         }
 
-        self.bf5.exec(a_buffer);
+        self.bf5.exec(&mut InPlaceStore::new(a_buffer));
 
         for m in 0..2 {
             let mut sign = f32::one();
@@ -138,9 +139,9 @@ impl AvxDct2Butterfly25f {
             }
 
             self.bf5
-                .exec((&mut c_buffer[m * 5..(m + 1) * 5]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut c_buffer[m * 5..(m + 1) * 5]));
             self.bf5
-                .exec((&mut s_buffer[m * 5..(m + 1) * 5]).try_into().unwrap());
+                .exec(&mut InPlaceStore::new(&mut s_buffer[m * 5..(m + 1) * 5]));
         }
 
         unsafe {
@@ -229,23 +230,23 @@ impl AvxDct2Butterfly25f {
 
                 let a0 = AvxStoreF::load4(&a_buffer[1..]);
                 let dc = dc0 + a0;
-                dc.write4(&mut data[1..]);
+                dc.write4(data.slice_from_mut(1..));
 
                 let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
                 let dss_reverse = dss1.reverse4();
-                dss_reverse.write4(&mut data[6..]);
+                dss_reverse.write4(data.slice_from_mut(6..));
 
                 dc2 = -(dc2 + a0); // negated 2j
                 dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write4(&mut data[11..]);
+                dc2.write4(data.slice_from_mut(11..));
 
                 let dss3 = AvxStoreF::f32_mul_add(2., -ds3, -dc2);
                 let dss3_reversed = dss3.reverse4();
-                dss3_reversed.write4(&mut data[16..]);
+                dss3_reversed.write4(data.slice_from_mut(16..));
 
                 dc4 += a0;
                 dc4 = AvxStoreF::f32_mul_add(2., dc4, -dss3);
-                dc4.write4(&mut data[21..]);
+                dc4.write4(data.slice_from_mut(21..));
             }
         }
     }
@@ -264,7 +265,28 @@ impl AvxDct2Butterfly25f {
 
         for chunk in data.chunks_exact_mut(25) {
             self.exec(
-                (&mut chunk[..25]).try_into().unwrap(),
+                &mut InPlaceStore::new(chunk),
+                &mut a_buffer,
+                &mut c_buffer,
+                &mut s_buffer,
+            );
+        }
+        Ok(())
+    }
+
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn execute_into_impl(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 25);
+
+        let mut a_buffer = [f32::zero(); 5];
+        let mut c_buffer = [f32::zero(); 10];
+        let mut s_buffer = [f32::zero(); 10];
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(25).zip(output.chunks_exact_mut(25)) {
+            self.exec(
+                &mut BiStore::new(src, dst),
                 &mut a_buffer,
                 &mut c_buffer,
                 &mut s_buffer,
@@ -279,8 +301,29 @@ impl PxdctExecutor<f32> for AvxDct2Butterfly25f {
         unsafe { self.execute_impl(data) }
     }
 
+    fn execute_with_scratch(&self, data: &mut [f32], _: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_impl(data) }
+    }
+
+    fn execute_into(&self, input: &[f32], output: &mut [f32]) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _: &mut [f32],
+    ) -> Result<(), PxdctError> {
+        unsafe { self.execute_into_impl(input, output) }
+    }
+
     fn length(&self) -> usize {
         25
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 

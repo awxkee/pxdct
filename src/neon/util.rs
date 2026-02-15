@@ -182,6 +182,11 @@ impl NeonStoreF {
     pub(crate) fn raw(v: float32x4_t) -> Self {
         NeonStoreF { v }
     }
+
+    #[inline(always)]
+    pub(crate) fn dup(v: f32) -> Self {
+        unsafe { NeonStoreF { v: vdupq_n_f32(v) } }
+    }
 }
 
 impl Add<NeonStoreF> for NeonStoreF {
@@ -302,3 +307,72 @@ impl NeonStoreF {
         unsafe { NeonStoreF::raw(vrev64q_f32(self.v)) }
     }
 }
+
+macro_rules! boring_neon_mixed_radix {
+    ($f_name: ident, $f_type: ident) => {
+        impl PxdctExecutor<$f_type> for $f_name {
+    fn execute(&self, data: &mut [$f_type]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![$f_type::default(); self.scratch_size()];
+        self.execute_with_scratch(data, &mut scratch)
+    }
+
+    fn execute_with_scratch(
+        &self,
+        data: &mut [$f_type],
+        scratch: &mut [$f_type],
+    ) -> Result<(), PxdctError> {
+        if !data.len().is_multiple_of(self.execution_length) {
+            return Err(PxdctError::InvalidSizeMultiplier(
+                data.len(),
+                self.execution_length,
+            ));
+        }
+
+        use crate::util::validate_scratch;
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+
+       use crate::bidirectional::InPlaceStore;
+        for chunk in data.chunks_exact_mut(self.execution_length) {
+            self.execute_with_store(&mut InPlaceStore::new(chunk), full_scratch)?;
+        }
+
+        Ok(())
+    }
+
+    fn execute_into(&self, input: &[$f_type], output: &mut [$f_type]) -> Result<(), PxdctError> {
+        let mut scratch = try_vec![$f_type::default(); self.scratch_size()];
+        self.execute_into_with_scratch(input, output, &mut scratch)
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[$f_type],
+        output: &mut [$f_type],
+        scratch: &mut [$f_type],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, self.execution_length);
+
+        let full_scratch = validate_scratch!(scratch, self.scratch_size());
+
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(self.execution_length).zip(output.chunks_exact_mut(self.execution_length)) {
+            self.execute_with_store(&mut BiStore::new(src, dst), full_scratch)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn length(&self) -> usize {
+        self.execution_length
+    }
+
+    #[inline]
+    fn scratch_size(&self) -> usize {
+        self.execution_length + self.inner_dct_scratch_size
+    }
+}
+    };
+}
+
+pub(crate) use boring_neon_mixed_radix;

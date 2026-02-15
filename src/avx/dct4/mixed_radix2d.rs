@@ -28,14 +28,16 @@
  */
 use crate::avx::dct4::radix2d::dct4_radix2d_rotation_twiddles_avx;
 use crate::avx::stored::AvxStoreD;
-use crate::avx::util::fma;
-use crate::util::try_vec;
+use crate::avx::util::{boring_avx_mixed_radix, fma};
+use crate::bidirectional::BidirectionalStore;
+use crate::util::{try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::One;
 use std::sync::Arc;
 
 pub(crate) struct AvxDct4MixedRadix2d {
     dct2: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+    inner_dct_scratch_size: usize,
     twiddles: Vec<AvxStoreD>,
     execution_length: usize,
 }
@@ -52,35 +54,27 @@ impl AvxDct4MixedRadix2d {
         );
         let inner_len = dct2.length();
 
+        let dct2_inner_scratch_size = dct2.scratch_size();
+
         Ok(Self {
             dct2,
             twiddles: unsafe { dct4_radix2d_rotation_twiddles_avx(inner_len, len) },
             execution_length: len,
+            inner_dct_scratch_size: dct2_inner_scratch_size,
         })
     }
 }
 
-impl PxdctExecutor<f64> for AvxDct4MixedRadix2d {
-    fn execute(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        unsafe { self.execute_impl(data) }
-    }
-
-    #[inline]
-    fn length(&self) -> usize {
-        self.execution_length
-    }
-}
+boring_avx_mixed_radix!(AvxDct4MixedRadix2d, f64);
 
 impl AvxDct4MixedRadix2d {
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn execute_impl(&self, data: &mut [f64]) -> Result<(), PxdctError> {
-        if !data.len().is_multiple_of(self.execution_length) {
-            return Err(PxdctError::InvalidSizeMultiplier(
-                data.len(),
-                self.execution_length,
-            ));
-        }
-        let mut scratch = try_vec![f64::default(); self.execution_length];
+    fn execute_store<S: BidirectionalStore<f64>>(
+        &self,
+        data: &mut S,
+        scratch: &mut [f64],
+    ) -> Result<(), PxdctError> {
+        let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
 
         let len = self.length();
         let half_len = len / 2;
@@ -94,175 +88,166 @@ impl AvxDct4MixedRadix2d {
         //
         // where the pre/post rotations are fused with alternating sign flips to minimize
         // twiddle storage and multiplications.
-        for chunk in data.chunks_exact_mut(self.execution_length) {
-            let (left, right) = scratch.split_at_mut(half_len);
 
-            let mut k = 0usize;
-            let mut tk = 0usize;
-            let signs_re = AvxStoreD::set_values(-0.0, 0.0, -0.0, 0.0);
-            let signs_im = AvxStoreD::set_values(0.0, -0.0, 0.0, -0.0);
+        let (left, right) = scratch.split_at_mut(half_len);
 
-            let inner_len = self.dct2.length();
+        let mut k = 0usize;
+        let mut tk = 0usize;
+        let signs_re = AvxStoreD::set_values(-0.0, 0.0, -0.0, 0.0);
+        let signs_im = AvxStoreD::set_values(0.0, -0.0, 0.0, -0.0);
 
-            // -------- Pre-rotation / even-odd folding --------
-            // Fold symmetric samples (x[i], x[N-1-i]) into two half-length sequences.
-            while k + 4 <= inner_len {
-                const S: usize = 4;
-                let front = AvxStoreD::load(unsafe { chunk.get_unchecked(k..) });
-                let back = AvxStoreD::load(unsafe { chunk.get_unchecked(len - k - S..) }).reverse();
+        let inner_len = self.dct2.length();
 
-                let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-                let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
+        // -------- Pre-rotation / even-odd folding --------
+        // Fold symmetric samples (x[i], x[N-1-i]) into two half-length sequences.
+        while k + 4 <= inner_len {
+            const S: usize = 4;
+            let front = AvxStoreD::load(data.slice_from(k..));
+            let back = AvxStoreD::load(data.slice_from(len - k - S..)).reverse();
 
-                let ll = fma(twiddle_re, front, twiddle_im * back);
-                unsafe {
-                    ll.write(left.get_unchecked_mut(k..));
-                }
-                let rr = fma(
-                    twiddle_re.xor(signs_re),
-                    back,
-                    twiddle_im.xor(signs_im) * front,
-                );
-                unsafe {
-                    rr.reverse()
-                        .write(right.get_unchecked_mut(half_len - k - S..));
-                }
+            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
+            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
 
-                tk += 2;
-                k += 4;
+            let ll = fma(twiddle_re, front, twiddle_im * back);
+            unsafe {
+                ll.write(left.get_unchecked_mut(k..));
+            }
+            let rr = fma(
+                twiddle_re.xor(signs_re),
+                back,
+                twiddle_im.xor(signs_im) * front,
+            );
+            unsafe {
+                rr.reverse()
+                    .write(right.get_unchecked_mut(half_len - k - S..));
             }
 
-            let rem = inner_len - k;
-            if rem == 3 {
-                const S: usize = 3;
-                let front = AvxStoreD::load3(unsafe { chunk.get_unchecked(k..) });
-                let back =
-                    AvxStoreD::load3(unsafe { chunk.get_unchecked(len - k - S..) }).reverse3();
+            tk += 2;
+            k += 4;
+        }
 
-                let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-                let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
+        let rem = inner_len - k;
+        if rem == 3 {
+            const S: usize = 3;
+            let front = AvxStoreD::load3(data.slice_from(k..));
+            let back = AvxStoreD::load3(data.slice_from(len - k - S..)).reverse3();
 
-                let ll = fma(twiddle_re, front, twiddle_im * back);
-                unsafe {
-                    ll.write3(left.get_unchecked_mut(k..));
-                }
-                let rr = fma(
-                    twiddle_re.xor(signs_re),
-                    back,
-                    twiddle_im.xor(signs_im) * front,
-                );
-                unsafe {
-                    rr.reverse3()
-                        .write3(right.get_unchecked_mut(half_len - k - S..));
-                }
-            } else if rem == 2 {
-                const S: usize = 2;
-                let front = AvxStoreD::load2(unsafe { chunk.get_unchecked(k..) });
-                let back =
-                    AvxStoreD::load2(unsafe { chunk.get_unchecked(len - k - S..) }).reverse2();
+            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
+            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
 
-                let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-                let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-                let ll = fma(twiddle_re, front, twiddle_im * back);
-                unsafe {
-                    ll.write2(left.get_unchecked_mut(k..));
-                }
-                let rr = fma(
-                    twiddle_re.xor(signs_re),
-                    back,
-                    twiddle_im.xor(signs_im) * front,
-                );
-                unsafe {
-                    rr.reverse2()
-                        .write2(right.get_unchecked_mut(half_len - k - S..));
-                }
-            } else if rem == 1 {
-                const S: usize = 1;
-                let front = AvxStoreD::load1(unsafe { chunk.get_unchecked(k..) });
-                let back = AvxStoreD::load1(unsafe { chunk.get_unchecked(len - k - S..) });
-
-                let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-                let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-                let ll = fma(twiddle_re, front, twiddle_im * back);
-                unsafe {
-                    ll.write1(left.get_unchecked_mut(k..));
-                }
-                let rr = fma(
-                    twiddle_re.xor(signs_re),
-                    back,
-                    twiddle_im.xor(signs_im) * front,
-                );
-                unsafe {
-                    rr.write1(right.get_unchecked_mut(half_len - k - S..));
-                }
+            let ll = fma(twiddle_re, front, twiddle_im * back);
+            unsafe {
+                ll.write3(left.get_unchecked_mut(k..));
             }
-
-            self.dct2.execute(&mut scratch)?;
-
-            let (left, right) = scratch.split_at_mut(half_len);
-
-            chunk[0] = left[0];
-            chunk[len - 1] = right[0];
-
-            let signs_re = if half_len.is_multiple_of(2) {
-                AvxStoreD::set_values(-1.0, 1.0, -1.0, 1.0)
-            } else {
-                AvxStoreD::set_values(1.0, -1.0, 1.0, -1.0)
-            };
-            let signs_im = if half_len.is_multiple_of(2) {
-                AvxStoreD::set_values(1.0, -1.0, 1.0, -1.0)
-            } else {
-                AvxStoreD::set_values(-1.0, 1.0, -1.0, 1.0)
-            };
-
-            let mut i = 1usize;
-            while i + 4 < half_len {
-                let il = AvxStoreD::load(unsafe { left.get_unchecked(i..) });
-                let rr =
-                    AvxStoreD::load(unsafe { right.get_unchecked(half_len - i - 3..) }).reverse();
-
-                unsafe {
-                    let q = i - 1;
-                    let u0 = fma(signs_re, rr, il);
-                    let u1 = fma(signs_im, rr, il);
-                    let interleaved = u0.zip(u1);
-                    interleaved[0].write(chunk.get_unchecked_mut(q * 2 + 1..));
-                    interleaved[1].write(chunk.get_unchecked_mut(q * 2 + 5..));
-                }
-
-                i += 4;
+            let rr = fma(
+                twiddle_re.xor(signs_re),
+                back,
+                twiddle_im.xor(signs_im) * front,
+            );
+            unsafe {
+                rr.reverse3()
+                    .write3(right.get_unchecked_mut(half_len - k - S..));
             }
+        } else if rem == 2 {
+            const S: usize = 2;
+            let front = AvxStoreD::load2(data.slice_from(k..));
+            let back = AvxStoreD::load2(data.slice_from(len - k - S..)).reverse2();
 
-            let mut sign_left = if half_len.is_multiple_of(2) {
-                -f64::one()
-            } else {
-                f64::one()
-            };
-            let mut sign_right = if half_len.is_multiple_of(2) {
-                f64::one()
-            } else {
-                -f64::one()
-            };
+            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
+            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
 
-            // -------- Post-butterfly recombination --------
-            // Interleave even and odd spectra back into full DCT-IV ordering.
-            for i in 1..half_len {
-                let il = unsafe { *left.get_unchecked(i) };
-                let rr = unsafe { *right.get_unchecked(half_len - i) };
+            let ll = fma(twiddle_re, front, twiddle_im * back);
+            unsafe {
+                ll.write2(left.get_unchecked_mut(k..));
+            }
+            let rr = fma(
+                twiddle_re.xor(signs_re),
+                back,
+                twiddle_im.xor(signs_im) * front,
+            );
+            unsafe {
+                rr.reverse2()
+                    .write2(right.get_unchecked_mut(half_len - k - S..));
+            }
+        } else if rem == 1 {
+            const S: usize = 1;
+            let front = AvxStoreD::load1(data.slice_from(k..));
+            let back = AvxStoreD::load1(data.slice_from(len - k - S..));
 
-                unsafe {
-                    let q = i - 1;
-                    *chunk.get_unchecked_mut(q * 2 + 1) = fma(sign_left, rr, il);
-                    *chunk.get_unchecked_mut(q * 2 + 2) = fma(sign_right, rr, il);
-                }
+            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
+            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
 
-                sign_left = -sign_left;
-                sign_right = -sign_right;
+            let ll = fma(twiddle_re, front, twiddle_im * back);
+            unsafe {
+                ll.write1(left.get_unchecked_mut(k..));
+            }
+            let rr = fma(
+                twiddle_re.xor(signs_re),
+                back,
+                twiddle_im.xor(signs_im) * front,
+            );
+            unsafe {
+                rr.write1(right.get_unchecked_mut(half_len - k - S..));
             }
         }
 
+        self.dct2.execute_with_scratch(scratch, inner_scratch)?;
+
+        let (left, right) = scratch.split_at_mut(half_len);
+
+        data[0] = left[0];
+        data[len - 1] = right[0];
+
+        let signs_re = if half_len.is_multiple_of(2) {
+            AvxStoreD::set_values(-1.0, 1.0, -1.0, 1.0)
+        } else {
+            AvxStoreD::set_values(1.0, -1.0, 1.0, -1.0)
+        };
+        let signs_im = if half_len.is_multiple_of(2) {
+            AvxStoreD::set_values(1.0, -1.0, 1.0, -1.0)
+        } else {
+            AvxStoreD::set_values(-1.0, 1.0, -1.0, 1.0)
+        };
+
+        let mut i = 1usize;
+        while i + 4 < half_len {
+            let il = AvxStoreD::load(unsafe { left.get_unchecked(i..) });
+            let rr = AvxStoreD::load(unsafe { right.get_unchecked(half_len - i - 3..) }).reverse();
+
+            let q = i - 1;
+            let u0 = fma(signs_re, rr, il);
+            let u1 = fma(signs_im, rr, il);
+            let interleaved = u0.zip(u1);
+            interleaved[0].write(data.slice_from_mut(q * 2 + 1..));
+            interleaved[1].write(data.slice_from_mut(q * 2 + 5..));
+
+            i += 4;
+        }
+
+        let mut sign_left = if half_len.is_multiple_of(2) {
+            -f64::one()
+        } else {
+            f64::one()
+        };
+        let mut sign_right = if half_len.is_multiple_of(2) {
+            f64::one()
+        } else {
+            -f64::one()
+        };
+
+        // -------- Post-butterfly recombination --------
+        // Interleave even and odd spectra back into full DCT-IV ordering.
+        for i in 1..half_len {
+            let il = unsafe { *left.get_unchecked(i) };
+            let rr = unsafe { *right.get_unchecked(half_len - i) };
+
+            let q = i - 1;
+            data[q * 2 + 1] = fma(sign_left, rr, il);
+            data[q * 2 + 2] = fma(sign_right, rr, il);
+
+            sign_left = -sign_left;
+            sign_right = -sign_right;
+        }
         Ok(())
     }
 }

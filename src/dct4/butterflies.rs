@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::butterflies::{
     Dct2Butterfly6, Dct2Butterfly9, Dct2Butterfly10, Dct2Butterfly12, Dct2Butterfly14,
     Dct2Butterfly15,
@@ -36,7 +37,7 @@ use crate::dct2::prime_butterflies::{
 };
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
-use crate::util::{DctSample, define_butterfly};
+use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
@@ -63,7 +64,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 6]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 6 points
         let mut left = [T::zero(); 3];
         let mut right = [T::zero(); 3];
@@ -74,8 +75,8 @@ where
         right[1] = fmla(self.twiddles[1].re, data[4], -self.twiddles[1].im * data[1]);
         left[2] = fmla(self.twiddles[2].re, data[2], self.twiddles[2].im * data[3]);
         right[0] = fmla(-self.twiddles[2].re, data[3], self.twiddles[2].im * data[2]);
-        self.bf3.exec(&mut left);
-        self.bf3.exec(&mut right);
+        self.bf3.exec(&mut InPlaceStore::new(&mut left));
+        self.bf3.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[1] = left[1] + right[2];
         data[2] = left[1] - right[2];
@@ -85,7 +86,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly6, 6);
+define_in_place_butterfly!(Dct4Butterfly6, 6);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly10<T: DctSample> {
@@ -109,7 +110,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 10]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 10 points
         let mut left = [T::zero(); 5];
         let mut right = [T::zero(); 5];
@@ -124,8 +125,8 @@ where
         right[1] = fmla(self.twiddles[3].re, data[6], -self.twiddles[3].im * data[3]);
         left[4] = fmla(self.twiddles[4].re, data[4], self.twiddles[4].im * data[5]);
         right[0] = fmla(-self.twiddles[4].re, data[5], self.twiddles[4].im * data[4]);
-        self.bf5.exec(&mut left);
-        self.bf5.exec(&mut right);
+        self.bf5.exec(&mut InPlaceStore::new(&mut left));
+        self.bf5.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[9] = right[0];
         data[1] = left[1] + right[4];
@@ -139,7 +140,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly10, 10);
+define_in_place_butterfly!(Dct4Butterfly10, 10);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly12<T: DctSample> {
@@ -164,7 +165,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 12]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 12 points
         let mut left = [T::zero(); 6];
         let mut right = [T::zero(); 6];
@@ -189,8 +190,8 @@ where
         right[1] = fmla(-self.twiddles[4].re, data[7], self.twiddles[4].im * data[4]);
         left[5] = fmla(self.twiddles[5].re, data[5], self.twiddles[5].im * data[6]);
         right[0] = fmla(self.twiddles[5].re, data[6], -self.twiddles[5].im * data[5]);
-        self.bf6.exec(&mut left);
-        self.bf6.exec(&mut right);
+        self.bf6.exec(&mut InPlaceStore::new(&mut left));
+        self.bf6.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[11] = right[0];
         data[1] = left[1] - right[5];
@@ -206,7 +207,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly12, 12);
+define_in_place_butterfly!(Dct4Butterfly12, 12);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly14<T: DctSample> {
@@ -230,7 +231,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 14]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 14 points
         let mut left = [T::zero(); 7];
         let mut right = [T::zero(); 7];
@@ -265,8 +266,8 @@ where
         right[1] = fmla(self.twiddles[5].re, data[8], -self.twiddles[5].im * data[5]);
         left[6] = fmla(self.twiddles[6].re, data[6], self.twiddles[6].im * data[7]);
         right[0] = fmla(-self.twiddles[6].re, data[7], self.twiddles[6].im * data[6]);
-        self.bf7.exec(&mut left);
-        self.bf7.exec(&mut right);
+        self.bf7.exec(&mut InPlaceStore::new(&mut left));
+        self.bf7.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[13] = right[0];
         data[1] = left[1] + right[6];
@@ -284,7 +285,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly14, 14);
+define_in_place_butterfly!(Dct4Butterfly14, 14);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly18<T: DctSample> {
@@ -309,7 +310,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 18]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 18 points
         let mut left = [T::zero(); 9];
         let mut right = [T::zero(); 9];
@@ -364,8 +365,8 @@ where
         );
         left[8] = fmla(self.twiddles[8].re, data[8], self.twiddles[8].im * data[9]);
         right[0] = fmla(-self.twiddles[8].re, data[9], self.twiddles[8].im * data[8]);
-        self.bf9.exec(&mut left);
-        self.bf9.exec(&mut right);
+        self.bf9.exec(&mut InPlaceStore::new(&mut left));
+        self.bf9.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[17] = right[0];
         data[1] = left[1] + right[8];
@@ -387,7 +388,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly18, 18);
+define_in_place_butterfly!(Dct4Butterfly18, 18);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly20<T: DctSample> {
@@ -412,7 +413,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 20]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 20 points
         let mut left = [T::zero(); 10];
         let mut right = [T::zero(); 10];
@@ -477,8 +478,8 @@ where
             data[10],
             -self.twiddles[9].im * data[9],
         );
-        self.bf10.exec(&mut left);
-        self.bf10.exec(&mut right);
+        self.bf10.exec(&mut InPlaceStore::new(&mut left));
+        self.bf10.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[19] = right[0];
         data[1] = left[1] - right[9];
@@ -502,7 +503,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly20, 20);
+define_in_place_butterfly!(Dct4Butterfly20, 20);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly22<T: DctSample> {
@@ -526,7 +527,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 22]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 22 points
         let mut left = [T::zero(); 11];
         let mut right = [T::zero(); 11];
@@ -601,8 +602,8 @@ where
             data[11],
             self.twiddles[10].im * data[10],
         );
-        self.bf11.exec(&mut left);
-        self.bf11.exec(&mut right);
+        self.bf11.exec(&mut InPlaceStore::new(&mut left));
+        self.bf11.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[21] = right[0];
         data[1] = left[1] + right[10];
@@ -637,13 +638,40 @@ where
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
         for chunk in data.chunks_exact_mut(22) {
-            self.exec((&mut chunk[..22]).try_into().unwrap());
+            self.exec(&mut InPlaceStore::new(chunk));
+        }
+        Ok(())
+    }
+
+    fn execute_with_scratch(&self, data: &mut [T], _: &mut [T]) -> Result<(), PxdctError> {
+        self.execute(data)
+    }
+
+    fn execute_into(&self, input: &[T], output: &mut [T]) -> Result<(), PxdctError> {
+        self.execute_into_with_scratch(input, output, &mut [])
+    }
+
+    fn execute_into_with_scratch(
+        &self,
+        input: &[T],
+        output: &mut [T],
+        _: &mut [T],
+    ) -> Result<(), PxdctError> {
+        use crate::util::validate_oof_sizes;
+        validate_oof_sizes!(input, output, 22);
+        use crate::bidirectional::BiStore;
+        for (src, dst) in input.chunks_exact(22).zip(output.chunks_exact_mut(22)) {
+            self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())
     }
 
     fn length(&self) -> usize {
         22
+    }
+
+    fn scratch_size(&self) -> usize {
+        0
     }
 }
 
@@ -670,7 +698,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 24]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 24 points
         let mut left = [T::zero(); 12];
         let mut right = [T::zero(); 12];
@@ -755,8 +783,8 @@ where
             data[12],
             -self.twiddles[11].im * data[11],
         );
-        self.bf12.exec(&mut left);
-        self.bf12.exec(&mut right);
+        self.bf12.exec(&mut InPlaceStore::new(&mut left));
+        self.bf12.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[23] = right[0];
         data[1] = left[1] - right[11];
@@ -784,7 +812,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly24, 24);
+define_in_place_butterfly!(Dct4Butterfly24, 24);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly26<T: DctSample> {
@@ -808,7 +836,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 26]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 26 points
         let mut left = [T::zero(); 13];
         let mut right = [T::zero(); 13];
@@ -903,8 +931,8 @@ where
             data[13],
             self.twiddles[12].im * data[12],
         );
-        self.bf13.exec(&mut left);
-        self.bf13.exec(&mut right);
+        self.bf13.exec(&mut InPlaceStore::new(&mut left));
+        self.bf13.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[25] = right[0];
         data[1] = left[1] + right[12];
@@ -934,7 +962,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly26, 26);
+define_in_place_butterfly!(Dct4Butterfly26, 26);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly28<T: DctSample> {
@@ -959,7 +987,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 28]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 28 points
         let mut left = [T::zero(); 14];
         let mut right = [T::zero(); 14];
@@ -1064,8 +1092,8 @@ where
             data[14],
             -self.twiddles[13].im * data[13],
         );
-        self.bf14.exec(&mut left);
-        self.bf14.exec(&mut right);
+        self.bf14.exec(&mut InPlaceStore::new(&mut left));
+        self.bf14.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[27] = right[0];
         data[1] = left[1] - right[13];
@@ -1097,7 +1125,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly28, 28);
+define_in_place_butterfly!(Dct4Butterfly28, 28);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dct4Butterfly30<T: DctSample> {
@@ -1122,7 +1150,7 @@ where
     f64: AsPrimitive<T>,
 {
     #[inline(always)]
-    pub(crate) fn exec(&self, data: &mut [T; 30]) {
+    pub(crate) fn exec<S: BidirectionalStore<T>>(&self, data: &mut S) {
         // This is auto-generated factorization of DCT-IV butterfly for 30 points
         let mut left = [T::zero(); 15];
         let mut right = [T::zero(); 15];
@@ -1237,8 +1265,8 @@ where
             data[15],
             self.twiddles[14].im * data[14],
         );
-        self.bf15.exec(&mut left);
-        self.bf15.exec(&mut right);
+        self.bf15.exec(&mut InPlaceStore::new(&mut left));
+        self.bf15.exec(&mut InPlaceStore::new(&mut right));
         data[0] = left[0];
         data[29] = right[0];
         data[1] = left[1] + right[14];
@@ -1272,7 +1300,7 @@ where
     }
 }
 
-define_butterfly!(Dct4Butterfly30, 30);
+define_in_place_butterfly!(Dct4Butterfly30, 30);
 
 #[cfg(test)]
 mod tests {
