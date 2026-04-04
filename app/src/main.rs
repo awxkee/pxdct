@@ -43,11 +43,12 @@ use crate::dct3_gen::{compute_twiddle, generate_dct3};
 use crate::solver::solve_expression_arr;
 use crate::split_radix_dct3::split_radix_dct3;
 use criterion::Criterion;
-use pxfm::{f_cospi, f_sinpi};
+use num_complex::Complex;
+use pxdct::Pxdct;
+use pxfm::{f_cospi, f_sec, f_sincospi, f_sinpi};
 use rustdct::num_traits::FloatConst;
 use std::f64::consts::PI;
 use std::fmt::format;
-use pxdct::Pxdct;
 
 fn naive_dct4(input: &[f32]) -> Vec<f32> {
     let mut result = Vec::new();
@@ -257,7 +258,78 @@ pub fn cos3_6(x: [f64; 6]) -> [f64; 6] {
     output
 }
 
+#[inline]
+pub(crate) fn compute_twiddle_s(index: usize, fft_len: usize) -> f64 {
+    let angle = index as f64 / (2. * fft_len as f64) * std::f64::consts::PI;
+    f_sec(angle) * 0.5
+}
+
+#[inline(always)]
+pub fn cos2_8(x: [f64; 8]) -> [f64; 8] {
+    let tw0 = compute_twiddle_s(1, 8);
+    let tw1 = compute_twiddle_s(3, 8);
+    let tw2 = compute_twiddle_s(5, 8);
+    let tw3 = compute_twiddle_s(7, 8);
+
+    let u0 = x[0] + x[7];
+    let u1 = x[1] + x[6];
+    let u2 = x[2] + x[5];
+    let u3 = x[3] + x[4];
+
+    let u4 = x[3] - x[4];
+    let u5 = x[2] - x[5];
+    let u6 = x[1] - x[6];
+    let u7 = x[0] - x[7];
+    let internal = Pxdct::make_dct2_f64(4).unwrap();
+    let internal4 = Pxdct::make_dct4_f64(4).unwrap();
+    let mut z1 = [u0, u1, u2, u3];
+    let mut z2 = [u7, u6, u5, u4];
+    internal.execute(&mut z1).unwrap();
+    internal4.execute(&mut z2).unwrap();
+    let mut output: [f64; 8] = [0.0; 8];
+    for i in 0..4 {
+        output[i * 2] = z1[i];
+        output[i * 2 + 1] = z2[i];
+    }
+    output
+}
+
+#[inline(always)]
+pub fn cos2_4(x: [f64; 4]) -> [f64; 4] {
+    let tw0 = compute_twiddle(1, 4 * 4) * 0.5;
+    let tw1 = compute_twiddle(3, 4 * 4) * 0.5;
+
+    let u0 = x[0] + x[3];
+    let u1 = x[1] + x[2];
+    let mut u2 = x[1] - x[2];
+    let mut u3 = x[0] - x[3];
+
+    let v1 = -u2 * tw0.re + u3 * tw0.im;
+    let v2 = u2 * tw1.im - u3 * tw1.re;
+
+    let internal = Pxdct::make_dct2_f64(2).unwrap();
+    let internal4 = Pxdct::make_dct2_f64(2).unwrap();
+
+    let mut z1 = [u0, u1];
+    let mut z2 = [v2, v1];
+    internal.execute(&mut z1).unwrap();
+    internal4.execute(&mut z2).unwrap();
+    let mut output: [f64; 4] = [0.0; 4];
+    for i in 0..2 {
+        output[i * 2] = z1[i];
+        output[i * 2 + 1] = z2[i];
+    }
+    output
+}
+
 fn main() {
+    let mut bf = [1.1, 2.1, 3.1, 4.1];
+    let received = cos2_4(bf);
+    let cvt = Pxdct::make_dct2_f64(4).unwrap();
+    cvt.execute(&mut bf).unwrap();
+    println!("received {:?}", received);
+    println!("converted {:?}", bf);
+
     // let (dc3, lanes) = generate_dct2_fma(23, "fmla".to_string());
     // println!("{}", dc3);
     // gen_coprimes(5, 4);
