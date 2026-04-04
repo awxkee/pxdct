@@ -714,11 +714,29 @@ impl Pxdct {
         Pxdct::strategy_dct4(length)
     }
 
+    /// Creates a scaled single-precision (f32) DCT-IV executor.
+    pub fn make_scaled_dct4_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Ok(Arc::new(ScalingInterceptor {
+            interceptor: Pxdct::strategy_dct4(length)?,
+        }))
+    }
+
     /// Creates a double-precision (f32) DCT-IV executor.
     pub fn make_dct4_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         Pxdct::strategy_dct4(length)
+    }
+
+    /// Creates a scaled single-precision (f32) DCT-IV executor.
+    pub fn make_scaled_dct4_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Ok(Arc::new(ScalingInterceptor {
+            interceptor: Pxdct::strategy_dct4(length)?,
+        }))
     }
 
     /// Creates 2D DCT executor.
