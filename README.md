@@ -1,19 +1,35 @@
 # Pxdct — Discrete Cosine and Sine Transform Factory
 
-`Pxdct` is the main entry point for creating optimized **DCT (Discrete Cosine Transform)** and **DST (Discrete Sine
-Transform)** executors.  
-It provides a unified API for constructing fast, in-place transform executors using either **single (`f32`)** or *
-*double (`f64`)** precision.
+Pxdct is a high-performance DCT/DST library for Rust supporting
+arbitrary transform lengths not just powers of 2.
 
-All executors implement the [`PxdctExecutor`] trait and can be used to perform forward or inverse transforms directly on
-a mutable data slice.
+## Why Pxdct
+
+Most DCT libraries require power-of-2 window sizes. Pxdct efficiently
+handles any length by automatically selecting the best algorithm:
+
+- Split-radix for power-of-2 sizes
+- Mixed-radix decomposition for sizes with small prime factors (3, 5, 7, 11, 13...)
+- Prime Factor Algorithm (PFA) for coprime factorizations
+- Butterflies for sizes up to 512
+
+Hardware acceleration is applied automatically:
+- AVX2 on x86_64
+- NEON on aarch64
 
 ---
 
-## Features
+## Supported Transforms
 
-- Supports **DCT-II**, **DCT-III**, **DST-II**, **DST-III**, and **DCT-IV**
-- Works with both `f32` and `f64`
+| Transform | Description                     |
+|-----------|---------------------------------|
+| DCT-II    | Forward DCT (used in JPEG, MP3) |
+| DCT-III   | Inverse DCT                     |
+| DCT-IV    | Used in MDCT (AAC, Vorbis)      |
+| DST-II    | Discrete Sine Transform         |
+| DST-III   | Inverse DST                     |
+
+Both `f32` and `f64` precision are supported.
 
 ---
 

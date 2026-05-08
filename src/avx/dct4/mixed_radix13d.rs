@@ -948,10 +948,14 @@ mod tests {
     use super::*;
     use crate::dct4::Dct4Butterfly2;
     use crate::tests::naive_dct4;
+    use crate::util::has_valid_avx;
     use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {
+        if !has_valid_avx() {
+            return;
+        }
         let mut input = vec![0.; 26];
         for z in input.iter_mut() {
             *z = rand::rng().random_range(1.0..2.0);

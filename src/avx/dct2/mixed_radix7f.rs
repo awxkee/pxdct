@@ -1314,9 +1314,13 @@ mod tests {
     use crate::Pxdct;
     use crate::dct2::Dct2MixedRadix7;
     use crate::tests::naive_dct2_f32;
+    use crate::util::has_valid_avx;
 
     #[test]
     fn test_radix7_dct() {
+        if !has_valid_avx() {
+            return;
+        }
         let mut input = vec![0.; 7 * 1];
         for (i, z) in input.iter_mut().enumerate() {
             *z = i as f32 + rand::random::<f32>() * 10.0;

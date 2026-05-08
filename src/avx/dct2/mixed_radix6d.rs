@@ -465,9 +465,13 @@ mod tests {
     use super::*;
     use crate::butterflies::Dct2Butterfly6;
     use crate::tests::naive_dct2;
+    use crate::util::has_valid_avx;
 
     #[test]
     fn test_radix6_dct2() {
+        if !has_valid_avx() {
+            return;
+        }
         let mut input = vec![0.; 36];
         for (i, z) in input.iter_mut().enumerate() {
             *z = i as f64;
