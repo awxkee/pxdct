@@ -233,7 +233,7 @@ impl NeonDct2MixedRadix7f {
     ) -> Result<NeonDct2MixedRadix7f, PxdctError> {
         assert!(
             len.is_multiple_of(7),
-            "Mixed radix 5 should not be called on sizes no divisible by 5"
+            "Mixed radix 7 should not be called on sizes no divisible by 7"
         );
 
         let q_modules = len / 7;

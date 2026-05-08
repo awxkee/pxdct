@@ -400,10 +400,8 @@ macro_rules! define_in_place_butterfly {
                     return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
                 }
                 use crate::bidirectional::InPlaceStore;
-                for chunk in data.chunks_exact_mut($length) {
-                    self.exec(&mut InPlaceStore::new(
-                        (&mut chunk[..$length]).try_into().unwrap(),
-                    ));
+                for chunk in data.as_chunks_mut::<$length>().0.iter_mut() {
+                    self.exec(&mut InPlaceStore::new(chunk));
                 }
                 Ok(())
             }
@@ -413,7 +411,7 @@ macro_rules! define_in_place_butterfly {
                     return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
                 }
                 use crate::bidirectional::InPlaceStore;
-                for chunk in data.chunks_exact_mut($length) {
+                for chunk in data.as_chunks_mut::<$length>().0.iter_mut() {
                     self.exec(&mut InPlaceStore::new(chunk));
                 }
                 Ok(())
@@ -433,8 +431,10 @@ macro_rules! define_in_place_butterfly {
                 validate_oof_sizes!(input, output, $length);
                 use crate::bidirectional::BiStore;
                 for (src, dst) in input
-                    .chunks_exact($length)
-                    .zip(output.chunks_exact_mut($length))
+                    .as_chunks::<$length>()
+                    .0
+                    .iter()
+                    .zip(output.as_chunks_mut::<$length>().0.iter_mut())
                 {
                     self.exec(&mut BiStore::new(src, dst));
                 }

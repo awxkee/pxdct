@@ -351,7 +351,7 @@ where
 mod tests {
     use super::*;
     use crate::tests::naive_dct4;
-    use rand::Rng;
+    use rand::RngExt;
     use zaft::Zaft;
 
     #[test]

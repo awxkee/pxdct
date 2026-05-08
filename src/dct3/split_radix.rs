@@ -337,7 +337,7 @@ mod tests {
     use crate::dct3::Dct3Butterfly8;
     use crate::dct3::bf_f2::Dct3Butterfly16;
     use crate::tests::{naive_dct3, naive_dst3};
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct3() {

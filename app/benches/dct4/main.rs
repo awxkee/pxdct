@@ -7,7 +7,7 @@
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
 use pxdct::Pxdct;
-use rand::Rng;
+use rand::RngExt;
 use std::time::Duration;
 
 fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) {

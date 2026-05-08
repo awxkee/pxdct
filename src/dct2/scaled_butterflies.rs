@@ -348,7 +348,7 @@ mod tests {
     use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
     use crate::tests::naive_scaled_dct2;
-    use rand::Rng;
+    use rand::RngExt;
 
     gen_test_butterfly!(
         test_bf_scaled_dct4,

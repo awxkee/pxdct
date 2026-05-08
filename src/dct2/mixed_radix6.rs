@@ -90,6 +90,7 @@ impl<T: DctSample> Dct2MixedRadix6<T>
 where
     f64: AsPrimitive<T>,
 {
+    #[allow(unused)]
     fn execute_with_store<S: BidirectionalStore<T>>(
         &self,
         data: &mut S,
@@ -292,7 +293,7 @@ mod tests {
     use super::*;
     use crate::butterflies::Dct2Butterfly36;
     use crate::tests::naive_dct2;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_radix6_dct2() {

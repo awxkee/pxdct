@@ -545,9 +545,13 @@ mod tests {
     use crate::butterflies::Dct2Butterfly6;
     use crate::dct2::prime_butterflies::Dct2Butterfly17;
     use crate::tests::{naive_dct2, naive_dct2_f32};
+    use crate::util::has_valid_avx;
 
     #[test]
     fn test_radix2_dct() {
+        if !has_valid_avx() {
+            return;
+        }
         let mut input = vec![0.; 34];
         for (i, z) in input.iter_mut().enumerate() {
             *z = i as f32;
@@ -572,6 +576,9 @@ mod tests {
 
     #[test]
     fn test_radix2_dct_f64() {
+        if !has_valid_avx() {
+            return;
+        }
         let mut input = vec![0.; 12];
         for (i, z) in input.iter_mut().enumerate() {
             *z = i as f64;

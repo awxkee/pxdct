@@ -496,8 +496,8 @@ impl PxdctExecutor<f64> for AvxDct2Butterfly49d {
 mod tests {
     use super::*;
     use crate::PxdctExecutor;
-    use crate::butterflies::gen_test_butterfly_f;
+    use crate::avx::dct2_bf_power2::gen_test_avx_butterfly;
     use crate::tests::naive_dct2;
 
-    gen_test_butterfly_f!(test_bf49_f64, AvxDct2Butterfly49d, 49, 1e-7, naive_dct2);
+    gen_test_avx_butterfly!(test_bf49_f64, AvxDct2Butterfly49d, 49, 1e-7, naive_dct2);
 }

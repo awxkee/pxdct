@@ -344,10 +344,14 @@ mod tests {
     use super::*;
     use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
     use crate::tests::naive_dct2_f32;
-    use rand::Rng;
+    use crate::util::has_valid_avx;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct2() {
+        if !has_valid_avx() {
+            return;
+        }
         let mut input = vec![0f32; 32];
         for z in input.iter_mut() {
             *z = rand::rng().random_range(1.0..2.0);

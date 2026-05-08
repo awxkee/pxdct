@@ -842,7 +842,7 @@ mod tests {
     use crate::dct4::Dct4Butterfly8;
     use crate::tests::naive_dct4_f32;
     use crate::util::has_valid_avx;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {

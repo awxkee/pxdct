@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [ "1.87.0", stable ]
+        rust: [ "1.89.0", stable ]
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -43,7 +43,7 @@ jobs:
     strategy:
       matrix:
         features: [ "", neon, fcma ]
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
@@ -80,7 +80,7 @@ jobs:
 
   clippy_arm:
     name: Clippy ARM
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -88,7 +88,7 @@ jobs:
 
   fuzz_arm:
     name: Fuzzing ARM
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
         feature: [ "", neon, fcma ]
@@ -115,3 +115,32 @@ jobs:
       - run: cargo fuzz run dct4 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct2_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct4_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
+
+  tests_x86_sse_isolated:
+    name: Testing x86 SSE isolated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: |
+          sudo apt-get -y update
+          sudo apt-get install -y qemu-user
+      - run: |
+          failed=0
+          tests=$(cargo +nightly test --lib -- --list 2>/dev/null | grep ': test' | sed 's/: test//')
+          while read -r test; do
+              rc=0
+              echo "Running: $test"
+              output=$(RUSTFLAGS="-C target-feature=+sse4.1,-avx,-avx2,-fma" \
+              CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="qemu-x86_64 -cpu Nehalem" SHORT_TEST=yes \
+              cargo +nightly test --lib -- "$test" --exact 2>&1) || rc=$?
+              echo "$output" | grep -E "FAILED|ok|signal 4"
+              if [ "${rc:-0}" -ne 0 ]; then
+                echo "❌ Test failed: $test"
+                echo "$output"
+                failed=1
+              else
+                echo "$output" | grep -E "ok|signal 4"
+              fi
+          done <<< "$tests"
+          exit $failed

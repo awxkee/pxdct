@@ -1442,6 +1442,7 @@ impl<T: DctSample> Dct2Butterfly36<T>
 where
     f64: AsPrimitive<T>,
 {
+    #[allow(unused)]
     #[inline(always)]
     fn exec<S: BidirectionalStore<T>>(
         &self,
@@ -2079,6 +2080,7 @@ impl<T: DctSample> Dct2Butterfly216<T>
 where
     f64: AsPrimitive<T>,
 {
+    #[allow(unused)]
     #[inline(always)]
     fn exec<S: BidirectionalStore<T>>(&self, data: &mut S, scratch: &mut [T; 216]) {
         let s_n = 216 / 3;
@@ -2434,7 +2436,7 @@ macro_rules! gen_test_butterfly_f {
         fn $test_name() {
             let mut input = vec![0.; $size];
             for z in input.iter_mut() {
-                use rand::Rng;
+                use rand::RngExt;
                 *z = rand::rng().random_range(1.0..2.0);
             }
             let reference_input = input.clone();
@@ -2477,7 +2479,7 @@ mod tests {
     use super::*;
     use crate::PxdctExecutor;
     use crate::tests::naive_dct2;
-    use rand::Rng;
+    use rand::RngExt;
 
     gen_test_butterfly!(test_bf3, f64, Dct2Butterfly3, 3, 1e-7, naive_dct2);
     gen_test_butterfly!(test_bf4, f64, Dct2Butterfly4, 4, 1e-7, naive_dct2);

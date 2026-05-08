@@ -2954,7 +2954,7 @@ mod tests {
     use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
     use crate::tests::naive_dct4;
-    use rand::Rng;
+    use rand::RngExt;
 
     gen_test_butterfly!(test_bf_dct4_3, f64, Dct4Butterfly3, 3, 1e-7, naive_dct4);
     gen_test_butterfly!(test_bf_dct4_5, f64, Dct4Butterfly5, 5, 1e-7, naive_dct4);

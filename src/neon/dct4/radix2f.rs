@@ -268,7 +268,7 @@ mod tests {
     use super::*;
     use crate::dct2::power2_butterflies::Dct2Butterfly32;
     use crate::tests::naive_dct4_f32;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {

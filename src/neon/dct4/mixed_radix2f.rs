@@ -208,7 +208,7 @@ impl NeonDct4MixedRadix2f {
         };
 
         let mut i = 1usize;
-        while i + 4 < half_len {
+        while i + 4 <= half_len {
             let il = NeonStoreF::load(unsafe { left.get_unchecked(i..) });
             let rr = NeonStoreF::load(unsafe { right.get_unchecked(half_len - i - 3..) }).reverse();
 
@@ -257,7 +257,7 @@ mod tests {
     use super::*;
     use crate::dct2::prime_butterflies::Dct2Butterfly17;
     use crate::tests::naive_dct4_f32;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {

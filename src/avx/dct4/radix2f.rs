@@ -250,7 +250,7 @@ impl AvxDct4Radix2f {
         let signs_im = AvxStoreF::set_values8(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
 
         let mut i = 1usize;
-        while i + 8 < quarter_len {
+        while i + 8 <= quarter_len {
             let il = AvxStoreF::load(unsafe { left.get_unchecked(i..) });
             let rr = AvxStoreF::load(unsafe { right.get_unchecked(half_len - i - 7..) }).reverse();
             let rl = AvxStoreF::load(unsafe { left.get_unchecked(half_len - i - 7..) }).reverse();
@@ -313,7 +313,7 @@ mod tests {
     use crate::dct2::power2_butterflies::Dct2Butterfly32;
     use crate::tests::naive_dct4_f32;
     use crate::util::has_valid_avx;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {

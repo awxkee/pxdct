@@ -503,7 +503,7 @@ mod tests {
     use super::*;
     use crate::butterflies::Dct2Butterfly6;
     use crate::tests::{naive_dct2, naive_dct2_f32};
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_radix2_dct() {

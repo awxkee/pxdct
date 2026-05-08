@@ -189,9 +189,11 @@ impl AvxPfaDct2Remapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::has_valid_avx;
+
     #[test]
     fn test_packing() {
-        if !std::arch::is_x86_feature_detected!("avx2") {
+        if !has_valid_avx() {
             return;
         }
         unsafe {
