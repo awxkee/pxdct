@@ -14,20 +14,20 @@ handles any length by automatically selecting the best algorithm:
 - Butterflies for sizes up to 512
 
 Hardware acceleration is applied automatically:
-- AVX2 on x86_64
-- NEON on aarch64
+- AVX2
+- NEON
 
 ---
 
 ## Supported Transforms
 
-| Transform | Description                     |
-|-----------|---------------------------------|
-| DCT-II    | Forward DCT (used in JPEG, MP3) |
-| DCT-III   | Inverse DCT                     |
-| DCT-IV    | Used in MDCT (AAC, Vorbis)      |
-| DST-II    | Discrete Sine Transform         |
-| DST-III   | Inverse DST                     |
+| Transform | Description             |
+|-----------|-------------------------|
+| DCT-II    | the DCT                 |
+| DCT-III   | Inverse DCT             |
+| DCT-IV    | Used in MDCT            |
+| DST-II    | Discrete Sine Transform |
+| DST-III   | Inverse DST             |
 
 Both `f32` and `f64` precision are supported.
 
