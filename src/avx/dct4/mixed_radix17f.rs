@@ -2478,7 +2478,7 @@ mod tests {
     use super::*;
     use crate::dct4::Dct4Identity;
     use crate::tests::naive_dct4_f32;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {

@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use crate::dct2::prime_butterflies::Dct2Butterfly17;
     use crate::tests::naive_dct4;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct4() {

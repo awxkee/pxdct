@@ -382,7 +382,7 @@ mod tests {
     use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
     use crate::neon::dct2::bf_split_radix2d::NeonDct2Butterfly32d;
     use crate::tests::{naive_dct2, naive_scaled_dct2};
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_split_dct2() {

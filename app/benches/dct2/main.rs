@@ -7,7 +7,7 @@
 use criterion::measurement::WallTime;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, criterion_group, criterion_main};
 use pxdct::Pxdct;
-use rand::Rng;
+use rand::RngExt;
 use std::time::Duration;
 
 pub(crate) fn prime_factors(mut n: u64) -> Vec<u64> {

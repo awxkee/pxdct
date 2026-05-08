@@ -440,8 +440,10 @@ where
 {
     fn remap_input(&self, src: &[T], dst: &mut [T]) {
         for (dst, index) in dst
-            .chunks_exact_mut(4)
-            .zip(self.indexer.input.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(self.indexer.input.as_chunks::<4>().0.iter())
         {
             unsafe {
                 dst[0] = *src.get_unchecked(index[0]);
@@ -450,8 +452,8 @@ where
                 dst[3] = *src.get_unchecked(index[3]);
             }
         }
-        let dst = dst.chunks_exact_mut(4).into_remainder();
-        let indexer = self.indexer.input.chunks_exact(4).remainder();
+        let dst = dst.as_chunks_mut::<4>().1;
+        let indexer = self.indexer.input.as_chunks::<4>().1;
         for (dst, &index) in dst.iter_mut().zip(indexer.iter()) {
             unsafe {
                 *dst = *src.get_unchecked(index);

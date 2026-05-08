@@ -30,7 +30,7 @@ use crate::coprime_generator::{
     Mulsigni, naive_dct2_f32, pfa_modulation, pfa_unity_gain, transpose,
 };
 use pxdct::Pxdct;
-use rand::Rng;
+use rand::RngExt;
 use std::fmt::format;
 use std::ops::Add;
 

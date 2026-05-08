@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 criterion = "0.8.1"
 pxdct = {path = ".."}
-rand = "0.9.2"
+rand = "0.10.1"
 num-complex = "0.4.6"
 pxfm = "0.1.27"
 primal-check = "0.3.4"

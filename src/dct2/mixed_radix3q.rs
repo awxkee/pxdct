@@ -316,7 +316,7 @@ mod tests {
     use super::*;
     use crate::dct2::power2_butterflies::Dct2Butterfly4;
     use crate::tests::naive_dct2;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_radix3_dct() {
