@@ -86,6 +86,48 @@ impl AvxStoreD {
 
     #[inline]
     #[target_feature(enable = "avx2")]
+    pub(crate) fn load_n<const N: usize>(ptr: &[f64]) -> Self {
+        const {
+            assert!(N <= 4, "N must be <= 4");
+        }
+        match N {
+            4 => Self::load(ptr),
+            3 => Self::load3(ptr),
+            2 => Self::load2(ptr),
+            _ => Self::load1(ptr),
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn reverse_n<const N: usize>(self) -> Self {
+        const {
+            assert!(N <= 4, "N must be <= 4");
+        }
+        match N {
+            4 => self.reverse(),
+            3 => self.reverse3(),
+            2 => self.reverse2(),
+            _ => self,
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn write_n<const N: usize>(self, ptr: &mut [f64]) {
+        const {
+            assert!(N <= 4, "N must be <= 4");
+        }
+        match N {
+            4 => self.write(ptr),
+            3 => self.write3(ptr),
+            2 => self.write2(ptr),
+            _ => self.write1(ptr),
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
     pub(crate) fn write(self, ptr: &mut [f64]) {
         unsafe { _mm256_storeu_pd(ptr.as_mut_ptr(), self.v) }
     }

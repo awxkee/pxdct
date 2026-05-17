@@ -44,6 +44,7 @@ pub(crate) struct AvxDct2MixedRadix7d {
     inner_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     inner_dct_scratch_size: usize,
     execution_length: usize,
+    q_modules: usize,
 }
 
 impl AvxDct2MixedRadix7d {
@@ -76,6 +77,7 @@ impl AvxDct2MixedRadix7d {
             inner_dct_scratch_size,
             cos_twiddles,
             execution_length: len,
+            q_modules: len / 7,
         })
     }
 }
@@ -83,6 +85,137 @@ impl AvxDct2MixedRadix7d {
 boring_avx_mixed_radix!(AvxDct2MixedRadix7d, f64);
 
 impl AvxDct2MixedRadix7d {
+    #[inline]
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn exec_block<S: BidirectionalStore<f64>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &[f64],
+        s_buffer: &[f64],
+        c_buffer: &[f64],
+        uk: usize,
+        k: usize,
+    ) {
+        // Apply rotation twiddles to combine forward and inverted components
+        let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
+        let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
+
+        let c_forward = AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
+        let s_forward = AvxStoreD::load_n::<N>(unsafe {
+            s_buffer.get_unchecked(self.q_modules - k - (N - 1)..)
+        })
+        .reverse_n::<N>();
+
+        let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
+
+        let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
+        let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
+
+        let twiddled_dc = rotated_dc * twiddle_re;
+
+        let mut dc0 = twiddled_dc;
+        let mut dc2 = twiddled_dc * f64::R7_COS_EVEN2_M0;
+        let mut dc4 = twiddled_dc * f64::R7_COS_EVEN2_M2;
+        let mut dc6 = twiddled_dc * f64::R7_COS_EVEN2_M1;
+
+        let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
+
+        let twiddled_ds = rotated_ds * twiddle_im;
+
+        let mut ds1 = twiddled_ds * f64::R7_SIN_ODD0_M0;
+        let mut ds3 = twiddled_ds * f64::R7_SIN_ODD1_M0;
+        let mut ds5 = twiddled_ds * f64::R7_SIN_ODD2_M0;
+
+        {
+            let c_forward =
+                AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules + k..) });
+            let s_forward = AvxStoreD::load_n::<N>(unsafe {
+                s_buffer.get_unchecked(self.q_modules * 2 - k - (N - 1)..)
+            })
+            .reverse_n::<N>();
+
+            let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
+            let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
+
+            let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
+            let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
+
+            let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
+            let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
+
+            let twiddled_dc = twiddle_re * rotated_dc1;
+            let twiddled_ds = twiddle_im * rotated_ds2;
+
+            dc0 = twiddled_dc + dc0;
+            dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc2);
+            dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc4);
+            dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc6);
+
+            ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M1, twiddled_ds, ds1);
+            ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M1, twiddled_ds, ds3);
+            ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M1, twiddled_ds, ds5);
+        }
+
+        {
+            let c_forward =
+                AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 2 + k..) });
+            let s_forward = AvxStoreD::load_n::<N>(unsafe {
+                s_buffer.get_unchecked(self.q_modules * 3 - k - (N - 1)..)
+            })
+            .reverse_n::<N>();
+
+            let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 4) };
+            let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 5) };
+
+            let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 4) };
+            let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 5) };
+
+            let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
+            let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
+
+            let twiddled_dc = twiddle_re * rotated_dc1;
+            let twiddled_ds = twiddle_im * rotated_ds2;
+
+            dc0 = twiddled_dc + dc0;
+            dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc2);
+            dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc4);
+            dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc6);
+
+            ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M2, twiddled_ds, ds1);
+            ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M2, twiddled_ds, ds3);
+            ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M2, twiddled_ds, ds5);
+        }
+
+        let a0 = AvxStoreD::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let dc = dc0 + a0;
+        dc.write_n::<N>(data.slice_from_mut(k..));
+
+        let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
+        let q = dss1.reverse_n::<N>();
+        q.write_n::<N>(data.slice_from_mut(self.q_modules * 2 - k - (N - 1)..));
+
+        dc2 = -(dc2 + a0); // negated 2j
+        dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
+        dc2.write_n::<N>(data.slice_from_mut(self.q_modules * 2 + k..));
+
+        let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
+        let q = dss3.reverse_n::<N>();
+        q.write_n::<N>(data.slice_from_mut(self.q_modules * 4 - k - (N - 1)..));
+
+        dc4 += a0;
+
+        let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
+        mdc4.write_n::<N>(data.slice_from_mut(self.q_modules * 4 + k..));
+
+        let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
+        let q = dss5.reverse_n::<N>();
+        q.write_n::<N>(data.slice_from_mut(self.q_modules * 6 - k - (N - 1)..));
+
+        dc6 += a0;
+        dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
+        dc6.write_n::<N>(data.slice_from_mut(self.q_modules * 6 + k..));
+    }
+
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
     fn execute_store<S: BidirectionalStore<f64>>(
@@ -191,121 +324,7 @@ impl AvxDct2MixedRadix7d {
 
             // Step 4: Handle k≥1 cases with rotation twiddles
             while k + 4 <= q_modules {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - k - 3..) })
-                        .reverse();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f64::R7_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f64::R7_COS_EVEN2_M2;
-                let mut dc6 = twiddled_dc * f64::R7_COS_EVEN2_M1;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f64::R7_SIN_ODD0_M0;
-                let mut ds3 = twiddled_ds * f64::R7_SIN_ODD1_M0;
-                let mut ds5 = twiddled_ds * f64::R7_SIN_ODD2_M0;
-
-                {
-                    let c_forward =
-                        AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward =
-                        AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 2 - k - 3..) })
-                            .reverse();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M1, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M1, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M1, twiddled_ds, ds5);
-                }
-
-                {
-                    let c_forward =
-                        AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-                    let s_forward =
-                        AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 3 - k - 3..) })
-                            .reverse();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 4) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 5) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 4) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 5) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M2, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M2, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M2, twiddled_ds, ds5);
-                }
-
-                let a0 = AvxStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
-                let q = dss1.reverse();
-                q.write(data.slice_from_mut(q_modules * 2 - k - 3..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
-                dc2.write(data.slice_from_mut(q_modules * 2 + k..));
-
-                let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
-                let q = dss3.reverse();
-                q.write(data.slice_from_mut(q_modules * 4 - k - 3..));
-
-                dc4 += a0;
-
-                let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
-                mdc4.write(data.slice_from_mut(q_modules * 4 + k..));
-
-                let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
-                let q = dss5.reverse();
-                q.write(data.slice_from_mut(q_modules * 6 - k - 3..));
-
-                dc6 += a0;
-                dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
-                dc6.write(data.slice_from_mut(q_modules * 6 + k..));
+                self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
 
                 k += 4;
                 uk += 6;
@@ -315,351 +334,11 @@ impl AvxDct2MixedRadix7d {
 
             // handle remainder
             if rem == 3 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules - k - 2..) })
-                        .reverse3();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f64::R7_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f64::R7_COS_EVEN2_M2;
-                let mut dc6 = twiddled_dc * f64::R7_COS_EVEN2_M1;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f64::R7_SIN_ODD0_M0;
-                let mut ds3 = twiddled_ds * f64::R7_SIN_ODD1_M0;
-                let mut ds5 = twiddled_ds * f64::R7_SIN_ODD2_M0;
-
-                {
-                    let c_forward =
-                        AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward = AvxStoreD::load3(unsafe {
-                        s_buffer.get_unchecked(q_modules * 2 - k - 2..)
-                    })
-                    .reverse3();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M1, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M1, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M1, twiddled_ds, ds5);
-                }
-
-                {
-                    let c_forward =
-                        AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-                    let s_forward = AvxStoreD::load3(unsafe {
-                        s_buffer.get_unchecked(q_modules * 3 - k - 2..)
-                    })
-                    .reverse3();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 4) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 5) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 4) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 5) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M2, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M2, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M2, twiddled_ds, ds5);
-                }
-
-                let a0 = AvxStoreD::load3(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write3(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
-                let q = dss1.reverse3();
-                q.write3(data.slice_from_mut(q_modules * 2 - k - 2..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
-                dc2.write3(data.slice_from_mut(q_modules * 2 + k..));
-
-                let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
-                let q = dss3.reverse3();
-                q.write3(data.slice_from_mut(q_modules * 4 - k - 2..));
-
-                dc4 += a0;
-
-                let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
-                mdc4.write3(data.slice_from_mut(q_modules * 4 + k..));
-
-                let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
-                let q = dss5.reverse3();
-                q.write3(data.slice_from_mut(q_modules * 6 - k - 2..));
-
-                dc6 += a0;
-                dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
-                dc6.write3(data.slice_from_mut(q_modules * 6 + k..));
+                self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 2 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules - k - 1..) })
-                        .reverse2();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f64::R7_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f64::R7_COS_EVEN2_M2;
-                let mut dc6 = twiddled_dc * f64::R7_COS_EVEN2_M1;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f64::R7_SIN_ODD0_M0;
-                let mut ds3 = twiddled_ds * f64::R7_SIN_ODD1_M0;
-                let mut ds5 = twiddled_ds * f64::R7_SIN_ODD2_M0;
-
-                {
-                    let c_forward =
-                        AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward = AvxStoreD::load2(unsafe {
-                        s_buffer.get_unchecked(q_modules * 2 - k - 1..)
-                    })
-                    .reverse2();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M1, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M1, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M1, twiddled_ds, ds5);
-                }
-
-                {
-                    let c_forward =
-                        AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-                    let s_forward = AvxStoreD::load2(unsafe {
-                        s_buffer.get_unchecked(q_modules * 3 - k - 1..)
-                    })
-                    .reverse2();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 4) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 5) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 4) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 5) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M2, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M2, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M2, twiddled_ds, ds5);
-                }
-
-                let a0 = AvxStoreD::load2(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write2(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
-                let q = dss1.reverse2();
-                q.write2(data.slice_from_mut(q_modules * 2 - k - 1..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
-                dc2.write2(data.slice_from_mut(q_modules * 2 + k..));
-
-                let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
-                let q = dss3.reverse2();
-                q.write2(data.slice_from_mut(q_modules * 4 - k - 1..));
-
-                dc4 += a0;
-
-                let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
-                mdc4.write2(data.slice_from_mut(q_modules * 4 + k..));
-
-                let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
-                let q = dss5.reverse2();
-                q.write2(data.slice_from_mut(q_modules * 6 - k - 1..));
-
-                dc6 += a0;
-                dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
-                dc6.write2(data.slice_from_mut(q_modules * 6 + k..));
+                self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 1 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - k..) });
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f64::R7_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f64::R7_COS_EVEN2_M2;
-                let mut dc6 = twiddled_dc * f64::R7_COS_EVEN2_M1;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f64::R7_SIN_ODD0_M0;
-                let mut ds3 = twiddled_ds * f64::R7_SIN_ODD1_M0;
-                let mut ds5 = twiddled_ds * f64::R7_SIN_ODD2_M0;
-
-                {
-                    let c_forward =
-                        AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward =
-                        AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 2 - k..) });
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M1, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M1, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M1, twiddled_ds, ds5);
-                }
-
-                {
-                    let c_forward =
-                        AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-                    let s_forward =
-                        AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 3 - k..) });
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 4) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 5) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 4) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 5) };
-
-                    let rotated_dc1 = fma(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M2, twiddled_dc, dc2);
-                    dc4 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M1, twiddled_dc, dc4);
-                    dc6 = AvxStoreD::f64_mul_add(f64::R7_COS_EVEN2_M0, twiddled_dc, dc6);
-
-                    ds1 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD0_M2, twiddled_ds, ds1);
-                    ds3 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD1_M2, twiddled_ds, ds3);
-                    ds5 = AvxStoreD::f64_mul_add(f64::R7_SIN_ODD2_M2, twiddled_ds, ds5);
-                }
-
-                let a0 = AvxStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write1(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreD::f64_mul_add(2., ds1, -dc);
-                dss1.write1(data.slice_from_mut(q_modules * 2 - k..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreD::f64_mul_add(2., dc2, -dss1);
-                dc2.write1(data.slice_from_mut(q_modules * 2 + k..));
-
-                let dss3 = AvxStoreD::f64_mul_add(2., -ds3, -dc2);
-                dss3.write1(data.slice_from_mut(q_modules * 4 - k..));
-
-                dc4 += a0;
-
-                let mdc4 = AvxStoreD::f64_mul_add(2., dc4, -dss3);
-                mdc4.write1(data.slice_from_mut(q_modules * 4 + k..));
-
-                let dss5 = AvxStoreD::f64_mul_add(2., ds5, -mdc4);
-                dss5.write1(data.slice_from_mut(q_modules * 6 - k..));
-
-                dc6 += a0;
-                dc6 = AvxStoreD::f64_mul_add(2., -dc6, -dss5);
-                dc6.write1(data.slice_from_mut(q_modules * 6 + k..));
+                self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
             }
         }
         Ok(())

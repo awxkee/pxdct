@@ -204,6 +204,56 @@ impl AvxDct2MixedRadix3f {
 boring_avx_mixed_radix!(AvxDct2MixedRadix3f, f32);
 
 impl AvxDct2MixedRadix3f {
+    #[inline]
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn exec_block<S: BidirectionalStore<f32>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &[f32],
+        s_buffer: &[f32],
+        c_buffer: &[f32],
+        uk: usize,
+        k: usize,
+    ) {
+        // Apply rotation twiddles to combine forward and inverted components
+        let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
+        let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
+
+        let c_forward = AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
+        let s_forward = AvxStoreF::load_n::<N>(unsafe {
+            s_buffer.get_unchecked(self.q_modules - k - (N - 1)..)
+        })
+        .reverse_n::<N>();
+
+        let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
+
+        let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
+        let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
+
+        let twiddled_dc = rotated_dc * twiddle_re;
+
+        let dc0 = twiddled_dc;
+        let mut dc2 = -twiddled_dc * f32::HALF;
+
+        let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
+
+        let twiddled_ds = rotated_ds * twiddle_im;
+
+        let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
+
+        let a0 = AvxStoreF::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let dc = dc0 + a0;
+        dc.write_n::<N>(data.slice_from_mut(k..));
+
+        let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
+        let q = dss1.reverse_n::<N>();
+        q.write_n::<N>(data.slice_from_mut(self.q_modules * 2 - k - (N - 1)..));
+
+        dc2 = -(dc2 + a0); // negated 2j
+        dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
+        dc2.write_n::<N>(data.slice_from_mut(self.q_modules * 2 + k..));
+    }
+
     #[target_feature(enable = "avx2", enable = "fma")]
     fn execute_store<S: BidirectionalStore<f32>>(
         &self,
@@ -270,307 +320,28 @@ impl AvxDct2MixedRadix3f {
 
             // Step 4: Handle k≥1 cases with rotation twiddles
             while k + 8 <= self.q_modules {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load(unsafe { s_buffer.get_unchecked(self.q_modules - k - 7..) })
-                        .reverse();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = -twiddled_dc * f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse();
-                q.write(data.slice_from_mut(self.q_modules * 2 - k - 7..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 8>(data, a_buffer, s_buffer, c_buffer, uk, k);
 
                 k += 8;
                 uk += 2;
             }
 
             let rem = self.q_modules - k;
-
             // handle remainder
             if rem == 7 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load7(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load7(unsafe { s_buffer.get_unchecked(self.q_modules - k - 6..) })
-                        .reverse7();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = -twiddled_dc * f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load7(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write7(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse7();
-                q.write7(data.slice_from_mut(self.q_modules * 2 - k - 6..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write7(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 7>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 6 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load6(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load6(unsafe { s_buffer.get_unchecked(self.q_modules - k - 5..) })
-                        .reverse6();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = -twiddled_dc * f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load6(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write6(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse6();
-                q.write6(data.slice_from_mut(self.q_modules * 2 - k - 5..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write6(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 6>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 5 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load5(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load5(unsafe { s_buffer.get_unchecked(self.q_modules - k - 4..) })
-                        .reverse5();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = -twiddled_dc * f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load5(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write5(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse5();
-                q.write5(data.slice_from_mut(self.q_modules * 2 - k - 4..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write5(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 5>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 4 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load4(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load4(unsafe { s_buffer.get_unchecked(self.q_modules - k - 3..) })
-                        .reverse4();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = -twiddled_dc * f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load4(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write4(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse4();
-                q.write4(data.slice_from_mut(self.q_modules * 2 - k - 3..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write4(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 3 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load3(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load3(unsafe { s_buffer.get_unchecked(self.q_modules - k - 2..) })
-                        .reverse3();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * -f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load3(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write3(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse3();
-                q.write3(data.slice_from_mut(self.q_modules * 2 - k - 2..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write3(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 2 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load2(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load2(unsafe { s_buffer.get_unchecked(self.q_modules - k - 1..) })
-                        .reverse2();
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * -f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load2(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write2(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                let q = dss1.reverse2();
-                q.write2(data.slice_from_mut(self.q_modules * 2 - k - 1..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write2(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if rem == 1 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = AvxStoreF::load1(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    AvxStoreF::load1(unsafe { s_buffer.get_unchecked(self.q_modules - k..) });
-
-                let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * -f32::HALF;
-
-                let rotated_ds = fma(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f32::SIN2PI_OVER_3;
-
-                let a0 = AvxStoreF::load1(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write1(data.slice_from_mut(k..));
-
-                let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-                dss1.write1(data.slice_from_mut(self.q_modules * 2 - k..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
-                dc2.write1(data.slice_from_mut(self.q_modules * 2 + k..));
+                self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
             }
         }
         Ok(())

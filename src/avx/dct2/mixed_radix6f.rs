@@ -59,7 +59,7 @@ pub(crate) fn dct2_radix6_avx_groups(len: usize) -> Vec<AvxStoreF> {
         for lane in 0..8 {
             let i = g * 8 + lane;
             if i < inner_layer_groups {
-                let angle = (2. * i as f64 + 1.).as_();
+                let angle = (2. * i as f32 + 1.).as_();
                 let t0 = mixed_radix_inner_twiddle(angle, len);
                 let t1 = mixed_radix_inner_twiddle(2.0 * angle, len);
                 let t2 = mixed_radix_inner_twiddle(3.0 * angle, len);
@@ -116,6 +116,80 @@ boring_avx_mixed_radix!(AvxDct2MixedRadix6f, f32);
 impl AvxDct2MixedRadix6f {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
+    fn exec_block<S: BidirectionalStore<f32>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &mut [f32],
+        b_buffer: &mut [f32],
+        c_buffer: &mut [f32],
+        d_buffer: &mut [f32],
+        e_buffer: &mut [f32],
+        f_buffer: &mut [f32],
+        twiddle_idx: usize,
+        j: usize,
+        s_n: usize,
+        s_2n: usize,
+        len: usize,
+    ) {
+        let ai = AvxStoreF::load_n::<N>(data.slice_from(j..));
+        let mut bi = AvxStoreF::load_n::<N>(data.slice_from(s_n - j - N..));
+        let ci = AvxStoreF::load_n::<N>(data.slice_from(s_n + j..));
+        let mut di = AvxStoreF::load_n::<N>(data.slice_from(s_2n - j - N..));
+        let ei = AvxStoreF::load_n::<N>(data.slice_from(s_2n + j..));
+        let mut fi = AvxStoreF::load_n::<N>(data.slice_from(len - j - N..));
+
+        bi = bi.reverse_n::<N>();
+        di = di.reverse_n::<N>();
+        fi = fi.reverse_n::<N>();
+
+        let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
+        let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
+        let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
+        let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
+        let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
+        let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
+        let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
+
+        let s2 = bi + ei;
+        let dcd = ci - di;
+        let dbe = bi - ei;
+
+        let ai2 = f32::TWO * ai;
+        let fi2 = f32::TWO * fi;
+        let scd = ci + di;
+
+        let sdbedcd = dbe + dcd;
+        let ai2dbedcd = ai2 + sdbedcd - fi2;
+        let s2scd = s2 + scd;
+
+        let a_comp = ai + s2scd + fi;
+        let c_comp = ai2 - s2scd + fi2;
+        let d_comp = f32::TWO * (ai - sdbedcd - fi);
+        let dbedcd = dbe - dcd;
+
+        let c_img = s2 - ci - di;
+        let b_zet = dbedcd * cos_sin_ai_im;
+        let c_zet = c_img * cos_sin_2ai_im;
+        let f_zet = dbedcd * cos_sin_5ai_im;
+
+        let e_comp = fma(
+            f32::TWO * cos_sin_2ai_re,
+            fma(c_comp, cos_sin_2ai_re, -c_zet),
+            -c_comp,
+        );
+
+        unsafe {
+            a_comp.write_n::<N>(a_buffer.get_unchecked_mut(j..));
+            fma(ai2dbedcd, cos_sin_ai_re, b_zet).write_n::<N>(b_buffer.get_unchecked_mut(j..));
+            fma(c_comp, cos_sin_2ai_re, c_zet).write_n::<N>(c_buffer.get_unchecked_mut(j..));
+            (d_comp * cos_sin_3ai_re).write_n::<N>(d_buffer.get_unchecked_mut(j..));
+            e_comp.write_n::<N>(e_buffer.get_unchecked_mut(j..));
+            fma(ai2dbedcd, cos_sin_5ai_re, f_zet).write_n::<N>(f_buffer.get_unchecked_mut(j..));
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2", enable = "fma")]
     fn execute_store<S: BidirectionalStore<f32>>(
         &self,
         data: &mut S,
@@ -140,510 +214,137 @@ impl AvxDct2MixedRadix6f {
         let mut twiddle_idx = 0usize;
 
         while j + 8 <= sixth_length {
-            let ai = AvxStoreF::load(data.slice_from(j..));
-            let mut bi = AvxStoreF::load(data.slice_from(s_n - j - 8..));
-            let ci = AvxStoreF::load(data.slice_from(s_n + j..));
-            let mut di = AvxStoreF::load(data.slice_from(s_2n - j - 8..));
-            let ei = AvxStoreF::load(data.slice_from(s_2n + j..));
-            let mut fi = AvxStoreF::load(data.slice_from(len - j - 8..));
-
-            bi = bi.reverse();
-            di = di.reverse();
-            fi = fi.reverse();
-
-            let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-            let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-            let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-            let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-            let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-            let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-            let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-            let s2 = bi + ei;
-            let dcd = ci - di;
-            let dbe = bi - ei;
-
-            let ai2 = f32::TWO * ai;
-            let fi2 = f32::TWO * fi;
-            let scd = ci + di;
-
-            let sdbedcd = dbe + dcd;
-            let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-            let s2scd = s2 + scd;
-
-            let a_comp = ai + s2scd + fi;
-            let c_comp = ai2 - s2scd + fi2;
-            let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-            let dbedcd = dbe - dcd;
-
-            let c_img = s2 - ci - di;
-            let b_zet = dbedcd * cos_sin_ai_im;
-            let c_zet = c_img * cos_sin_2ai_im;
-            let f_zet = dbedcd * cos_sin_5ai_im;
-
-            let e_comp = fma(
-                f32::TWO * cos_sin_2ai_re,
-                fma(c_comp, cos_sin_2ai_re, -c_zet),
-                -c_comp,
+            self.exec_block::<S, 8>(
+                data,
+                a_buffer,
+                b_buffer,
+                c_buffer,
+                d_buffer,
+                e_buffer,
+                f_buffer,
+                twiddle_idx,
+                j,
+                s_n,
+                s_2n,
+                len,
             );
-
-            unsafe {
-                a_comp.write(a_buffer.get_unchecked_mut(j..));
-                let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                q0.write(b_buffer.get_unchecked_mut(j..));
-                let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                q1.write(c_buffer.get_unchecked_mut(j..));
-                let q2 = d_comp * cos_sin_3ai_re;
-                q2.write(d_buffer.get_unchecked_mut(j..));
-                e_comp.write(e_buffer.get_unchecked_mut(j..));
-                let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                q3.write(f_buffer.get_unchecked_mut(j..));
-            }
             j += 8;
             twiddle_idx += 7;
         }
 
         let rem = sixth_length - j;
-
         match rem {
             7 => {
-                let ai = AvxStoreF::load7(data.slice_from(j..));
-                let mut bi = AvxStoreF::load7(data.slice_from(s_n - j - 7..));
-                let ci = AvxStoreF::load7(data.slice_from(s_n + j..));
-                let mut di = AvxStoreF::load7(data.slice_from(s_2n - j - 7..));
-                let ei = AvxStoreF::load7(data.slice_from(s_2n + j..));
-                let mut fi = AvxStoreF::load7(data.slice_from(len - j - 7..));
-
-                bi = bi.reverse7();
-                di = di.reverse7();
-                fi = fi.reverse7();
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 7>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write7(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write7(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write7(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write7(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write7(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write7(f_buffer.get_unchecked_mut(j..));
-                }
             }
             6 => {
-                let ai = AvxStoreF::load6(data.slice_from(j..));
-                let mut bi = AvxStoreF::load6(data.slice_from(s_n - j - 6..));
-                let ci = AvxStoreF::load6(data.slice_from(s_n + j..));
-                let mut di = AvxStoreF::load6(data.slice_from(s_2n - j - 6..));
-                let ei = AvxStoreF::load6(data.slice_from(s_2n + j..));
-                let mut fi = AvxStoreF::load6(data.slice_from(len - j - 6..));
-
-                bi = bi.reverse6();
-                di = di.reverse6();
-                fi = fi.reverse6();
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 6>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write6(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write6(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write6(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write6(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write6(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write6(f_buffer.get_unchecked_mut(j..));
-                }
             }
             5 => {
-                let ai = AvxStoreF::load5(data.slice_from(j..));
-                let mut bi = AvxStoreF::load5(data.slice_from(s_n - j - 5..));
-                let ci = AvxStoreF::load5(data.slice_from(s_n + j..));
-                let mut di = AvxStoreF::load5(data.slice_from(s_2n - j - 5..));
-                let ei = AvxStoreF::load5(data.slice_from(s_2n + j..));
-                let mut fi = AvxStoreF::load5(data.slice_from(len - j - 5..));
-
-                bi = bi.reverse5();
-                di = di.reverse5();
-                fi = fi.reverse5();
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 5>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write5(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write5(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write5(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write5(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write5(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write5(f_buffer.get_unchecked_mut(j..));
-                }
             }
             4 => {
-                let ai = AvxStoreF::load4(data.slice_from(j..));
-                let mut bi = AvxStoreF::load4(data.slice_from(s_n - j - 4..));
-                let ci = AvxStoreF::load4(data.slice_from(s_n + j..));
-                let mut di = AvxStoreF::load4(data.slice_from(s_2n - j - 4..));
-                let ei = AvxStoreF::load4(data.slice_from(s_2n + j..));
-                let mut fi = AvxStoreF::load4(data.slice_from(len - j - 4..));
-
-                bi = bi.reverse4();
-                di = di.reverse4();
-                fi = fi.reverse4();
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 4>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write4(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write4(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write4(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write4(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write4(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write4(f_buffer.get_unchecked_mut(j..));
-                }
             }
             3 => {
-                let ai = AvxStoreF::load3(data.slice_from(j..));
-                let mut bi = AvxStoreF::load3(data.slice_from(s_n - j - 3..));
-                let ci = AvxStoreF::load3(data.slice_from(s_n + j..));
-                let mut di = AvxStoreF::load3(data.slice_from(s_2n - j - 3..));
-                let ei = AvxStoreF::load3(data.slice_from(s_2n + j..));
-                let mut fi = AvxStoreF::load3(data.slice_from(len - j - 3..));
-
-                bi = bi.reverse3();
-                di = di.reverse3();
-                fi = fi.reverse3();
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 3>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write3(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write3(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write3(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write3(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write3(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write3(f_buffer.get_unchecked_mut(j..));
-                }
             }
             2 => {
-                let ai = AvxStoreF::load2(data.slice_from(j..));
-                let mut bi = AvxStoreF::load2(data.slice_from(s_n - j - 2..));
-                let ci = AvxStoreF::load2(data.slice_from(s_n + j..));
-                let mut di = AvxStoreF::load2(data.slice_from(s_2n - j - 2..));
-                let ei = AvxStoreF::load2(data.slice_from(s_2n + j..));
-                let mut fi = AvxStoreF::load2(data.slice_from(len - j - 2..));
-
-                bi = bi.reverse2();
-                di = di.reverse2();
-                fi = fi.reverse2();
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 2>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write2(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write2(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write2(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write2(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write2(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write2(f_buffer.get_unchecked_mut(j..));
-                }
             }
             1 => {
-                let ai = AvxStoreF::load1(data.slice_from(j..));
-                let bi = AvxStoreF::load1(data.slice_from(s_n - j - 1..));
-                let ci = AvxStoreF::load1(data.slice_from(s_n + j..));
-                let di = AvxStoreF::load1(data.slice_from(s_2n - j - 1..));
-                let ei = AvxStoreF::load1(data.slice_from(s_2n + j..));
-                let fi = AvxStoreF::load1(data.slice_from(len - j - 1..));
-
-                let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
-                let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
-                let cos_sin_2ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 2) };
-                let cos_sin_2ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 3) };
-                let cos_sin_3ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 4) };
-                let cos_sin_5ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 5) };
-                let cos_sin_5ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 6) };
-
-                let s2 = bi + ei;
-                let dcd = ci - di;
-                let dbe = bi - ei;
-
-                let ai2 = f32::TWO * ai;
-                let fi2 = f32::TWO * fi;
-                let scd = ci + di;
-
-                let sdbedcd = dbe + dcd;
-                let ai2dbedcd = ai2 + sdbedcd - fi2;
-
-                let s2scd = s2 + scd;
-
-                let a_comp = ai + s2scd + fi;
-                let c_comp = ai2 - s2scd + fi2;
-                let d_comp = f32::TWO * (ai - sdbedcd - fi);
-
-                let dbedcd = dbe - dcd;
-
-                let c_img = s2 - ci - di;
-                let b_zet = dbedcd * cos_sin_ai_im;
-                let c_zet = c_img * cos_sin_2ai_im;
-                let f_zet = dbedcd * cos_sin_5ai_im;
-
-                let e_comp = fma(
-                    f32::TWO * cos_sin_2ai_re,
-                    fma(c_comp, cos_sin_2ai_re, -c_zet),
-                    -c_comp,
+                self.exec_block::<S, 1>(
+                    data,
+                    a_buffer,
+                    b_buffer,
+                    c_buffer,
+                    d_buffer,
+                    e_buffer,
+                    f_buffer,
+                    twiddle_idx,
+                    j,
+                    s_n,
+                    s_2n,
+                    len,
                 );
-
-                unsafe {
-                    a_comp.write1(a_buffer.get_unchecked_mut(j..));
-                    let q0 = fma(ai2dbedcd, cos_sin_ai_re, b_zet);
-                    q0.write1(b_buffer.get_unchecked_mut(j..));
-                    let q1 = fma(c_comp, cos_sin_2ai_re, c_zet);
-                    q1.write1(c_buffer.get_unchecked_mut(j..));
-                    let q2 = d_comp * cos_sin_3ai_re;
-                    q2.write1(d_buffer.get_unchecked_mut(j..));
-                    e_comp.write1(e_buffer.get_unchecked_mut(j..));
-                    let q3 = fma(ai2dbedcd, cos_sin_5ai_re, f_zet);
-                    q3.write1(f_buffer.get_unchecked_mut(j..));
-                }
             }
             _ => {}
         }
