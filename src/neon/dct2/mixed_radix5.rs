@@ -27,12 +27,15 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::BidirectionalStore;
-use crate::dct2::{MixedRadix5Sample, radixq_cos_twiddle, radixq_rotation_twiddle};
+use crate::dct2::MixedRadix5Sample;
 use crate::mla::fmla;
+use crate::neon::dct2::mixed_radix3::{
+    dct2_radix_n_cos_twiddles_neon, dct2_radix_n_rotation_twiddles_neon,
+};
 use crate::neon::util::{NeonStoreF, boring_neon_mixed_radix};
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
-use num_traits::{AsPrimitive, One};
+use num_traits::One;
 use std::sync::Arc;
 
 /// Radix-5 DCT-II implementation using direct decomposition algorithm.
@@ -48,146 +51,7 @@ pub(crate) struct NeonDct2MixedRadix5f {
     inner_dct: Arc<dyn PxdctExecutor<f32> + Send + Sync>,
     inner_dct_scratch_size: usize,
     execution_length: usize,
-}
-
-pub(crate) fn dct2_radixq_rotation_twiddles_neon(
-    main_q: usize,
     q_modules: usize,
-    len: usize,
-) -> Vec<NeonStoreF> {
-    let simd_groups = q_modules.div_ceil(4);
-    let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    // We need 2 complex values per k (rotation_re and rotation_im)
-    // Each complex has re and im, so 4 values per k
-    // Times inner_groups for each m
-    let mut twiddles = Vec::with_capacity(simd_groups * 4 * inner_groups);
-
-    let working_modules = q_modules - 1;
-
-    let mut uk = 0usize;
-    while uk + 4 <= working_modules {
-        let k = uk + 1;
-
-        let layer0 = radixq_rotation_twiddle(5, 0, k.as_(), (q_modules - k).as_(), len);
-        let layer1 = radixq_rotation_twiddle(5, 0, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
-        let layer2 = radixq_rotation_twiddle(5, 0, (k + 2).as_(), (q_modules - (k + 2)).as_(), len);
-        let layer3 = radixq_rotation_twiddle(5, 0, (k + 3).as_(), (q_modules - (k + 3)).as_(), len);
-
-        twiddles.push(NeonStoreF::set_values(
-            layer0.re, layer1.re, layer2.re, layer3.re,
-        ));
-        twiddles.push(NeonStoreF::set_values(
-            layer0.im, layer1.im, layer2.im, layer3.im,
-        ));
-
-        let layer0 = radixq_rotation_twiddle(5, 1, k.as_(), (q_modules - k).as_(), len);
-        let layer1 = radixq_rotation_twiddle(5, 1, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
-        let layer2 = radixq_rotation_twiddle(5, 1, (k + 2).as_(), (q_modules - (k + 2)).as_(), len);
-        let layer3 = radixq_rotation_twiddle(5, 1, (k + 3).as_(), (q_modules - (k + 3)).as_(), len);
-
-        twiddles.push(NeonStoreF::set_values(
-            layer0.re, layer1.re, layer2.re, layer3.re,
-        ));
-        twiddles.push(NeonStoreF::set_values(
-            layer0.im, layer1.im, layer2.im, layer3.im,
-        ));
-        uk += 4;
-    }
-
-    let remainder = working_modules - (working_modules / 4) * 4;
-    if remainder > 0 {
-        let k = uk + 1;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..remainder {
-            let layer =
-                radixq_rotation_twiddle(5, 0, (k + i).as_(), (q_modules - (k + i)).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(NeonStoreF::load(array_re.as_ref()));
-        twiddles.push(NeonStoreF::load(array_im.as_ref()));
-
-        for i in 0..remainder {
-            let layer =
-                radixq_rotation_twiddle(5, 1, (k + i).as_(), (q_modules - (k + i)).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(NeonStoreF::load(array_re.as_ref()));
-        twiddles.push(NeonStoreF::load(array_im.as_ref()));
-    }
-
-    twiddles
-}
-
-pub(crate) fn dct2_radixq_cos_twiddles_neon(
-    main_q: usize,
-    q_modules: usize,
-    len: usize,
-) -> Vec<NeonStoreF> {
-    let simd_groups = q_modules.div_ceil(4);
-    let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    // We need 2 complex values per k (rotation_re and rotation_im)
-    // Each complex has re and im, so 4 values per k
-    // Times inner_groups for each m
-    let mut twiddles = Vec::with_capacity(simd_groups * 4 * inner_groups);
-
-    let working_modules = q_modules - 1;
-
-    let mut uk = 0usize;
-    while uk + 4 <= working_modules {
-        let k = uk + 1;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..4 {
-            array_re[i] = radixq_cos_twiddle(5, 0, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 0, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(NeonStoreF::load(array_re.as_ref()));
-        twiddles.push(NeonStoreF::load(array_im.as_ref()));
-
-        for i in 0..4 {
-            array_re[i] = radixq_cos_twiddle(5, 1, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 1, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(NeonStoreF::load(array_re.as_ref()));
-        twiddles.push(NeonStoreF::load(array_im.as_ref()));
-        uk += 4;
-    }
-
-    let remainder = working_modules - (working_modules / 4) * 4;
-    if remainder > 0 {
-        let k = uk + 1;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..remainder {
-            array_re[i] = radixq_cos_twiddle(5, 0, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 0, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(NeonStoreF::load(array_re.as_ref()));
-        twiddles.push(NeonStoreF::load(array_im.as_ref()));
-
-        for i in 0..remainder {
-            array_re[i] = radixq_cos_twiddle(5, 1, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 1, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(NeonStoreF::load(array_re.as_ref()));
-        twiddles.push(NeonStoreF::load(array_im.as_ref()));
-    }
-
-    twiddles
 }
 
 impl NeonDct2MixedRadix5f {
@@ -204,9 +68,9 @@ impl NeonDct2MixedRadix5f {
 
         // always 2 inner groups in Radix-5
 
-        let rotation_layer = dct2_radixq_rotation_twiddles_neon(5, q_modules, len);
+        let rotation_layer = dct2_radix_n_rotation_twiddles_neon(5, q_modules, len);
 
-        let cos_twiddles = dct2_radixq_cos_twiddles_neon(5, q_modules, len);
+        let cos_twiddles = dct2_radix_n_cos_twiddles_neon(5, q_modules, len);
 
         let inner_dct_scratch_size = inner_dct.scratch_size();
 
@@ -216,11 +80,103 @@ impl NeonDct2MixedRadix5f {
             inner_dct_scratch_size,
             cos_twiddles,
             execution_length: len,
+            q_modules: len / 5,
         })
     }
 }
 
 impl NeonDct2MixedRadix5f {
+    #[inline(always)]
+    fn exec_block<S: BidirectionalStore<f32>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &[f32],
+        s_buffer: &[f32],
+        c_buffer: &[f32],
+        uk: usize,
+        k: usize,
+    ) {
+        let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
+        let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
+
+        let c_forward = NeonStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
+        let s_forward = NeonStoreF::load_n::<N>(unsafe {
+            s_buffer.get_unchecked(self.q_modules - k - (N - 1)..)
+        })
+        .reverse_n::<N>();
+
+        let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
+
+        let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
+        let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
+
+        let twiddled_dc = rotated_dc * twiddle_re;
+
+        let mut dc0 = twiddled_dc;
+        let mut dc2 = twiddled_dc * f32::R5_COS_EVEN2_M0;
+        let mut dc4 = twiddled_dc * f32::R5_COS_EVEN4_M0;
+
+        let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
+
+        let twiddled_ds = rotated_ds * twiddle_im;
+
+        let mut ds1 = twiddled_ds * f32::R5_SIN_ODD_M0;
+        let mut ds3 = twiddled_ds * f32::R5_SIN_ODD1_M0;
+
+        {
+            let c_forward =
+                NeonStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules + k..) });
+            let s_forward = NeonStoreF::load_n::<N>(unsafe {
+                s_buffer.get_unchecked(self.q_modules * 2 - k - (N - 1)..)
+            })
+            .reverse_n::<N>();
+
+            let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
+            let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
+
+            let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
+            let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
+
+            let rotated_dc1 = fmla(s_forward, rotation_twiddle_re, c_forward);
+            let rotated_ds2 = fmla(c_forward, rotation_twiddle_im, s_forward);
+
+            let twiddled_dc = twiddle_re * rotated_dc1;
+            let twiddled_ds = twiddle_im * rotated_ds2;
+
+            dc0 = twiddled_dc + dc0;
+            dc2 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN4_M0, twiddled_dc, dc2);
+            dc4 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN2_M0, twiddled_dc, dc4);
+
+            ds1 = NeonStoreF::f32_mul_nadd(f32::R5_SIN_ODD1_M0, twiddled_ds, ds1);
+            ds3 = NeonStoreF::f32_mul_add(f32::R5_SIN_ODD_M0, twiddled_ds, ds3);
+        }
+
+        let a0 = NeonStoreF::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let dc = dc0 + a0;
+        dc.write_n::<N>(data.slice_from_mut(k..));
+
+        let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
+        let idx = self.q_modules * 2 - k - (N - 1);
+        dss1.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(idx..));
+
+        dc2 = -(dc2 + a0); // negated 2j
+        dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
+        let idx1 = self.q_modules * 2 + k;
+        dc2.write_n::<N>(data.slice_from_mut(idx1..));
+
+        let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
+        let idx = self.q_modules * 4 - k - (N - 1);
+        dss3.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(idx..));
+
+        dc4 += a0;
+
+        let idx1 = self.q_modules * 4 + k;
+        let uq = NeonStoreF::f32_mul_add(2., dc4, -dss3);
+        uq.write_n::<N>(data.slice_from_mut(idx1..));
+    }
+
     #[inline(always)]
     fn execute_with_store<S: BidirectionalStore<f32>>(
         &self,
@@ -306,315 +262,18 @@ impl NeonDct2MixedRadix5f {
             let mut uk = 0usize;
 
             while k + 4 <= q_modules {
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = NeonStoreF::load(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    NeonStoreF::load(unsafe { s_buffer.get_unchecked(q_modules - k - 3..) })
-                        .reverse();
-
-                let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f32::R5_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f32::R5_COS_EVEN4_M0;
-
-                let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f32::R5_SIN_ODD_M0;
-                let mut ds3 = twiddled_ds * f32::R5_SIN_ODD1_M0;
-
-                {
-                    let c_forward =
-                        NeonStoreF::load(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward = NeonStoreF::load(unsafe {
-                        s_buffer.get_unchecked(q_modules * 2 - k - 3..)
-                    })
-                    .reverse();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fmla(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN4_M0, twiddled_dc, dc2);
-                    dc4 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN2_M0, twiddled_dc, dc4);
-
-                    ds1 = NeonStoreF::f32_mul_nadd(f32::R5_SIN_ODD1_M0, twiddled_ds, ds1);
-                    ds3 = NeonStoreF::f32_mul_add(f32::R5_SIN_ODD_M0, twiddled_ds, ds3);
-                }
-
-                let a0 = NeonStoreF::load(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write(data.slice_from_mut(k..));
-
-                let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
-                let idx = q_modules * 2 - k - 3;
-                dss1.reverse().write(data.slice_from_mut(idx..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
-                let idx1 = q_modules * 2 + k;
-                dc2.write(data.slice_from_mut(idx1..));
-
-                let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
-                let idx = q_modules * 4 - k - 3;
-                dss3.reverse().write(data.slice_from_mut(idx..));
-
-                dc4 += a0;
-
-                let idx1 = q_modules * 4 + k;
-                let uq = NeonStoreF::f32_mul_add(2., dc4, -dss3);
-                uq.write(data.slice_from_mut(idx1..));
+                self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
                 k += 4;
                 uk += 4;
             }
 
             let remainder = q_modules - k;
             if remainder == 3 {
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = NeonStoreF::load3(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    NeonStoreF::load3(unsafe { s_buffer.get_unchecked(q_modules - k - 2..) })
-                        .reverse3();
-
-                let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f32::R5_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f32::R5_COS_EVEN4_M0;
-
-                let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f32::R5_SIN_ODD_M0;
-                let mut ds3 = twiddled_ds * f32::R5_SIN_ODD1_M0;
-
-                {
-                    let c_forward =
-                        NeonStoreF::load3(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward = NeonStoreF::load3(unsafe {
-                        s_buffer.get_unchecked(q_modules * 2 - k - 2..)
-                    })
-                    .reverse3();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fmla(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN4_M0, twiddled_dc, dc2);
-                    dc4 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN2_M0, twiddled_dc, dc4);
-
-                    ds1 = NeonStoreF::f32_mul_nadd(f32::R5_SIN_ODD1_M0, twiddled_ds, ds1);
-                    ds3 = NeonStoreF::f32_mul_add(f32::R5_SIN_ODD_M0, twiddled_ds, ds3);
-                }
-
-                let a0 = NeonStoreF::load3(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write3(data.slice_from_mut(k..));
-
-                let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
-                let idx = q_modules * 2 - k - 2;
-                dss1.reverse3().write3(data.slice_from_mut(idx..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
-                let idx1 = q_modules * 2 + k;
-                dc2.write3(data.slice_from_mut(idx1..));
-
-                let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
-                let idx = q_modules * 4 - k - 2;
-                dss3.reverse3().write3(data.slice_from_mut(idx..));
-
-                dc4 += a0;
-
-                let idx1 = q_modules * 4 + k;
-                let uq = NeonStoreF::f32_mul_add(2., dc4, -dss3);
-                uq.write3(data.slice_from_mut(idx1..));
+                self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if remainder == 2 {
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = NeonStoreF::load2(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    NeonStoreF::load2(unsafe { s_buffer.get_unchecked(q_modules - k - 1..) })
-                        .reverse2();
-
-                let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f32::R5_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f32::R5_COS_EVEN4_M0;
-
-                let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f32::R5_SIN_ODD_M0;
-                let mut ds3 = twiddled_ds * f32::R5_SIN_ODD1_M0;
-
-                {
-                    let c_forward =
-                        NeonStoreF::load2(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward = NeonStoreF::load2(unsafe {
-                        s_buffer.get_unchecked(q_modules * 2 - k - 1..)
-                    })
-                    .reverse2();
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fmla(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN4_M0, twiddled_dc, dc2);
-                    dc4 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN2_M0, twiddled_dc, dc4);
-
-                    ds1 = NeonStoreF::f32_mul_nadd(f32::R5_SIN_ODD1_M0, twiddled_ds, ds1);
-                    ds3 = NeonStoreF::f32_mul_add(f32::R5_SIN_ODD_M0, twiddled_ds, ds3);
-                }
-
-                let a0 = NeonStoreF::load2(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write2(data.slice_from_mut(k..));
-
-                let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
-                let idx = q_modules * 2 - k - 1;
-                dss1.reverse2().write2(data.slice_from_mut(idx..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
-                let idx1 = q_modules * 2 + k;
-                dc2.write2(data.slice_from_mut(idx1..));
-
-                let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
-                let idx = q_modules * 4 - k - 1;
-                dss3.reverse2().write2(data.slice_from_mut(idx..));
-
-                dc4 += a0;
-
-                let idx1 = q_modules * 4 + k;
-                let uq = NeonStoreF::f32_mul_add(2., dc4, -dss3);
-                uq.write2(data.slice_from_mut(idx1..));
+                self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
             } else if remainder == 1 {
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = NeonStoreF::load1(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    NeonStoreF::load1(unsafe { s_buffer.get_unchecked(q_modules - k..) });
-
-                let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * f32::R5_COS_EVEN2_M0;
-                let mut dc4 = twiddled_dc * f32::R5_COS_EVEN4_M0;
-
-                let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let mut ds1 = twiddled_ds * f32::R5_SIN_ODD_M0;
-                let mut ds3 = twiddled_ds * f32::R5_SIN_ODD1_M0;
-
-                {
-                    let c_forward =
-                        NeonStoreF::load1(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-                    let s_forward =
-                        NeonStoreF::load1(unsafe { s_buffer.get_unchecked(q_modules * 2 - k..) });
-
-                    let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
-                    let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
-
-                    let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk + 2) };
-                    let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 3) };
-
-                    let rotated_dc1 = fmla(s_forward, rotation_twiddle_re, c_forward);
-                    let rotated_ds2 = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                    let twiddled_dc = twiddle_re * rotated_dc1;
-                    let twiddled_ds = twiddle_im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN4_M0, twiddled_dc, dc2);
-                    dc4 = NeonStoreF::f32_mul_add(f32::R5_COS_EVEN2_M0, twiddled_dc, dc4);
-
-                    ds1 = NeonStoreF::f32_mul_nadd(f32::R5_SIN_ODD1_M0, twiddled_ds, ds1);
-                    ds3 = NeonStoreF::f32_mul_add(f32::R5_SIN_ODD_M0, twiddled_ds, ds3);
-                }
-
-                let a0 = NeonStoreF::load1(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write1(data.slice_from_mut(k..));
-
-                let dss1 = NeonStoreF::f32_mul_add(2., ds1, -dc);
-                let idx = q_modules * 2 - k;
-                dss1.write1(data.slice_from_mut(idx..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = NeonStoreF::f32_mul_add(2., dc2, -dss1);
-                let idx1 = q_modules * 2 + k;
-                dc2.write1(data.slice_from_mut(idx1..));
-
-                let dss3 = NeonStoreF::f32_mul_add(2., -ds3, -dc2);
-                let idx = q_modules * 4 - k;
-                dss3.write1(data.slice_from_mut(idx..));
-
-                dc4 += a0;
-
-                let idx1 = q_modules * 4 + k;
-                let uq = NeonStoreF::f32_mul_add(2., dc4, -dss3);
-                uq.write1(data.slice_from_mut(idx1..));
+                self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
             }
         }
         Ok(())

@@ -287,6 +287,45 @@ impl NeonStoreF {
     }
 
     #[inline(always)]
+    pub(crate) fn load_n<const N: usize>(ptr: &[f32]) -> Self {
+        const {
+            assert!(N <= 4, "N must be <= 4");
+        }
+        match N {
+            4 => Self::load(ptr),
+            3 => Self::load3(ptr),
+            2 => Self::load2(ptr),
+            _ => Self::load1(ptr),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn reverse_n<const N: usize>(self) -> Self {
+        const {
+            assert!(N <= 4, "N must be <= 4");
+        }
+        match N {
+            4 => self.reverse(),
+            3 => self.reverse3(),
+            2 => self.reverse2(),
+            _ => self,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_n<const N: usize>(self, ptr: &mut [f32]) {
+        const {
+            assert!(N <= 4, "N must be <= 4");
+        }
+        match N {
+            4 => self.write(ptr),
+            3 => self.write3(ptr),
+            2 => self.write2(ptr),
+            _ => self.write1(ptr),
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn swap_complex(self) -> Self {
         unsafe { NeonStoreF::raw(vcombine_f32(vget_high_f32(self.v), vget_low_f32(self.v))) }
     }

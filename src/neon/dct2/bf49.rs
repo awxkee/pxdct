@@ -30,8 +30,8 @@ use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct2::MixedRadix7Sample;
 use crate::dct2::prime_butterflies::Dct2Butterfly7;
 use crate::mla::fmla;
-use crate::neon::dct2::mixed_radix7::{
-    dct2_radix7_cos_twiddles_neon, dct2_radix7_rotation_twiddles_neon,
+use crate::neon::dct2::mixed_radix3::{
+    dct2_radix_n_cos_twiddles_neon, dct2_radix_n_rotation_twiddles_neon,
 };
 use crate::neon::util::NeonStoreF;
 use crate::util::DctSample;
@@ -52,11 +52,11 @@ impl Default for NeonDct2Butterfly49f {
 
 impl NeonDct2Butterfly49f {
     pub(crate) fn new() -> NeonDct2Butterfly49f {
-        let rotation_layer = dct2_radix7_rotation_twiddles_neon(7, 49);
+        let rotation_layer = dct2_radix_n_rotation_twiddles_neon(7, 7, 49);
 
         // Precompute cosine twiddles for even components
         // Stored as Complex{re: even_twiddle, im: odd_twiddle} for cache efficiency
-        let cos_twiddles = dct2_radix7_cos_twiddles_neon(7, 49);
+        let cos_twiddles = dct2_radix_n_cos_twiddles_neon(7, 7, 49);
         NeonDct2Butterfly49f {
             rotation_layer: rotation_layer.try_into().unwrap(),
             bf7: Dct2Butterfly7::default(),
