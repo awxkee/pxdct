@@ -45,7 +45,7 @@ pub(crate) fn dct2_radix_n_rotation_twiddles_neon(
 
     let working_modules = q_modules - 1;
     let main_groups = working_modules / 4;
-    let has_remainder = (working_modules % 4 != 0) as usize;
+    let has_remainder = !working_modules.is_multiple_of(4) as usize;
     let mut twiddles = Vec::with_capacity((main_groups + has_remainder) * 2 * inner_groups);
 
     let mut uk = 0usize;
@@ -109,7 +109,7 @@ pub(crate) fn dct2_radix_n_cos_twiddles_neon(
 
     let working_modules = q_modules - 1;
     let main_groups = working_modules / 4;
-    let has_remainder = (working_modules % 4 != 0) as usize;
+    let has_remainder = !working_modules.is_multiple_of(4) as usize;
     let mut twiddles = Vec::with_capacity((main_groups + has_remainder) * 2 * inner_groups);
 
     let mut uk = 0usize;
