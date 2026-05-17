@@ -249,6 +249,60 @@ impl AvxStoreF {
 
     #[inline]
     #[target_feature(enable = "avx2")]
+    pub(crate) fn load_n<const N: usize>(ptr: &[f32]) -> Self {
+        const {
+            assert!(N <= 8, "N must be <= 8");
+        }
+        match N {
+            8 => Self::load(ptr),
+            7 => Self::load7(ptr),
+            6 => Self::load6(ptr),
+            5 => Self::load5(ptr),
+            4 => Self::load4(ptr),
+            3 => Self::load3(ptr),
+            2 => Self::load2(ptr),
+            _ => Self::load1(ptr),
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn reverse_n<const N: usize>(self) -> Self {
+        const {
+            assert!(N <= 8, "N must be <= 8");
+        }
+        match N {
+            8 => self.reverse(),
+            7 => self.reverse7(),
+            6 => self.reverse6(),
+            5 => self.reverse5(),
+            4 => self.reverse4(),
+            3 => self.reverse3(),
+            2 => self.reverse2(),
+            _ => self,
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn write_n<const N: usize>(self, ptr: &mut [f32]) {
+        const {
+            assert!(N <= 8, "N must be <= 8");
+        }
+        match N {
+            8 => self.write(ptr),
+            7 => self.write7(ptr),
+            6 => self.write6(ptr),
+            5 => self.write5(ptr),
+            4 => self.write4(ptr),
+            3 => self.write3(ptr),
+            2 => self.write2(ptr),
+            _ => self.write1(ptr),
+        }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
     pub(crate) fn write(self, ptr: &mut [f32]) {
         unsafe { _mm256_storeu_ps(ptr.as_mut_ptr(), self.v) }
     }
