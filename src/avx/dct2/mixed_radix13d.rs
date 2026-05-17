@@ -169,7 +169,7 @@ impl AvxDct2MixedRadix13d {
     ) -> Result<AvxDct2MixedRadix13d, PxdctError> {
         assert!(
             len.is_multiple_of(13),
-            "Mixed radix 9 should not be called on sizes no divisible by 9"
+            "Mixed radix 13 should not be called on sizes no divisible by 13"
         );
 
         let q_modules = len / 13;

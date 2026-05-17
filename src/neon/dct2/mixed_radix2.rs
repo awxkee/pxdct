@@ -268,13 +268,13 @@ impl MixedRadix2Differences<f32> for f32 {
         let mut j = 0usize;
         let mut dst_idx = 0usize;
 
-        if j + 4 < a_buffer.len() {
+        if j + 4 <= a_buffer.len() {
             let mut differences = NeonStoreF::set_values(0., 0., 0., 0.);
 
             // [1 -1 1 -1]
             let sign = NeonStoreF::set_values(0.0, -0.0, 0.0, -0.0);
 
-            while j + 8 < a_buffer.len() {
+            while j + 8 <= a_buffer.len() {
                 differences = differences.xor(sign);
 
                 let evens0 = NeonStoreF::load(unsafe { a_buffer.get_unchecked(j..) });
@@ -308,7 +308,7 @@ impl MixedRadix2Differences<f32> for f32 {
                 j += 8;
             }
 
-            while j + 4 < a_buffer.len() {
+            while j + 4 <= a_buffer.len() {
                 differences = differences.xor(sign);
                 let evens = NeonStoreF::load(unsafe { a_buffer.get_unchecked(j..) });
                 let odds = NeonStoreF::load(unsafe { b_buffer.get_unchecked(j..) });

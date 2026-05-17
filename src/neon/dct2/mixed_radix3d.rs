@@ -36,94 +36,100 @@ use crate::{PxdctError, PxdctExecutor};
 use num_traits::{AsPrimitive, One};
 use std::sync::Arc;
 
-pub(crate) fn dct2_radix3_rotation_twiddles_neond(q_modules: usize, len: usize) -> Vec<NeonStoreD> {
-    let simd_groups = q_modules.div_ceil(2);
-    let main_q = 3usize;
+pub(crate) fn dct2_radix_n_rotation_twiddles_neond(
+    q: usize,
+    q_modules: usize,
+    len: usize,
+) -> Vec<NeonStoreD> {
+    let main_q = q;
     let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    // We need 2 complex values per k (rotation_re and rotation_im)
-    // Each complex has re and im, so 4 values per k
-    // Times inner_groups for each m
-    let mut twiddles = Vec::with_capacity(simd_groups * 2 * inner_groups);
-
     let working_modules = q_modules - 1;
+    let main_groups = working_modules / 2;
+    let has_remainder = (working_modules % 2 != 0) as usize;
+    let mut twiddles = Vec::with_capacity((main_groups + has_remainder) * 2 * inner_groups);
 
     let mut uk = 0usize;
+
     while uk + 2 <= working_modules {
         let k = uk + 1;
-
-        let layer0 = radixq_rotation_twiddle(main_q, 0, k.as_(), (q_modules - k).as_(), len);
-        let layer1 =
-            radixq_rotation_twiddle(main_q, 0, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
-
-        twiddles.push(NeonStoreD::set_values(layer0.re, layer1.re));
-        twiddles.push(NeonStoreD::set_values(layer0.im, layer1.im));
-
+        for m in 0..inner_groups {
+            let layer0 = radixq_rotation_twiddle(main_q, m, k.as_(), (q_modules - k).as_(), len);
+            let layer1 =
+                radixq_rotation_twiddle(main_q, m, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
+            twiddles.push(NeonStoreD::set_values(layer0.re, layer1.re));
+            twiddles.push(NeonStoreD::set_values(layer0.im, layer1.im));
+        }
         uk += 2;
     }
 
     let remainder = working_modules - (working_modules / 2) * 2;
     if remainder > 0 {
         let k = uk + 1;
-
         let mut array_re = [0.; 2];
         let mut array_im = [0.; 2];
-        for i in 0..remainder {
-            let layer =
-                radixq_rotation_twiddle(main_q, 0, (k + i).as_(), (q_modules - (k + i)).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
+        for m in 0..inner_groups {
+            for i in 0..remainder {
+                let layer = radixq_rotation_twiddle(
+                    main_q,
+                    m,
+                    (k + i).as_(),
+                    (q_modules - (k + i)).as_(),
+                    len,
+                );
+                array_re[i] = layer.re;
+                array_im[i] = layer.im;
+            }
+            twiddles.push(NeonStoreD::load(array_re.as_ref()));
+            twiddles.push(NeonStoreD::load(array_im.as_ref()));
         }
-
-        twiddles.push(NeonStoreD::load(array_re.as_ref()));
-        twiddles.push(NeonStoreD::load(array_im.as_ref()));
     }
 
     twiddles
 }
 
-pub(crate) fn dct2_radix3_cos_twiddles_neond(q_modules: usize, len: usize) -> Vec<NeonStoreD> {
-    let main_q = 3usize;
-    let simd_groups = q_modules.div_ceil(2);
+pub(crate) fn dct2_radix_n_cos_twiddles_neond(
+    q: usize,
+    q_modules: usize,
+    len: usize,
+) -> Vec<NeonStoreD> {
+    let main_q = q;
     let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    // We need 2 complex values per k (rotation_re and rotation_im)
-    // Each complex has re and im, so 4 values per k
-    // Times inner_groups for each m
-    let mut twiddles = Vec::with_capacity(simd_groups * 2 * inner_groups);
+    let working_modules = q_modules - 1;
+    let main_groups = working_modules / 2;
+    let has_remainder = (working_modules % 2 != 0) as usize;
+    let mut twiddles = Vec::with_capacity((main_groups + has_remainder) * 2 * inner_groups);
 
     let working_modules = q_modules - 1;
-
     let mut uk = 0usize;
+
     while uk + 2 <= working_modules {
         let k = uk + 1;
-
         let mut array_re = [0.; 2];
         let mut array_im = [0.; 2];
-        for i in 0..2 {
-            array_re[i] = radixq_cos_twiddle(main_q, 0, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(main_q, 0, (q_modules - (k + i)).as_(), len);
+        for m in 0..inner_groups {
+            for i in 0..2 {
+                array_re[i] = radixq_cos_twiddle(main_q, m, (k + i).as_(), len);
+                array_im[i] = radixq_cos_twiddle(main_q, m, (q_modules - (k + i)).as_(), len);
+            }
+            twiddles.push(NeonStoreD::load(array_re.as_ref()));
+            twiddles.push(NeonStoreD::load(array_im.as_ref()));
         }
-
-        twiddles.push(NeonStoreD::load(array_re.as_ref()));
-        twiddles.push(NeonStoreD::load(array_im.as_ref()));
-
         uk += 2;
     }
 
     let remainder = working_modules - (working_modules / 2) * 2;
     if remainder > 0 {
         let k = uk + 1;
-
         let mut array_re = [0.; 2];
         let mut array_im = [0.; 2];
-        for i in 0..remainder {
-            array_re[i] = radixq_cos_twiddle(main_q, 0, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(main_q, 0, (q_modules - (k + i)).as_(), len);
+        for m in 0..inner_groups {
+            for i in 0..remainder {
+                array_re[i] = radixq_cos_twiddle(main_q, m, (k + i).as_(), len);
+                array_im[i] = radixq_cos_twiddle(main_q, m, (q_modules - (k + i)).as_(), len);
+            }
+            twiddles.push(NeonStoreD::load(array_re.as_ref()));
+            twiddles.push(NeonStoreD::load(array_im.as_ref()));
         }
-
-        twiddles.push(NeonStoreD::load(array_re.as_ref()));
-        twiddles.push(NeonStoreD::load(array_im.as_ref()));
     }
 
     twiddles
@@ -135,6 +141,7 @@ pub(crate) struct NeonDct2MixedRadix3d {
     inner_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     inner_dct_scratch_size: usize,
     execution_length: usize,
+    q_modules: usize,
 }
 
 impl NeonDct2MixedRadix3d {
@@ -144,7 +151,7 @@ impl NeonDct2MixedRadix3d {
     ) -> Result<NeonDct2MixedRadix3d, PxdctError> {
         assert!(
             len.is_multiple_of(3),
-            "Mixed radix 5 should not be called on sizes no divisible by 5"
+            "Mixed radix 3 should not be called on sizes no divisible by 3"
         );
 
         let q_modules = len / 3;
@@ -153,11 +160,11 @@ impl NeonDct2MixedRadix3d {
 
         // Precompute rotation twiddles for k≥1
         // Format: [m0_k1, m1_k1, m0_k2, m1_k2, ...]
-        let rotation_layer = dct2_radix3_rotation_twiddles_neond(q_modules, len);
+        let rotation_layer = dct2_radix_n_rotation_twiddles_neond(3, q_modules, len);
 
         // Precompute cosine twiddles for even components
         // Stored as Complex{re: even_twiddle, im: odd_twiddle} for cache efficiency
-        let cos_twiddles = dct2_radix3_cos_twiddles_neond(q_modules, len);
+        let cos_twiddles = dct2_radix_n_cos_twiddles_neond(3, q_modules, len);
 
         let inner_dct_scratch_size = inner_dct.scratch_size();
 
@@ -167,11 +174,61 @@ impl NeonDct2MixedRadix3d {
             inner_dct_scratch_size,
             cos_twiddles,
             execution_length: len,
+            q_modules: len / 3,
         })
     }
 }
 
 impl NeonDct2MixedRadix3d {
+    #[inline(always)]
+    fn exec_block<S: BidirectionalStore<f64>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &[f64],
+        s_buffer: &[f64],
+        c_buffer: &[f64],
+        uk: usize,
+        k: usize,
+    ) {
+        // Apply rotation twiddles to combine forward and inverted components
+        let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
+        let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
+
+        let c_forward = NeonStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
+        let s_forward = NeonStoreD::load_n::<N>(unsafe {
+            s_buffer.get_unchecked(self.q_modules - k - (N - 1)..)
+        })
+        .reverse_n::<N>();
+
+        let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
+
+        let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
+        let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
+
+        let twiddled_dc = rotated_dc * twiddle_re;
+
+        let dc0 = twiddled_dc;
+        let mut dc2 = -twiddled_dc * f64::HALF;
+
+        let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
+
+        let twiddled_ds = rotated_ds * twiddle_im;
+
+        let ds1 = twiddled_ds * f64::SIN2PI_OVER_3;
+
+        let a0 = NeonStoreD::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let dc = dc0 + a0;
+        dc.write_n::<N>(data.slice_from_mut(k..));
+
+        let dss1 = NeonStoreD::f64_mul_add(2., ds1, -dc);
+        let q = dss1.reverse_n::<N>();
+        q.write_n::<N>(data.slice_from_mut(self.q_modules * 2 - k - (N - 1)..));
+
+        dc2 = -(dc2 + a0); // negated 2j
+        dc2 = NeonStoreD::f64_mul_add(2., dc2, -dss1);
+        dc2.write_n::<N>(data.slice_from_mut(self.q_modules * 2 + k..));
+    }
+
     #[inline(always)]
     fn execute_with_store<S: BidirectionalStore<f64>>(
         &self,
@@ -240,43 +297,7 @@ impl NeonDct2MixedRadix3d {
 
             // Step 4: Handle k≥1 cases with rotation twiddles
             while k + 2 <= q_modules {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = NeonStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    NeonStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - k - 1..) })
-                        .reverse();
-
-                let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = -twiddled_dc * f64::HALF;
-
-                let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f64::SIN2PI_OVER_3;
-
-                let a0 = NeonStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write(data.slice_from_mut(k..));
-
-                let dss1 = NeonStoreD::f64_mul_add(2., ds1, -dc);
-                let q = dss1.reverse();
-                q.write(data.slice_from_mut(q_modules * 2 - k - 1..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = NeonStoreD::f64_mul_add(2., dc2, -dss1);
-                dc2.write(data.slice_from_mut(q_modules * 2 + k..));
-
+                self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
                 k += 2;
                 uk += 2;
             }
@@ -285,40 +306,7 @@ impl NeonDct2MixedRadix3d {
 
             // handle remainder
             if rem == 1 {
-                // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
-                let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
-
-                let c_forward = NeonStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
-                let s_forward =
-                    NeonStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - k..) });
-
-                let rotated_dc = fmla(s_forward, rotation_twiddle_re, c_forward);
-
-                let twiddle_re = unsafe { *self.cos_twiddles.get_unchecked(uk) };
-                let twiddle_im = unsafe { *self.cos_twiddles.get_unchecked(uk + 1) };
-
-                let twiddled_dc = rotated_dc * twiddle_re;
-
-                let dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * -f64::HALF;
-
-                let rotated_ds = fmla(c_forward, rotation_twiddle_im, s_forward);
-
-                let twiddled_ds = rotated_ds * twiddle_im;
-
-                let ds1 = twiddled_ds * f64::SIN2PI_OVER_3;
-
-                let a0 = NeonStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
-                let dc = dc0 + a0;
-                dc.write1(data.slice_from_mut(k..));
-
-                let dss1 = NeonStoreD::f64_mul_add(2., ds1, -dc);
-                dss1.write1(data.slice_from_mut(q_modules * 2 - k..));
-
-                dc2 = -(dc2 + a0); // negated 2j
-                dc2 = NeonStoreD::f64_mul_add(2., dc2, -dss1);
-                dc2.write1(data.slice_from_mut(q_modules * 2 + k..));
+                self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
             }
         }
         Ok(())

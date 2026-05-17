@@ -44,8 +44,8 @@ pub(crate) unsafe fn vfcmulq_f32(lhs: float32x4_t, rhs: float32x4_t) -> float32x
     }
 }
 
-#[inline]
-pub(crate) unsafe fn reverse_f32(v: float32x4_t) -> float32x4_t {
+#[inline(always)]
+pub(crate) fn reverse_f32(v: float32x4_t) -> float32x4_t {
     unsafe {
         let rev64 = vrev64q_f32(v);
         vcombine_f32(vget_high_f32(rev64), vget_low_f32(rev64))
@@ -89,7 +89,7 @@ impl DctSpectrumMul<f32> for DctSpectrumMulF32 {
 
         let mut i = 1usize;
 
-        while i + 4 < complex_length {
+        while i + 4 <= complex_length {
             unsafe {
                 let c0 = NeonStoreF::load_complex(complex_input.get_unchecked(i..));
                 let c1 = NeonStoreF::load_complex(complex_input.get_unchecked(i + 2..));
@@ -141,7 +141,7 @@ impl DctSpectrumMul<f32> for DctSpectrumMulF32 {
 
         let len = a.len();
         unsafe {
-            while i + 4 < a.len() {
+            while i + 4 <= a.len() {
                 let cf = vld1q_f32(a.get_unchecked(i..).as_ptr());
                 let cb = reverse_f32(vld1q_f32(a.get_unchecked(len - i - 4..).as_ptr()));
                 let tw0 = vld1q_f32(b.get_unchecked(i..).as_ptr().cast());

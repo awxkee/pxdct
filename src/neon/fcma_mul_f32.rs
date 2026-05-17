@@ -61,7 +61,7 @@ impl FcmaDctSpectrumMulF32 {
 
         let len = a.len();
         unsafe {
-            while i + 4 < a.len() {
+            while i + 4 <= a.len() {
                 let cf = vld1q_f32(a.get_unchecked(i..).as_ptr());
                 let cb = reverse_f32(vld1q_f32(a.get_unchecked(len - i - 4..).as_ptr()));
                 let tw0 = vld1q_f32(b.get_unchecked(i..).as_ptr().cast());
@@ -95,19 +95,19 @@ impl DctSpectrumMul<f32> for FcmaDctSpectrumMulF32 {
     fn mul_spectrum_to_real_rev(&self, a: &[Complex<f32>], b: &[Complex<f32>], out: &mut [f32]) {
         let out_len = out.len();
         let mut i = 0usize;
-        for (fft, twiddle) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
+        for (fft, twiddle) in a.as_chunks::<8>().0.iter().zip(b.as_chunks::<8>().0.iter()) {
             unsafe {
                 let a = vld1q_f32(fft.as_ptr().cast());
                 let b = vld1q_f32(twiddle.as_ptr().cast());
 
-                let a1 = vld1q_f32(fft.get_unchecked(2..).as_ptr().cast());
-                let b1 = vld1q_f32(twiddle.get_unchecked(2..).as_ptr().cast());
+                let a1 = vld1q_f32(fft[2..].as_ptr().cast());
+                let b1 = vld1q_f32(twiddle[2..].as_ptr().cast());
 
-                let a2 = vld1q_f32(fft.get_unchecked(4..).as_ptr().cast());
-                let b2 = vld1q_f32(twiddle.get_unchecked(4..).as_ptr().cast());
+                let a2 = vld1q_f32(fft[4..].as_ptr().cast());
+                let b2 = vld1q_f32(twiddle[4..].as_ptr().cast());
 
-                let a3 = vld1q_f32(fft.get_unchecked(6..).as_ptr().cast());
-                let b3 = vld1q_f32(twiddle.get_unchecked(6..).as_ptr().cast());
+                let a3 = vld1q_f32(fft[6..].as_ptr().cast());
+                let b3 = vld1q_f32(twiddle[6..].as_ptr().cast());
 
                 let a_z0 = vuzpq_f32(a, a1);
                 let b_z0 = vuzpq_f32(b, b1);
@@ -204,7 +204,7 @@ impl DctSpectrumMul<f32> for FcmaDctSpectrumMulF32 {
 
         let mut i = 1usize;
 
-        while i + 4 < complex_length {
+        while i + 4 <= complex_length {
             unsafe {
                 let c0 = NeonStoreF::load_complex(complex_input.get_unchecked(i..));
                 let c1 = NeonStoreF::load_complex(complex_input.get_unchecked(i + 2..));

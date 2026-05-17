@@ -69,6 +69,17 @@ impl NeonStoreD {
     }
 
     #[inline(always)]
+    pub(crate) fn load_n<const N: usize>(ptr: &[f64]) -> Self {
+        const {
+            assert!(N <= 2, "N must be <= 2");
+        }
+        match N {
+            2 => Self::load(ptr),
+            _ => Self::load1(ptr),
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn load1(ptr: &[f64]) -> Self {
         NeonStoreD::raw(unsafe { vld1q_lane_f64::<0>(ptr.as_ptr(), vdupq_n_f64(0.)) })
     }
@@ -79,6 +90,17 @@ impl NeonStoreD {
     }
 
     #[inline(always)]
+    pub(crate) fn write_n<const N: usize>(self, ptr: &mut [f64]) {
+        const {
+            assert!(N <= 2, "N must be <= 2");
+        }
+        match N {
+            2 => self.write(ptr),
+            _ => self.write1(ptr),
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn write1(self, ptr: &mut [f64]) {
         unsafe { vst1q_lane_f64::<0>(ptr.as_mut_ptr(), self.v) }
     }
@@ -86,6 +108,17 @@ impl NeonStoreD {
     #[inline(always)]
     pub(crate) fn reverse(self) -> Self {
         unsafe { NeonStoreD::raw(vcombine_f64(vget_high_f64(self.v), vget_low_f64(self.v))) }
+    }
+
+    #[inline(always)]
+    pub(crate) fn reverse_n<const N: usize>(self) -> Self {
+        const {
+            assert!(N <= 2, "N must be <= 2");
+        }
+        match N {
+            2 => self.reverse(),
+            _ => self,
+        }
     }
 
     #[inline(always)]
