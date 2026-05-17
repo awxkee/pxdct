@@ -26,13 +26,16 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::avx::dct2::mixed_radix3d::{
+    dct2_radix_n_cos_twiddles_avx_d, dct2_radix_n_rotation_twiddles_avx_d,
+};
 use crate::avx::stored::AvxStoreD;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
-use crate::dct2::{MixedRadix5Sample, radixq_cos_twiddle, radixq_rotation_twiddle};
+use crate::dct2::MixedRadix5Sample;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
-use num_traits::{AsPrimitive, One};
+use num_traits::One;
 use std::sync::Arc;
 
 /// Radix-5 DCT-II implementation using direct decomposition algorithm.
@@ -51,148 +54,6 @@ pub(crate) struct AvxDct2MixedRadix5d {
     q_modules: usize,
 }
 
-#[target_feature(enable = "avx2")]
-pub(crate) fn dct2_radix5_rotation_twiddles_avxd(
-    main_q: usize,
-    q_modules: usize,
-    len: usize,
-) -> Vec<AvxStoreD> {
-    let simd_groups = q_modules.div_ceil(4);
-    let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    // We need 2 complex values per k (rotation_re and rotation_im)
-    // Each complex has re and im, so 4 values per k
-    // Times inner_groups for each m
-    let mut twiddles = Vec::with_capacity(simd_groups * 4 * inner_groups);
-
-    let working_modules = q_modules - 1;
-
-    let mut uk = 0usize;
-    while uk + 4 <= working_modules {
-        let k = uk + 1;
-
-        let layer0 = radixq_rotation_twiddle(5, 0, k.as_(), (q_modules - k).as_(), len);
-        let layer1 = radixq_rotation_twiddle(5, 0, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
-        let layer2 = radixq_rotation_twiddle(5, 0, (k + 2).as_(), (q_modules - (k + 2)).as_(), len);
-        let layer3 = radixq_rotation_twiddle(5, 0, (k + 3).as_(), (q_modules - (k + 3)).as_(), len);
-
-        twiddles.push(AvxStoreD::set_values(
-            layer0.re, layer1.re, layer2.re, layer3.re,
-        ));
-        twiddles.push(AvxStoreD::set_values(
-            layer0.im, layer1.im, layer2.im, layer3.im,
-        ));
-
-        let layer0 = radixq_rotation_twiddle(5, 1, k.as_(), (q_modules - k).as_(), len);
-        let layer1 = radixq_rotation_twiddle(5, 1, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
-        let layer2 = radixq_rotation_twiddle(5, 1, (k + 2).as_(), (q_modules - (k + 2)).as_(), len);
-        let layer3 = radixq_rotation_twiddle(5, 1, (k + 3).as_(), (q_modules - (k + 3)).as_(), len);
-
-        twiddles.push(AvxStoreD::set_values(
-            layer0.re, layer1.re, layer2.re, layer3.re,
-        ));
-        twiddles.push(AvxStoreD::set_values(
-            layer0.im, layer1.im, layer2.im, layer3.im,
-        ));
-        uk += 4;
-    }
-
-    let remainder = working_modules - (working_modules / 4) * 4;
-    if remainder > 0 {
-        let k = uk + 1;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..remainder {
-            let layer =
-                radixq_rotation_twiddle(5, 0, (k + i).as_(), (q_modules - (k + i)).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-
-        for i in 0..remainder {
-            let layer =
-                radixq_rotation_twiddle(5, 1, (k + i).as_(), (q_modules - (k + i)).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-    }
-
-    twiddles
-}
-
-#[target_feature(enable = "avx2")]
-pub(crate) fn dct2_radix5_cos_twiddles_avxd(
-    main_q: usize,
-    q_modules: usize,
-    len: usize,
-) -> Vec<AvxStoreD> {
-    let simd_groups = q_modules.div_ceil(4);
-    let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    // We need 2 complex values per k (rotation_re and rotation_im)
-    // Each complex has re and im, so 4 values per k
-    // Times inner_groups for each m
-    let mut twiddles = Vec::with_capacity(simd_groups * 4 * inner_groups);
-
-    let working_modules = q_modules - 1;
-
-    let mut uk = 0usize;
-    while uk + 4 <= working_modules {
-        let k = uk + 1;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..4 {
-            array_re[i] = radixq_cos_twiddle(5, 0, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 0, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-
-        for i in 0..4 {
-            array_re[i] = radixq_cos_twiddle(5, 1, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 1, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-        uk += 4;
-    }
-
-    let remainder = working_modules - (working_modules / 4) * 4;
-    if remainder > 0 {
-        let k = uk + 1;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..remainder {
-            array_re[i] = radixq_cos_twiddle(5, 0, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 0, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-
-        for i in 0..remainder {
-            array_re[i] = radixq_cos_twiddle(5, 1, (k + i).as_(), len);
-            array_im[i] = radixq_cos_twiddle(5, 1, (q_modules - (k + i)).as_(), len);
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-    }
-
-    twiddles
-}
-
 impl AvxDct2MixedRadix5d {
     pub(crate) fn new(
         len: usize,
@@ -207,9 +68,9 @@ impl AvxDct2MixedRadix5d {
 
         // always 2 inner groups in Radix-5
 
-        let rotation_layer = unsafe { dct2_radix5_rotation_twiddles_avxd(5, q_modules, len) };
+        let rotation_layer = unsafe { dct2_radix_n_rotation_twiddles_avx_d(5, q_modules, len) };
 
-        let cos_twiddles = unsafe { dct2_radix5_cos_twiddles_avxd(5, q_modules, len) };
+        let cos_twiddles = unsafe { dct2_radix_n_cos_twiddles_avx_d(5, q_modules, len) };
 
         let inner_dct_scratch_size = inner_dct.scratch_size();
 

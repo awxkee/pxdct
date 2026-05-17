@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::dct2::{dct2_radix3_cos_twiddles_avx_f, dct2_radix3_rotation_twiddles_avx_f};
+use crate::avx::dct2::{dct2_radix_n_cos_twiddles_avx_f, dct2_radix_n_rotation_twiddles_avx_f};
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::{define_avx_butterfly, fma};
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
@@ -546,11 +546,11 @@ pub(crate) struct AvxDct2Butterfly243f {
 
 impl Default for AvxDct2Butterfly243f {
     fn default() -> Self {
-        let rotation_layer = unsafe { dct2_radix3_rotation_twiddles_avx_f(243 / 3, 243) };
+        let rotation_layer = unsafe { dct2_radix_n_rotation_twiddles_avx_f(3, 243 / 3, 243) };
 
         // Precompute cosine twiddles for even components
         // Stored as Complex{re: even_twiddle, im: odd_twiddle} for cache efficiency
-        let cos_twiddles = unsafe { dct2_radix3_cos_twiddles_avx_f(243 / 3, 243) };
+        let cos_twiddles = unsafe { dct2_radix_n_cos_twiddles_avx_f(3, 243 / 3, 243) };
         Self {
             bf81: f32::dct2_butterfly81(),
             rotation_layer: rotation_layer.try_into().unwrap(),

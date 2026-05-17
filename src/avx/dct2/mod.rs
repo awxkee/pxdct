@@ -72,7 +72,7 @@ pub(crate) use bf49f::AvxDct2Butterfly49f;
 pub(crate) use mixed_radix2::AvxDct2MixedRadix2;
 pub(crate) use mixed_radix3d::AvxDct2MixedRadix3d;
 pub(crate) use mixed_radix3f::{
-    AvxDct2MixedRadix3f, dct2_radix3_cos_twiddles_avx_f, dct2_radix3_rotation_twiddles_avx_f,
+    AvxDct2MixedRadix3f, dct2_radix_n_cos_twiddles_avx_f, dct2_radix_n_rotation_twiddles_avx_f,
 };
 pub(crate) use mixed_radix5d::AvxDct2MixedRadix5d;
 pub(crate) use mixed_radix5f::AvxDct2MixedRadix5f;

@@ -27,8 +27,8 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::avx::AvxDct2Butterfly9;
-use crate::avx::dct2::mixed_radix9d::{
-    dct2_radix9_cos_twiddles_avxd, dct2_radix9_rotation_twiddles_avxd,
+use crate::avx::dct2::mixed_radix3d::{
+    dct2_radix_n_cos_twiddles_avx_d, dct2_radix_n_rotation_twiddles_avx_d,
 };
 use crate::avx::stored::AvxStoreD;
 use crate::avx::util::fma;
@@ -446,11 +446,11 @@ impl Default for AvxDct2Butterfly243d {
 
         // Precompute rotation twiddles for k≥1
         // Format: [m0_k1, m1_k1, m0_k2, m1_k2, ...]
-        let rotation_layer = unsafe { dct2_radix9_rotation_twiddles_avxd(243 / 9, 243) };
+        let rotation_layer = unsafe { dct2_radix_n_rotation_twiddles_avx_d(9, 243 / 9, 243) };
 
         // Precompute cosine twiddles for even components
         // Stored as Complex{re: even_twiddle, im: odd_twiddle} for cache efficiency
-        let cos_twiddles = unsafe { dct2_radix9_cos_twiddles_avxd(243 / 9, 243) };
+        let cos_twiddles = unsafe { dct2_radix_n_cos_twiddles_avx_d(9, 243 / 9, 243) };
 
         Self {
             bf27: f64::dct2_butterfly27(),
