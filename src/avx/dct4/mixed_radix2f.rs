@@ -291,7 +291,7 @@ impl AvxDct4MixedRadix2f {
         };
 
         let mut i = 1usize;
-        while i + 8 < half_len {
+        while i + 8 <= half_len {
             let il = AvxStoreF::load(data.slice_from(i..));
             let rr = AvxStoreF::load(data.slice_from(half_len - i - 7..)).reverse();
 

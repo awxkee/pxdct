@@ -204,7 +204,7 @@ impl NeonDct4Radix2f {
         let signs_im = NeonStoreF::set_values(1.0, -1.0, 1.0, -1.0);
 
         let mut i = 1usize;
-        while i + 4 < quarter_len {
+        while i + 4 <= quarter_len {
             let il = NeonStoreF::load(unsafe { left.get_unchecked(i..) });
             let rr = NeonStoreF::load(unsafe { right.get_unchecked(half_len - i - 3..) }).reverse();
             let rl = NeonStoreF::load(unsafe { left.get_unchecked(half_len - i - 3..) }).reverse();
