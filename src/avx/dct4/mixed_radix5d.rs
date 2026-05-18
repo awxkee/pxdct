@@ -26,85 +26,23 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::avx::dct4::mixed_radix3d::dct4_radix_n_rotation_twiddles_avxd;
 use crate::avx::stored::AvxStoreD;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
-use crate::dct4::{Dct4MixedRadix5Sample, radixq_dct4_rotation_twiddle};
+use crate::dct4::Dct4MixedRadix5Sample;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
-use num_traits::{AsPrimitive, One};
+use num_traits::One;
 use std::sync::Arc;
-
-#[target_feature(enable = "avx2")]
-pub(crate) fn dct4_radix5_rotation_twiddles_avxd(q_modules: usize, len: usize) -> Vec<AvxStoreD> {
-    let simd_groups = q_modules.div_ceil(4);
-    let main_q = 5usize;
-    let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    let mut twiddles = Vec::with_capacity(simd_groups * 4 * inner_groups);
-
-    let working_modules = q_modules;
-
-    let mut uk = 0usize;
-    while uk + 4 <= working_modules {
-        let k = uk;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..4 {
-            let layer = radixq_dct4_rotation_twiddle(main_q, 0, (k + i).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-
-        for i in 0..4 {
-            let layer = radixq_dct4_rotation_twiddle(main_q, 1, (k + i).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-
-        uk += 4;
-    }
-
-    let remainder = working_modules - (working_modules / 4) * 4;
-    if remainder > 0 {
-        let k = uk;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for i in 0..remainder {
-            let layer = radixq_dct4_rotation_twiddle(main_q, 0, (k + i).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-
-        for i in 0..remainder {
-            let layer = radixq_dct4_rotation_twiddle(main_q, 1, (k + i).as_(), len);
-            array_re[i] = layer.re;
-            array_im[i] = layer.im;
-        }
-
-        twiddles.push(AvxStoreD::load(array_re.as_ref()));
-        twiddles.push(AvxStoreD::load(array_im.as_ref()));
-    }
-
-    twiddles
-}
 
 pub(crate) struct AvxDct4MixedRadix5d {
     inner_dct4: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     inner_dct_scratch_size: usize,
     rotation_twiddles: Vec<AvxStoreD>,
     execution_length: usize,
+    q_modules: usize,
+    s: usize,
 }
 
 impl AvxDct4MixedRadix5d {
@@ -124,7 +62,9 @@ impl AvxDct4MixedRadix5d {
             inner_dct4: dct4,
             inner_dct_scratch_size: inner_dct4_scratch_size,
             execution_length: len,
-            rotation_twiddles: unsafe { dct4_radix5_rotation_twiddles_avxd(len / 5, len) },
+            rotation_twiddles: unsafe { dct4_radix_n_rotation_twiddles_avxd(5, len / 5, len) },
+            q_modules: len / 5,
+            s: 2 * len / 5,
         })
     }
 }
@@ -132,6 +72,73 @@ impl AvxDct4MixedRadix5d {
 boring_avx_mixed_radix!(AvxDct4MixedRadix5d, f64);
 
 impl AvxDct4MixedRadix5d {
+    #[inline]
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn exec_block<S: BidirectionalStore<f64>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &[f64],
+        s_buffer: &[f64],
+        c_buffer: &[f64],
+        uk: usize,
+        k: usize,
+    ) {
+        let c_v0 = AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
+        let s_v0 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules - N - k..) })
+                .reverse_n::<N>();
+        let a_v0 = AvxStoreD::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+
+        let c_v1 = AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules + k..) });
+        let s_v1 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 2 - N - k..) })
+                .reverse_n::<N>();
+
+        let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
+        let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
+        let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
+        let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
+
+        let iq0 = fma(c_v0, twiddle0_re, s_v0 * twiddle0_im);
+        let siq0 = fma(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
+        let mut u0 = iq0;
+        let mut u1 = u0;
+        let mut v0 = siq0;
+
+        u1 *= f64::D4_R5_ROT_TWIDDLE_0;
+        v0 *= f64::D4_R5_ROT_TWIDDLE_1;
+
+        let iq1 = fma(c_v1, twiddle1_re, s_v1 * twiddle1_im);
+        let siq1 = fma(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
+
+        u1 = AvxStoreD::f64_mul_add(-f64::D4_R5_ROT_TWIDDLE_3, iq1, u1);
+        v0 = AvxStoreD::f64_mul_add(f64::D4_R5_ROT_TWIDDLE_2, siq1, v0);
+
+        u0 += iq1 + a_v0;
+        u1 = u1 - a_v0;
+
+        let uc0 = u1 - v0;
+        let uc1 = u1 + v0;
+
+        let mut u2 = iq0;
+        let mut v2 = siq0;
+        u2 *= f64::D4_R5_ROT_TWIDDLE_3;
+        v2 *= f64::D4_R5_ROT_TWIDDLE_2;
+        u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R5_ROT_TWIDDLE_0, u2);
+        v2 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R5_ROT_TWIDDLE_1, v2);
+        u2 += a_v0;
+        let uc2 = u2 - v2;
+        let uc3 = u2 + v2;
+
+        u0.write_n::<N>(data.slice_from_mut(k..));
+        uc1.write_n::<N>(data.slice_from_mut(self.s + k..));
+        uc0.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(self.s - N - k..));
+        uc2.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(2 * self.s - N - k..));
+        uc3.write_n::<N>(data.slice_from_mut(2 * self.s + k..));
+    }
+
     #[target_feature(enable = "avx2", enable = "fma")]
     fn execute_store<S: BidirectionalStore<f64>>(
         &self,
@@ -139,10 +146,7 @@ impl AvxDct4MixedRadix5d {
         scratch: &mut [f64],
     ) -> Result<(), PxdctError> {
         let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
-
         let q_modules = self.execution_length / 5;
-
-        let s = 2 * self.execution_length / 5;
         let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
         let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules * 2);
 
@@ -181,216 +185,18 @@ impl AvxDct4MixedRadix5d {
         // Step 4: Handle k≥0 cases with rotation twiddles
         let mut k = 0usize;
         while k + 4 <= q_modules {
-            const S: usize = 4;
-            let c_v0 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 =
-                AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse();
-            let a_v0 = AvxStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                .reverse();
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-
-            let iq0 = fma(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fma(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R5_ROT_TWIDDLE_0;
-            v0 *= f64::D4_R5_ROT_TWIDDLE_1;
-
-            let iq1 = fma(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fma(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::f64_mul_add(-f64::D4_R5_ROT_TWIDDLE_3, iq1, u1);
-            v0 = AvxStoreD::f64_mul_add(f64::D4_R5_ROT_TWIDDLE_2, siq1, v0);
-
-            u0 += iq1 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R5_ROT_TWIDDLE_3;
-            v2 *= f64::D4_R5_ROT_TWIDDLE_2;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R5_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R5_ROT_TWIDDLE_1, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            u0.write(data.slice_from_mut(k..));
-            uc1.write(data.slice_from_mut(s + k..));
-            uc0.reverse().write(data.slice_from_mut(s - S - k..));
-            uc2.reverse().write(data.slice_from_mut(2 * s - S - k..));
-            uc3.write(data.slice_from_mut(2 * s + k..));
+            self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
             uk += 4;
             k += 4;
         }
 
         let rem = q_modules - k;
         if rem == 3 {
-            const S: usize = 3;
-            let c_v0 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 =
-                AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse3();
-            let a_v0 = AvxStoreD::load3(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                .reverse3();
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-
-            let iq0 = fma(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fma(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R5_ROT_TWIDDLE_0;
-            v0 *= f64::D4_R5_ROT_TWIDDLE_1;
-
-            let iq1 = fma(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fma(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::f64_mul_add(-f64::D4_R5_ROT_TWIDDLE_3, iq1, u1);
-            v0 = AvxStoreD::f64_mul_add(f64::D4_R5_ROT_TWIDDLE_2, siq1, v0);
-
-            u0 += iq1 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R5_ROT_TWIDDLE_3;
-            v2 *= f64::D4_R5_ROT_TWIDDLE_2;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R5_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R5_ROT_TWIDDLE_1, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            u0.write3(data.slice_from_mut(k..));
-            uc1.write3(data.slice_from_mut(s + k..));
-            uc0.reverse3().write3(data.slice_from_mut(s - S - k..));
-            uc2.reverse3().write3(data.slice_from_mut(2 * s - S - k..));
-            uc3.write3(data.slice_from_mut(2 * s + k..));
+            self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
         } else if rem == 2 {
-            const S: usize = 2;
-            let c_v0 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 =
-                AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse2();
-            let a_v0 = AvxStoreD::load2(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                .reverse2();
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-
-            let iq0 = fma(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fma(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R5_ROT_TWIDDLE_0;
-            v0 *= f64::D4_R5_ROT_TWIDDLE_1;
-
-            let iq1 = fma(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fma(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::f64_mul_add(-f64::D4_R5_ROT_TWIDDLE_3, iq1, u1);
-            v0 = AvxStoreD::f64_mul_add(f64::D4_R5_ROT_TWIDDLE_2, siq1, v0);
-
-            u0 += iq1 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R5_ROT_TWIDDLE_3;
-            v2 *= f64::D4_R5_ROT_TWIDDLE_2;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R5_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R5_ROT_TWIDDLE_1, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            u0.write2(data.slice_from_mut(k..));
-            uc1.write2(data.slice_from_mut(s + k..));
-            uc0.reverse2().write2(data.slice_from_mut(s - S - k..));
-            uc2.reverse2().write2(data.slice_from_mut(2 * s - S - k..));
-            uc3.write2(data.slice_from_mut(2 * s + k..));
+            self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
         } else if rem == 1 {
-            const S: usize = 1;
-            let c_v0 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - S - k..) });
-            let a_v0 = AvxStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) });
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-
-            let iq0 = fma(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fma(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R5_ROT_TWIDDLE_0;
-            v0 *= f64::D4_R5_ROT_TWIDDLE_1;
-
-            let iq1 = fma(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fma(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::f64_mul_add(-f64::D4_R5_ROT_TWIDDLE_3, iq1, u1);
-            v0 = AvxStoreD::f64_mul_add(f64::D4_R5_ROT_TWIDDLE_2, siq1, v0);
-
-            u0 += iq1 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R5_ROT_TWIDDLE_3;
-            v2 *= f64::D4_R5_ROT_TWIDDLE_2;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R5_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R5_ROT_TWIDDLE_1, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            u0.write1(data.slice_from_mut(k..));
-            uc1.write1(data.slice_from_mut(s + k..));
-            uc0.write1(data.slice_from_mut(s - S - k..));
-            uc2.write1(data.slice_from_mut(2 * s - S - k..));
-            uc3.write1(data.slice_from_mut(2 * s + k..));
+            self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
         }
         Ok(())
     }
