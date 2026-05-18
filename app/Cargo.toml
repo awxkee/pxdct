@@ -12,6 +12,7 @@ pxfm = "0.1.27"
 primal-check = "0.3.4"
 regex = "1.12.2"
 rustdct = "0.7.1"
+zaft = { version = "0.3.8", features = ["fcma"] }
 
 [[bench]]
 name = "dct2"

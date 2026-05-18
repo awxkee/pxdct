@@ -29,7 +29,7 @@
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::dct4::Dct4Butterfly9;
 use crate::mla::fmla;
-use crate::neon::dct4::mixed_radix3f::dct4_radix3_rotation_twiddles_neon;
+use crate::neon::dct4::mixed_radix3f::dct4_radix_n_rotation_twiddles_neon;
 use crate::neon::util::NeonStoreF;
 use crate::util::DctConstants;
 use crate::{PxdctError, PxdctExecutor};
@@ -43,7 +43,7 @@ pub(crate) struct NeonDct4Butterfly27f {
 impl Default for NeonDct4Butterfly27f {
     fn default() -> Self {
         Self {
-            twiddle: dct4_radix3_rotation_twiddles_neon(9, 27)
+            twiddle: dct4_radix_n_rotation_twiddles_neon(3, 9, 27)
                 .try_into()
                 .unwrap(),
             bf9: Dct4Butterfly9::default(),

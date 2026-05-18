@@ -6,9 +6,12 @@
  */
 use criterion::measurement::WallTime;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, criterion_group, criterion_main};
+use num_complex::Complex;
 use pxdct::Pxdct;
 use rand::RngExt;
+use rustdct::num_traits::Zero;
 use std::time::Duration;
+use zaft::Zaft;
 
 pub(crate) fn prime_factors(mut n: u64) -> Vec<u64> {
     let mut res = Vec::new();
@@ -234,15 +237,59 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
     });
 }
 
+fn check_power_group_fft(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) {
+    let mut input_power = vec![0f32; n];
+    for z in input_power.iter_mut() {
+        *z = rand::rng().random();
+    }
+
+    c.bench_function(format!("zaft fft {group}s").as_str(), |b| {
+        let plan = Zaft::make_forward_fft_f32(input_power.len()).unwrap();
+        let mut working = input_power
+            .iter()
+            .map(|x| Complex::new(*x, 0.))
+            .collect::<Vec<_>>();
+        let mut scratch = vec![Complex::zero(); plan.scratch_length()];
+        b.iter(|| {
+            plan.execute_with_scratch(&mut working, &mut scratch)
+                .unwrap();
+        })
+    });
+
+    c.bench_function(format!("zaft rdft {group}s").as_str(), |b| {
+        let plan = Zaft::make_r2c_fft_f32(input_power.len()).unwrap();
+        let working = input_power.to_vec();
+        let mut dst = vec![Complex::zero(); working.len() / 2 + 1];
+        let mut scratch = vec![Complex::zero(); plan.complex_scratch_length()];
+        b.iter(|| {
+            plan.execute_with_scratch(&working, &mut dst, &mut scratch)
+                .unwrap();
+        })
+    });
+
+    c.bench_function(format!("pxdct dct2 {group}s").as_str(), |b| {
+        let plan = Pxdct::make_dct2_f32(input_power.len()).unwrap();
+        let mut working = input_power.to_vec();
+        let mut scratch = vec![0f32; plan.scratch_size()];
+        b.iter(|| {
+            plan.execute_with_scratch(&mut working, &mut scratch)
+                .unwrap();
+        })
+    });
+}
+
 pub fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("group");
     let c = group
         .measurement_time(Duration::from_millis(400))
         .warm_up_time(Duration::from_millis(400));
-    bench_rustdct_averages(c, 150);
-    bench_pxdct_averages(c, 150);
-    bench_rustdct_averages(c, 1800);
-    bench_pxdct_averages(c, 1800);
+    // bench_rustdct_averages(c, 150);
+    // bench_pxdct_averages(c, 150);
+    // bench_rustdct_averages(c, 1800);
+    // bench_pxdct_averages(c, 1800);
+
+    check_power_group_fft(c, 1024, "1024".to_string());
+    check_power_group_fft(c, 1536, "1536".to_string());
 
     check_power_group(c, 4, "4".to_string());
     check_power_group(c, 8, "8".to_string());
