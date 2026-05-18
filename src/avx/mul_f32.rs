@@ -116,7 +116,7 @@ impl AvxDctSpectrumMulF32 {
 
         let mut i = 1usize;
 
-        while i + 8 < complex_length {
+        while i + 8 <= complex_length {
             unsafe {
                 let c0 = AvxStoreF::load_complex(complex_input.get_unchecked(i..));
                 let c1 = AvxStoreF::load_complex(complex_input.get_unchecked(i + 4..));
@@ -172,7 +172,7 @@ impl AvxDctSpectrumMulF32 {
         unsafe {
             let q_h = _mm256_set1_ps(0.5);
 
-            while i + 4 < a.len() {
+            while i + 4 <= a.len() {
                 let cf = _mm_loadu_ps(a.get_unchecked(i..).as_ptr());
                 let q = _mm_loadu_ps(a.get_unchecked(len - i - 4..).as_ptr());
                 let cb = _mm_shuffle_ps::<{ shuffle(0, 1, 2, 3) }>(q, q);

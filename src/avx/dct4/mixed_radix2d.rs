@@ -210,7 +210,7 @@ impl AvxDct4MixedRadix2d {
         };
 
         let mut i = 1usize;
-        while i + 4 < half_len {
+        while i + 4 <= half_len {
             let il = AvxStoreD::load(unsafe { left.get_unchecked(i..) });
             let rr = AvxStoreD::load(unsafe { right.get_unchecked(half_len - i - 3..) }).reverse();
 
