@@ -26,73 +26,23 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::avx::dct4::mixed_radix3d::dct4_radix_n_rotation_twiddles_avxd;
 use crate::avx::stored::AvxStoreD;
-use crate::avx::util::boring_avx_mixed_radix;
+use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
-use crate::dct4::{Dct4MixedRadix13Sample, radixq_dct4_rotation_twiddle};
-use crate::mla::fmla;
+use crate::dct4::Dct4MixedRadix13Sample;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
-use num_traits::{AsPrimitive, One};
+use num_traits::One;
 use std::sync::Arc;
-
-#[target_feature(enable = "avx2", enable = "fma")]
-pub(crate) fn dct4_radix13_rotation_twiddles_avxd(q_modules: usize, len: usize) -> Vec<AvxStoreD> {
-    let simd_groups = q_modules.div_ceil(4);
-    let main_q = 13usize;
-    let inner_groups = (main_q.saturating_sub(3)) / 2 + 1;
-
-    let mut twiddles = Vec::with_capacity(simd_groups * 12 * inner_groups);
-
-    let working_modules = q_modules;
-
-    let mut uk = 0usize;
-    while uk + 4 <= working_modules {
-        let k = uk;
-
-        let mut array_re = [0.; 4];
-        let mut array_im = [0.; 4];
-        for m in 0..6 {
-            for i in 0..4 {
-                let layer = radixq_dct4_rotation_twiddle(main_q, m, (k + i).as_(), len);
-                array_re[i] = layer.re;
-                array_im[i] = layer.im;
-            }
-
-            twiddles.push(AvxStoreD::load(array_re.as_ref()));
-            twiddles.push(AvxStoreD::load(array_im.as_ref()));
-        }
-
-        uk += 4;
-    }
-
-    let remainder = working_modules - (working_modules / 4) * 4;
-    if remainder > 0 {
-        let k = uk;
-
-        for m in 0..6 {
-            let mut array_re = [0.; 4];
-            let mut array_im = [0.; 4];
-
-            for i in 0..remainder {
-                let layer = radixq_dct4_rotation_twiddle(main_q, m, (k + i).as_(), len);
-                array_re[i] = layer.re;
-                array_im[i] = layer.im;
-            }
-
-            twiddles.push(AvxStoreD::load(array_re.as_ref()));
-            twiddles.push(AvxStoreD::load(array_im.as_ref()));
-        }
-    }
-
-    twiddles
-}
 
 pub(crate) struct AvxDct4MixedRadix13d {
     inner_dct4: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
     inner_dct_scratch_size: usize,
     rotation_twiddles: Vec<AvxStoreD>,
     execution_length: usize,
+    q_modules: usize,
+    s: usize,
 }
 
 impl AvxDct4MixedRadix13d {
@@ -112,7 +62,9 @@ impl AvxDct4MixedRadix13d {
             inner_dct4: dct4,
             inner_dct_scratch_size: inner_dct4_scratch_size,
             execution_length: len,
-            rotation_twiddles: unsafe { dct4_radix13_rotation_twiddles_avxd(len / 13, len) },
+            rotation_twiddles: unsafe { dct4_radix_n_rotation_twiddles_avxd(13, len / 13, len) },
+            q_modules: len / 13,
+            s: 2 * len / 13,
         })
     }
 }
@@ -122,6 +74,226 @@ boring_avx_mixed_radix!(AvxDct4MixedRadix13d, f64);
 impl AvxDct4MixedRadix13d {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
+    fn exec_block<S: BidirectionalStore<f64>, const N: usize>(
+        &self,
+        data: &mut S,
+        a_buffer: &[f64],
+        s_buffer: &[f64],
+        c_buffer: &[f64],
+        uk: usize,
+        k: usize,
+    ) {
+        let c_v0 = AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
+        let s_v0 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules - N - k..) })
+                .reverse_n::<N>();
+        let a_v0 = AvxStoreD::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+
+        let c_v1 = AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules + k..) });
+        let s_v1 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 2 - N - k..) })
+                .reverse_n::<N>();
+
+        let c_v2 =
+            AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 2 + k..) });
+        let s_v2 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 3 - N - k..) })
+                .reverse_n::<N>();
+
+        let c_v3 =
+            AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 3 + k..) });
+        let s_v3 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 4 - N - k..) })
+                .reverse_n::<N>();
+
+        let c_v4 =
+            AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 4 + k..) });
+        let s_v4 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 5 - N - k..) })
+                .reverse_n::<N>();
+
+        let c_v5 =
+            AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 5 + k..) });
+        let s_v5 =
+            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 6 - N - k..) })
+                .reverse_n::<N>();
+
+        let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
+        let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
+        let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
+        let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
+        let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
+        let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
+        let twiddle3_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 6) };
+        let twiddle3_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 7) };
+        let twiddle4_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 8) };
+        let twiddle4_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 9) };
+        let twiddle5_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 10) };
+        let twiddle5_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 11) };
+
+        let iq0 = fma(c_v0, twiddle0_re, s_v0 * twiddle0_im);
+        let siq0 = fma(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
+        let mut u0 = iq0;
+        let mut u1 = u0;
+        let mut v0 = siq0;
+
+        u1 *= f64::D4_R13_ROT_TWIDDLE_2;
+        v0 *= f64::D4_R13_ROT_TWIDDLE_3;
+
+        let iq1 = fma(c_v1, twiddle1_re, s_v1 * twiddle1_im);
+        let siq1 = fma(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
+
+        u1 = AvxStoreD::mul_f64_add(iq1, f64::D4_R13_ROT_TWIDDLE_0, u1);
+        v0 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_1, v0);
+
+        let iq2 = fma(c_v2, twiddle2_re, s_v2 * twiddle2_im);
+        let siq2 = fma(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
+
+        u1 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_8, u1);
+        v0 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_9, v0);
+
+        let iq3 = fma(c_v3, twiddle3_re, s_v3 * twiddle3_im);
+        let siq3 = fma(c_v3, twiddle3_im, -s_v3 * twiddle3_re);
+
+        u1 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_10, u1);
+        v0 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_11, v0);
+
+        let iq4 = fma(c_v4, twiddle4_re, s_v4 * twiddle4_im);
+        let siq4 = fma(c_v4, twiddle4_im, -s_v4 * twiddle4_re);
+
+        u1 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_5, u1);
+        v0 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_4, v0);
+
+        let iq5 = fma(c_v5, twiddle5_re, s_v5 * twiddle5_im);
+        let siq5 = fma(c_v5, twiddle5_im, -s_v5 * twiddle5_re);
+
+        u1 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_6, u1);
+        v0 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_7, v0);
+
+        u0 += iq1 + iq2 + iq3 + iq4 + iq5 + a_v0;
+        u1 = u1 - a_v0;
+
+        let uc0 = u1 - v0;
+        let uc1 = u1 + v0;
+
+        u0.write_n::<N>(data.slice_from_mut(k..));
+        uc1.write_n::<N>(data.slice_from_mut(self.s + k..));
+        uc0.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(self.s - N - k..));
+
+        let mut u2 = iq0;
+        let mut v2 = siq0;
+        u2 *= f64::D4_R13_ROT_TWIDDLE_6;
+        v2 *= f64::D4_R13_ROT_TWIDDLE_7;
+        u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_10, u2);
+        v2 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_11, v2);
+        u2 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_0, u2);
+        v2 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_1, v2);
+        u2 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_2, u2);
+        v2 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_3, v2);
+        u2 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_8, u2);
+        v2 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_9, v2);
+        u2 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_5, u2);
+        v2 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_4, v2);
+        u2 += a_v0;
+        let uc2 = u2 - v2;
+        let uc3 = u2 + v2;
+
+        uc2.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(2 * self.s - N - k..));
+        uc3.write_n::<N>(data.slice_from_mut(2 * self.s + k..));
+
+        let mut u3 = iq0;
+        let mut v3 = siq0;
+        u3 *= f64::D4_R13_ROT_TWIDDLE_0;
+        v3 *= f64::D4_R13_ROT_TWIDDLE_1;
+        u3 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_5, u3);
+        v3 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_4, v3);
+        u3 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_6, u3);
+        v3 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_7, v3);
+        u3 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_8, u3);
+        v3 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_9, v3);
+        u3 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_2, u3);
+        v3 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_3, v3);
+        u3 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_10, u3);
+        v3 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_11, v3);
+        u3 = u3 - a_v0;
+        let uc4 = u3 - v3;
+        let uc5 = u3 + v3;
+
+        uc4.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(3 * self.s - N - k..));
+        uc5.write_n::<N>(data.slice_from_mut(3 * self.s + k..));
+
+        let mut u4 = iq0;
+        let mut v4 = siq0;
+        u4 *= f64::D4_R13_ROT_TWIDDLE_5;
+        v4 *= f64::D4_R13_ROT_TWIDDLE_4;
+        u4 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_2, u4);
+        v4 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_3, v4);
+        u4 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_10, u4);
+        v4 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_11, v4);
+        u4 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_6, u4);
+        v4 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_7, v4);
+        u4 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_0, u4);
+        v4 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_1, v4);
+        u4 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_8, u4);
+        v4 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_9, v4);
+        u4 += a_v0;
+        let uc6 = u4 - v4;
+        let uc7 = u4 + v4;
+
+        uc6.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(4 * self.s - N - k..));
+        uc7.write_n::<N>(data.slice_from_mut(4 * self.s + k..));
+
+        let mut u5 = iq0;
+        let mut v5 = siq0;
+        u5 *= f64::D4_R13_ROT_TWIDDLE_8;
+        v5 *= f64::D4_R13_ROT_TWIDDLE_9;
+        u5 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_6, u5);
+        v5 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_7, v5);
+        u5 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_2, u5);
+        v5 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_3, v5);
+        u5 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_5, u5);
+        v5 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_4, v5);
+        u5 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_10, u5);
+        v5 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_11, v5);
+        u5 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_0, u5);
+        v5 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_1, v5);
+        u5 = u5 - a_v0;
+        let uc8 = u5 - v5;
+        let uc9 = u5 + v5;
+
+        uc8.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(5 * self.s - N - k..));
+        uc9.write_n::<N>(data.slice_from_mut(5 * self.s + k..));
+
+        let mut u6 = iq0;
+        let mut v6 = siq0;
+        u6 *= -f64::D4_R13_ROT_TWIDDLE_10;
+        v6 *= f64::D4_R13_ROT_TWIDDLE_11;
+        u6 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_8, u6);
+        v6 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_9, v6);
+        u6 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_5, u6);
+        v6 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_4, v6);
+        u6 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_0, u6);
+        v6 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_1, v6);
+        u6 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_6, u6);
+        v6 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_7, v6);
+        u6 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_2, u6);
+        v6 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_3, v6);
+        u6 += a_v0;
+        let uc10 = u6 - v6;
+        let uc11 = u6 + v6;
+
+        uc10.reverse_n::<N>()
+            .write_n::<N>(data.slice_from_mut(6 * self.s - N - k..));
+        uc11.write_n::<N>(data.slice_from_mut(6 * self.s + k..));
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2", enable = "fma")]
     fn execute_store<S: BidirectionalStore<f64>>(
         &self,
         data: &mut S,
@@ -129,7 +301,6 @@ impl AvxDct4MixedRadix13d {
     ) -> Result<(), PxdctError> {
         let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
         let q_modules = self.execution_length / 13;
-        let s = 2 * self.execution_length / 13;
         let (a_buffer, c_s_buffer) = scratch.split_at_mut(q_modules);
         let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(q_modules * 6);
 
@@ -167,198 +338,7 @@ impl AvxDct4MixedRadix13d {
         let mut uk = 0usize;
         // Step 4: Handle k≥0 cases with rotation twiddles
         while k + 4 <= q_modules {
-            const S: usize = 4;
-            let c_v0 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 =
-                AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse();
-            let a_v0 = AvxStoreD::load(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                .reverse();
-
-            let c_v2 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-            let s_v2 = AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) })
-                .reverse();
-
-            let c_v3 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 3 + k..) });
-            let s_v3 = AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 4 - S - k..) })
-                .reverse();
-
-            let c_v4 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 4 + k..) });
-            let s_v4 = AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 5 - S - k..) })
-                .reverse();
-
-            let c_v5 = AvxStoreD::load(unsafe { c_buffer.get_unchecked(q_modules * 5 + k..) });
-            let s_v5 = AvxStoreD::load(unsafe { s_buffer.get_unchecked(q_modules * 6 - S - k..) })
-                .reverse();
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-            let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
-            let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
-            let twiddle3_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 6) };
-            let twiddle3_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 7) };
-            let twiddle4_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 8) };
-            let twiddle4_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 9) };
-            let twiddle5_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 10) };
-            let twiddle5_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 11) };
-
-            let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R13_ROT_TWIDDLE_2;
-            v0 *= f64::D4_R13_ROT_TWIDDLE_3;
-
-            let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq1, f64::D4_R13_ROT_TWIDDLE_0, u1);
-            v0 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_1, v0);
-
-            let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
-            let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_8, u1);
-            v0 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_9, v0);
-
-            let iq3 = fmla(c_v3, twiddle3_re, s_v3 * twiddle3_im);
-            let siq3 = fmla(c_v3, twiddle3_im, -s_v3 * twiddle3_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_10, u1);
-            v0 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_11, v0);
-
-            let iq4 = fmla(c_v4, twiddle4_re, s_v4 * twiddle4_im);
-            let siq4 = fmla(c_v4, twiddle4_im, -s_v4 * twiddle4_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_5, u1);
-            v0 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_4, v0);
-
-            let iq5 = fmla(c_v5, twiddle5_re, s_v5 * twiddle5_im);
-            let siq5 = fmla(c_v5, twiddle5_im, -s_v5 * twiddle5_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_6, u1);
-            v0 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_7, v0);
-
-            u0 += iq1 + iq2 + iq3 + iq4 + iq5 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            u0.write(data.slice_from_mut(k..));
-            uc1.write(data.slice_from_mut(s + k..));
-            uc0.reverse().write(data.slice_from_mut(s - S - k..));
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R13_ROT_TWIDDLE_6;
-            v2 *= f64::D4_R13_ROT_TWIDDLE_7;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_10, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_11, v2);
-            u2 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_1, v2);
-            u2 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_2, u2);
-            v2 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_3, v2);
-            u2 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_8, u2);
-            v2 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_9, v2);
-            u2 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_5, u2);
-            v2 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_4, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            uc2.reverse().write(data.slice_from_mut(2 * s - S - k..));
-            uc3.write(data.slice_from_mut(2 * s + k..));
-
-            let mut u3 = iq0;
-            let mut v3 = siq0;
-            u3 *= f64::D4_R13_ROT_TWIDDLE_0;
-            v3 *= f64::D4_R13_ROT_TWIDDLE_1;
-            u3 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_5, u3);
-            v3 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_4, v3);
-            u3 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_6, u3);
-            v3 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_7, v3);
-            u3 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_8, u3);
-            v3 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_9, v3);
-            u3 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_2, u3);
-            v3 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_3, v3);
-            u3 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_10, u3);
-            v3 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_11, v3);
-            u3 = u3 - a_v0;
-            let uc4 = u3 - v3;
-            let uc5 = u3 + v3;
-
-            uc4.reverse().write(data.slice_from_mut(3 * s - S - k..));
-            uc5.write(data.slice_from_mut(3 * s + k..));
-
-            let mut u4 = iq0;
-            let mut v4 = siq0;
-            u4 *= f64::D4_R13_ROT_TWIDDLE_5;
-            v4 *= f64::D4_R13_ROT_TWIDDLE_4;
-            u4 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_2, u4);
-            v4 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_3, v4);
-            u4 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_10, u4);
-            v4 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_11, v4);
-            u4 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_6, u4);
-            v4 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_7, v4);
-            u4 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_0, u4);
-            v4 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_1, v4);
-            u4 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_8, u4);
-            v4 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_9, v4);
-            u4 += a_v0;
-            let uc6 = u4 - v4;
-            let uc7 = u4 + v4;
-
-            uc6.reverse().write(data.slice_from_mut(4 * s - S - k..));
-            uc7.write(data.slice_from_mut(4 * s + k..));
-
-            let mut u5 = iq0;
-            let mut v5 = siq0;
-            u5 *= f64::D4_R13_ROT_TWIDDLE_8;
-            v5 *= f64::D4_R13_ROT_TWIDDLE_9;
-            u5 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_6, u5);
-            v5 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_7, v5);
-            u5 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_2, u5);
-            v5 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_3, v5);
-            u5 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_5, u5);
-            v5 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_4, v5);
-            u5 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_10, u5);
-            v5 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_11, v5);
-            u5 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_0, u5);
-            v5 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_1, v5);
-            u5 = u5 - a_v0;
-            let uc8 = u5 - v5;
-            let uc9 = u5 + v5;
-
-            uc8.reverse().write(data.slice_from_mut(5 * s - S - k..));
-            uc9.write(data.slice_from_mut(5 * s + k..));
-
-            let mut u6 = iq0;
-            let mut v6 = siq0;
-            u6 *= -f64::D4_R13_ROT_TWIDDLE_10;
-            v6 *= f64::D4_R13_ROT_TWIDDLE_11;
-            u6 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_8, u6);
-            v6 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_9, v6);
-            u6 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_5, u6);
-            v6 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_4, v6);
-            u6 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_0, u6);
-            v6 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_1, v6);
-            u6 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_6, u6);
-            v6 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_7, v6);
-            u6 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_2, u6);
-            v6 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_3, v6);
-            u6 += a_v0;
-            let uc10 = u6 - v6;
-            let uc11 = u6 + v6;
-
-            uc10.reverse().write(data.slice_from_mut(6 * s - S - k..));
-            uc11.write(data.slice_from_mut(6 * s + k..));
+            self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
 
             uk += 12;
             k += 4;
@@ -366,578 +346,11 @@ impl AvxDct4MixedRadix13d {
 
         let rem = q_modules - k;
         if rem == 3 {
-            const S: usize = 3;
-            let c_v0 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 =
-                AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse3();
-            let a_v0 = AvxStoreD::load3(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                .reverse3();
-
-            let c_v2 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-            let s_v2 = AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) })
-                .reverse3();
-
-            let c_v3 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules * 3 + k..) });
-            let s_v3 = AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules * 4 - S - k..) })
-                .reverse3();
-
-            let c_v4 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules * 4 + k..) });
-            let s_v4 = AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules * 5 - S - k..) })
-                .reverse3();
-
-            let c_v5 = AvxStoreD::load3(unsafe { c_buffer.get_unchecked(q_modules * 5 + k..) });
-            let s_v5 = AvxStoreD::load3(unsafe { s_buffer.get_unchecked(q_modules * 6 - S - k..) })
-                .reverse3();
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-            let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
-            let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
-            let twiddle3_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 6) };
-            let twiddle3_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 7) };
-            let twiddle4_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 8) };
-            let twiddle4_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 9) };
-            let twiddle5_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 10) };
-            let twiddle5_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 11) };
-
-            let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R13_ROT_TWIDDLE_2;
-            v0 *= f64::D4_R13_ROT_TWIDDLE_3;
-
-            let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq1, f64::D4_R13_ROT_TWIDDLE_0, u1);
-            v0 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_1, v0);
-
-            let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
-            let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_8, u1);
-            v0 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_9, v0);
-
-            let iq3 = fmla(c_v3, twiddle3_re, s_v3 * twiddle3_im);
-            let siq3 = fmla(c_v3, twiddle3_im, -s_v3 * twiddle3_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_10, u1);
-            v0 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_11, v0);
-
-            let iq4 = fmla(c_v4, twiddle4_re, s_v4 * twiddle4_im);
-            let siq4 = fmla(c_v4, twiddle4_im, -s_v4 * twiddle4_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_5, u1);
-            v0 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_4, v0);
-
-            let iq5 = fmla(c_v5, twiddle5_re, s_v5 * twiddle5_im);
-            let siq5 = fmla(c_v5, twiddle5_im, -s_v5 * twiddle5_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_6, u1);
-            v0 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_7, v0);
-
-            u0 += iq1 + iq2 + iq3 + iq4 + iq5 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            u0.write3(data.slice_from_mut(k..));
-            uc1.write3(data.slice_from_mut(s + k..));
-            uc0.reverse3().write3(data.slice_from_mut(s - S - k..));
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R13_ROT_TWIDDLE_6;
-            v2 *= f64::D4_R13_ROT_TWIDDLE_7;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_10, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_11, v2);
-            u2 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_1, v2);
-            u2 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_2, u2);
-            v2 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_3, v2);
-            u2 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_8, u2);
-            v2 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_9, v2);
-            u2 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_5, u2);
-            v2 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_4, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            uc2.reverse3().write3(data.slice_from_mut(2 * s - S - k..));
-            uc3.write3(data.slice_from_mut(2 * s + k..));
-
-            let mut u3 = iq0;
-            let mut v3 = siq0;
-            u3 *= f64::D4_R13_ROT_TWIDDLE_0;
-            v3 *= f64::D4_R13_ROT_TWIDDLE_1;
-            u3 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_5, u3);
-            v3 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_4, v3);
-            u3 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_6, u3);
-            v3 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_7, v3);
-            u3 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_8, u3);
-            v3 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_9, v3);
-            u3 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_2, u3);
-            v3 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_3, v3);
-            u3 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_10, u3);
-            v3 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_11, v3);
-            u3 = u3 - a_v0;
-            let uc4 = u3 - v3;
-            let uc5 = u3 + v3;
-
-            uc4.reverse3().write3(data.slice_from_mut(3 * s - S - k..));
-            uc5.write3(data.slice_from_mut(3 * s + k..));
-
-            let mut u4 = iq0;
-            let mut v4 = siq0;
-            u4 *= f64::D4_R13_ROT_TWIDDLE_5;
-            v4 *= f64::D4_R13_ROT_TWIDDLE_4;
-            u4 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_2, u4);
-            v4 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_3, v4);
-            u4 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_10, u4);
-            v4 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_11, v4);
-            u4 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_6, u4);
-            v4 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_7, v4);
-            u4 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_0, u4);
-            v4 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_1, v4);
-            u4 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_8, u4);
-            v4 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_9, v4);
-            u4 += a_v0;
-            let uc6 = u4 - v4;
-            let uc7 = u4 + v4;
-
-            uc6.reverse3().write3(data.slice_from_mut(4 * s - S - k..));
-            uc7.write3(data.slice_from_mut(4 * s + k..));
-
-            let mut u5 = iq0;
-            let mut v5 = siq0;
-            u5 *= f64::D4_R13_ROT_TWIDDLE_8;
-            v5 *= f64::D4_R13_ROT_TWIDDLE_9;
-            u5 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_6, u5);
-            v5 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_7, v5);
-            u5 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_2, u5);
-            v5 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_3, v5);
-            u5 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_5, u5);
-            v5 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_4, v5);
-            u5 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_10, u5);
-            v5 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_11, v5);
-            u5 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_0, u5);
-            v5 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_1, v5);
-            u5 = u5 - a_v0;
-            let uc8 = u5 - v5;
-            let uc9 = u5 + v5;
-
-            uc8.reverse3().write3(data.slice_from_mut(5 * s - S - k..));
-            uc9.write3(data.slice_from_mut(5 * s + k..));
-
-            let mut u6 = iq0;
-            let mut v6 = siq0;
-            u6 *= -f64::D4_R13_ROT_TWIDDLE_10;
-            v6 *= f64::D4_R13_ROT_TWIDDLE_11;
-            u6 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_8, u6);
-            v6 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_9, v6);
-            u6 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_5, u6);
-            v6 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_4, v6);
-            u6 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_0, u6);
-            v6 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_1, v6);
-            u6 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_6, u6);
-            v6 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_7, v6);
-            u6 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_2, u6);
-            v6 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_3, v6);
-            u6 += a_v0;
-            let uc10 = u6 - v6;
-            let uc11 = u6 + v6;
-
-            uc10.reverse3().write3(data.slice_from_mut(6 * s - S - k..));
-            uc11.write3(data.slice_from_mut(6 * s + k..));
+            self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
         } else if rem == 2 {
-            const S: usize = 2;
-            let c_v0 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 =
-                AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules - S - k..) }).reverse2();
-            let a_v0 = AvxStoreD::load2(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) })
-                .reverse2();
-
-            let c_v2 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-            let s_v2 = AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) })
-                .reverse2();
-
-            let c_v3 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules * 3 + k..) });
-            let s_v3 = AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules * 4 - S - k..) })
-                .reverse2();
-
-            let c_v4 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules * 4 + k..) });
-            let s_v4 = AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules * 5 - S - k..) })
-                .reverse2();
-
-            let c_v5 = AvxStoreD::load2(unsafe { c_buffer.get_unchecked(q_modules * 5 + k..) });
-            let s_v5 = AvxStoreD::load2(unsafe { s_buffer.get_unchecked(q_modules * 6 - S - k..) })
-                .reverse2();
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-            let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
-            let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
-            let twiddle3_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 6) };
-            let twiddle3_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 7) };
-            let twiddle4_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 8) };
-            let twiddle4_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 9) };
-            let twiddle5_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 10) };
-            let twiddle5_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 11) };
-
-            let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R13_ROT_TWIDDLE_2;
-            v0 *= f64::D4_R13_ROT_TWIDDLE_3;
-
-            let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq1, f64::D4_R13_ROT_TWIDDLE_0, u1);
-            v0 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_1, v0);
-
-            let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
-            let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_8, u1);
-            v0 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_9, v0);
-
-            let iq3 = fmla(c_v3, twiddle3_re, s_v3 * twiddle3_im);
-            let siq3 = fmla(c_v3, twiddle3_im, -s_v3 * twiddle3_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_10, u1);
-            v0 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_11, v0);
-
-            let iq4 = fmla(c_v4, twiddle4_re, s_v4 * twiddle4_im);
-            let siq4 = fmla(c_v4, twiddle4_im, -s_v4 * twiddle4_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_5, u1);
-            v0 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_4, v0);
-
-            let iq5 = fmla(c_v5, twiddle5_re, s_v5 * twiddle5_im);
-            let siq5 = fmla(c_v5, twiddle5_im, -s_v5 * twiddle5_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_6, u1);
-            v0 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_7, v0);
-
-            u0 += iq1 + iq2 + iq3 + iq4 + iq5 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            u0.write2(data.slice_from_mut(k..));
-            uc1.write2(data.slice_from_mut(s + k..));
-            uc0.reverse2().write2(data.slice_from_mut(s - S - k..));
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R13_ROT_TWIDDLE_6;
-            v2 *= f64::D4_R13_ROT_TWIDDLE_7;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_10, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_11, v2);
-            u2 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_1, v2);
-            u2 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_2, u2);
-            v2 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_3, v2);
-            u2 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_8, u2);
-            v2 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_9, v2);
-            u2 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_5, u2);
-            v2 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_4, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            uc2.reverse2().write2(data.slice_from_mut(2 * s - S - k..));
-            uc3.write2(data.slice_from_mut(2 * s + k..));
-
-            let mut u3 = iq0;
-            let mut v3 = siq0;
-            u3 *= f64::D4_R13_ROT_TWIDDLE_0;
-            v3 *= f64::D4_R13_ROT_TWIDDLE_1;
-            u3 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_5, u3);
-            v3 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_4, v3);
-            u3 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_6, u3);
-            v3 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_7, v3);
-            u3 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_8, u3);
-            v3 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_9, v3);
-            u3 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_2, u3);
-            v3 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_3, v3);
-            u3 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_10, u3);
-            v3 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_11, v3);
-            u3 = u3 - a_v0;
-            let uc4 = u3 - v3;
-            let uc5 = u3 + v3;
-
-            uc4.reverse2().write2(data.slice_from_mut(3 * s - S - k..));
-            uc5.write2(data.slice_from_mut(3 * s + k..));
-
-            let mut u4 = iq0;
-            let mut v4 = siq0;
-            u4 *= f64::D4_R13_ROT_TWIDDLE_5;
-            v4 *= f64::D4_R13_ROT_TWIDDLE_4;
-            u4 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_2, u4);
-            v4 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_3, v4);
-            u4 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_10, u4);
-            v4 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_11, v4);
-            u4 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_6, u4);
-            v4 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_7, v4);
-            u4 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_0, u4);
-            v4 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_1, v4);
-            u4 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_8, u4);
-            v4 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_9, v4);
-            u4 += a_v0;
-            let uc6 = u4 - v4;
-            let uc7 = u4 + v4;
-
-            uc6.reverse2().write2(data.slice_from_mut(4 * s - S - k..));
-            uc7.write2(data.slice_from_mut(4 * s + k..));
-
-            let mut u5 = iq0;
-            let mut v5 = siq0;
-            u5 *= f64::D4_R13_ROT_TWIDDLE_8;
-            v5 *= f64::D4_R13_ROT_TWIDDLE_9;
-            u5 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_6, u5);
-            v5 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_7, v5);
-            u5 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_2, u5);
-            v5 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_3, v5);
-            u5 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_5, u5);
-            v5 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_4, v5);
-            u5 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_10, u5);
-            v5 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_11, v5);
-            u5 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_0, u5);
-            v5 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_1, v5);
-            u5 = u5 - a_v0;
-            let uc8 = u5 - v5;
-            let uc9 = u5 + v5;
-
-            uc8.reverse2().write2(data.slice_from_mut(5 * s - S - k..));
-            uc9.write2(data.slice_from_mut(5 * s + k..));
-
-            let mut u6 = iq0;
-            let mut v6 = siq0;
-            u6 *= -f64::D4_R13_ROT_TWIDDLE_10;
-            v6 *= f64::D4_R13_ROT_TWIDDLE_11;
-            u6 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_8, u6);
-            v6 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_9, v6);
-            u6 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_5, u6);
-            v6 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_4, v6);
-            u6 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_0, u6);
-            v6 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_1, v6);
-            u6 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_6, u6);
-            v6 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_7, v6);
-            u6 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_2, u6);
-            v6 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_3, v6);
-            u6 += a_v0;
-            let uc10 = u6 - v6;
-            let uc11 = u6 + v6;
-
-            uc10.reverse2().write2(data.slice_from_mut(6 * s - S - k..));
-            uc11.write2(data.slice_from_mut(6 * s + k..));
+            self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
         } else if rem == 1 {
-            const S: usize = 1;
-            let c_v0 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(k..) });
-            let s_v0 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules - S - k..) });
-            let a_v0 = AvxStoreD::load1(unsafe { a_buffer.get_unchecked(k..) });
-
-            let c_v1 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules + k..) });
-            let s_v1 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 2 - S - k..) });
-
-            let c_v2 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 2 + k..) });
-            let s_v2 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 3 - S - k..) });
-
-            let c_v3 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 3 + k..) });
-            let s_v3 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 4 - S - k..) });
-
-            let c_v4 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 4 + k..) });
-            let s_v4 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 5 - S - k..) });
-
-            let c_v5 = AvxStoreD::load1(unsafe { c_buffer.get_unchecked(q_modules * 5 + k..) });
-            let s_v5 = AvxStoreD::load1(unsafe { s_buffer.get_unchecked(q_modules * 6 - S - k..) });
-
-            let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
-            let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
-            let twiddle1_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 2) };
-            let twiddle1_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 3) };
-            let twiddle2_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 4) };
-            let twiddle2_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 5) };
-            let twiddle3_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 6) };
-            let twiddle3_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 7) };
-            let twiddle4_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 8) };
-            let twiddle4_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 9) };
-            let twiddle5_re = unsafe { *self.rotation_twiddles.get_unchecked(uk + 10) };
-            let twiddle5_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 11) };
-
-            let iq0 = fmla(c_v0, twiddle0_re, s_v0 * twiddle0_im);
-            let siq0 = fmla(c_v0, twiddle0_im, -s_v0 * twiddle0_re);
-            let mut u0 = iq0;
-            let mut u1 = u0;
-            let mut v0 = siq0;
-
-            u1 *= f64::D4_R13_ROT_TWIDDLE_2;
-            v0 *= f64::D4_R13_ROT_TWIDDLE_3;
-
-            let iq1 = fmla(c_v1, twiddle1_re, s_v1 * twiddle1_im);
-            let siq1 = fmla(c_v1, twiddle1_im, -s_v1 * twiddle1_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq1, f64::D4_R13_ROT_TWIDDLE_0, u1);
-            v0 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_1, v0);
-
-            let iq2 = fmla(c_v2, twiddle2_re, s_v2 * twiddle2_im);
-            let siq2 = fmla(c_v2, twiddle2_im, -s_v2 * twiddle2_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_8, u1);
-            v0 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_9, v0);
-
-            let iq3 = fmla(c_v3, twiddle3_re, s_v3 * twiddle3_im);
-            let siq3 = fmla(c_v3, twiddle3_im, -s_v3 * twiddle3_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_10, u1);
-            v0 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_11, v0);
-
-            let iq4 = fmla(c_v4, twiddle4_re, s_v4 * twiddle4_im);
-            let siq4 = fmla(c_v4, twiddle4_im, -s_v4 * twiddle4_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_5, u1);
-            v0 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_4, v0);
-
-            let iq5 = fmla(c_v5, twiddle5_re, s_v5 * twiddle5_im);
-            let siq5 = fmla(c_v5, twiddle5_im, -s_v5 * twiddle5_re);
-
-            u1 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_6, u1);
-            v0 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_7, v0);
-
-            u0 += iq1 + iq2 + iq3 + iq4 + iq5 + a_v0;
-            u1 = u1 - a_v0;
-
-            let uc0 = u1 - v0;
-            let uc1 = u1 + v0;
-
-            u0.write1(data.slice_from_mut(k..));
-            uc1.write1(data.slice_from_mut(s + k..));
-            uc0.write1(data.slice_from_mut(s - S - k..));
-
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= f64::D4_R13_ROT_TWIDDLE_6;
-            v2 *= f64::D4_R13_ROT_TWIDDLE_7;
-            u2 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_10, u2);
-            v2 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_11, v2);
-            u2 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_0, u2);
-            v2 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_1, v2);
-            u2 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_2, u2);
-            v2 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_3, v2);
-            u2 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_8, u2);
-            v2 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_9, v2);
-            u2 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_5, u2);
-            v2 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_4, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
-            uc2.write1(data.slice_from_mut(2 * s - S - k..));
-            uc3.write1(data.slice_from_mut(2 * s + k..));
-
-            let mut u3 = iq0;
-            let mut v3 = siq0;
-            u3 *= f64::D4_R13_ROT_TWIDDLE_0;
-            v3 *= f64::D4_R13_ROT_TWIDDLE_1;
-            u3 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_5, u3);
-            v3 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_4, v3);
-            u3 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_6, u3);
-            v3 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_7, v3);
-            u3 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_8, u3);
-            v3 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_9, v3);
-            u3 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_2, u3);
-            v3 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_3, v3);
-            u3 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_10, u3);
-            v3 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_11, v3);
-            u3 = u3 - a_v0;
-            let uc4 = u3 - v3;
-            let uc5 = u3 + v3;
-
-            uc4.write1(data.slice_from_mut(3 * s - S - k..));
-            uc5.write1(data.slice_from_mut(3 * s + k..));
-
-            let mut u4 = iq0;
-            let mut v4 = siq0;
-            u4 *= f64::D4_R13_ROT_TWIDDLE_5;
-            v4 *= f64::D4_R13_ROT_TWIDDLE_4;
-            u4 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_2, u4);
-            v4 = AvxStoreD::mul_f64_add(siq1, f64::D4_R13_ROT_TWIDDLE_3, v4);
-            u4 = AvxStoreD::mul_f64_add(iq2, -f64::D4_R13_ROT_TWIDDLE_10, u4);
-            v4 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_11, v4);
-            u4 = AvxStoreD::mul_f64_add(iq3, f64::D4_R13_ROT_TWIDDLE_6, u4);
-            v4 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_7, v4);
-            u4 = AvxStoreD::mul_f64_add(iq4, -f64::D4_R13_ROT_TWIDDLE_0, u4);
-            v4 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_1, v4);
-            u4 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_8, u4);
-            v4 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_9, v4);
-            u4 += a_v0;
-            let uc6 = u4 - v4;
-            let uc7 = u4 + v4;
-
-            uc6.write1(data.slice_from_mut(4 * s - S - k..));
-            uc7.write1(data.slice_from_mut(4 * s + k..));
-
-            let mut u5 = iq0;
-            let mut v5 = siq0;
-            u5 *= f64::D4_R13_ROT_TWIDDLE_8;
-            v5 *= f64::D4_R13_ROT_TWIDDLE_9;
-            u5 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_6, u5);
-            v5 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_7, v5);
-            u5 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_2, u5);
-            v5 = AvxStoreD::mul_f64_add(siq2, -f64::D4_R13_ROT_TWIDDLE_3, v5);
-            u5 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_5, u5);
-            v5 = AvxStoreD::mul_f64_add(siq3, f64::D4_R13_ROT_TWIDDLE_4, v5);
-            u5 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_10, u5);
-            v5 = AvxStoreD::mul_f64_add(siq4, -f64::D4_R13_ROT_TWIDDLE_11, v5);
-            u5 = AvxStoreD::mul_f64_add(iq5, f64::D4_R13_ROT_TWIDDLE_0, u5);
-            v5 = AvxStoreD::mul_f64_add(siq5, f64::D4_R13_ROT_TWIDDLE_1, v5);
-            u5 = u5 - a_v0;
-            let uc8 = u5 - v5;
-            let uc9 = u5 + v5;
-
-            uc8.write1(data.slice_from_mut(5 * s - S - k..));
-            uc9.write1(data.slice_from_mut(5 * s + k..));
-
-            let mut u6 = iq0;
-            let mut v6 = siq0;
-            u6 *= -f64::D4_R13_ROT_TWIDDLE_10;
-            v6 *= f64::D4_R13_ROT_TWIDDLE_11;
-            u6 = AvxStoreD::mul_f64_add(iq1, -f64::D4_R13_ROT_TWIDDLE_8, u6);
-            v6 = AvxStoreD::mul_f64_add(siq1, -f64::D4_R13_ROT_TWIDDLE_9, v6);
-            u6 = AvxStoreD::mul_f64_add(iq2, f64::D4_R13_ROT_TWIDDLE_5, u6);
-            v6 = AvxStoreD::mul_f64_add(siq2, f64::D4_R13_ROT_TWIDDLE_4, v6);
-            u6 = AvxStoreD::mul_f64_add(iq3, -f64::D4_R13_ROT_TWIDDLE_0, u6);
-            v6 = AvxStoreD::mul_f64_add(siq3, -f64::D4_R13_ROT_TWIDDLE_1, v6);
-            u6 = AvxStoreD::mul_f64_add(iq4, f64::D4_R13_ROT_TWIDDLE_6, u6);
-            v6 = AvxStoreD::mul_f64_add(siq4, f64::D4_R13_ROT_TWIDDLE_7, v6);
-            u6 = AvxStoreD::mul_f64_add(iq5, -f64::D4_R13_ROT_TWIDDLE_2, u6);
-            v6 = AvxStoreD::mul_f64_add(siq5, -f64::D4_R13_ROT_TWIDDLE_3, v6);
-            u6 += a_v0;
-            let uc10 = u6 - v6;
-            let uc11 = u6 + v6;
-
-            uc10.write1(data.slice_from_mut(6 * s - S - k..));
-            uc11.write1(data.slice_from_mut(6 * s + k..));
+            self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
         }
         Ok(())
     }

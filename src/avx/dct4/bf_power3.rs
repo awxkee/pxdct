@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::dct4::mixed_radix3f::dct4_radix3_rotation_twiddles_avxf;
+use crate::avx::dct4::mixed_radix3f::dct4_radix_n_rotation_twiddles_avxf;
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::{define_avx_butterfly, fma};
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
@@ -201,7 +201,7 @@ impl Default for AvxDct4Butterfly27f {
     fn default() -> Self {
         Self {
             twiddle: unsafe {
-                dct4_radix3_rotation_twiddles_avxf(9, 27)
+                dct4_radix_n_rotation_twiddles_avxf(3, 9, 27)
                     .try_into()
                     .unwrap()
             },
