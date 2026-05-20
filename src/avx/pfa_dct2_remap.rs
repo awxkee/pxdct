@@ -29,7 +29,7 @@
 #![cfg(target_pointer_width = "64")]
 
 use crate::avx::util::shuffle;
-use crate::dct2::Dct2OutputRemapper;
+use crate::type2::Dct2OutputRemapper;
 use crate::util::DctSample;
 use std::arch::x86_64::*;
 

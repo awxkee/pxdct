@@ -74,7 +74,7 @@ pub(crate) fn prime_factorization(n: u64) -> Vec<(u64, u32)> {
 }
 
 pub fn bench_rustdct_averages_no_primes(c: &mut BenchmarkGroup<WallTime>, cap: usize) {
-    c.bench_function(format!("rustdct dct2 no primes 1..={cap} float"), |b| {
+    c.bench_function(format!("rustdct type2 no primes 1..={cap} float"), |b| {
         b.iter_batched(
             || {
                 let mut plan = rustdct::DctPlanner::new();
@@ -106,7 +106,7 @@ pub fn bench_rustdct_averages_no_primes(c: &mut BenchmarkGroup<WallTime>, cap: u
 }
 
 pub fn bench_rustdct_averages(c: &mut BenchmarkGroup<WallTime>, cap: usize) {
-    c.bench_function(format!("rustdct dct2 1..={cap} float"), |b| {
+    c.bench_function(format!("rustdct type2 1..={cap} float"), |b| {
         b.iter_batched(
             || {
                 let mut plan = rustdct::DctPlanner::new();
@@ -132,7 +132,7 @@ pub fn bench_rustdct_averages(c: &mut BenchmarkGroup<WallTime>, cap: usize) {
 }
 
 pub fn bench_pxdct_averages(c: &mut BenchmarkGroup<WallTime>, cap: usize) {
-    c.bench_function(format!("pxdct dct2 1..={cap} float"), |b| {
+    c.bench_function(format!("pxdct type2 1..={cap} float"), |b| {
         b.iter_batched(
             || {
                 // Prepare all inputs and FFT plans
@@ -157,7 +157,7 @@ pub fn bench_pxdct_averages(c: &mut BenchmarkGroup<WallTime>, cap: usize) {
 }
 
 pub fn bench_pxdct_averages_no_primes(c: &mut BenchmarkGroup<WallTime>, cap: usize) {
-    c.bench_function(format!("pxdct dct2 no primes 1..={cap} float"), |b| {
+    c.bench_function(format!("pxdct type2 no primes 1..={cap} float"), |b| {
         b.iter_batched(
             || {
                 // Prepare all inputs and FFT plans
@@ -193,7 +193,7 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
         *z = rand::rng().random();
     }
 
-    c.bench_function(format!("rustdct dct2 {group}s").as_str(), |b| {
+    c.bench_function(format!("rustdct type2 {group}s").as_str(), |b| {
         let mut planner = rustdct::DctPlanner::new();
         let plan = planner.plan_dct2(input_power.len());
         let mut working = input_power.to_vec();
@@ -202,7 +202,7 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
         })
     });
 
-    c.bench_function(format!("pxdct dct2 {group}s").as_str(), |b| {
+    c.bench_function(format!("pxdct type2 {group}s").as_str(), |b| {
         let plan = Pxdct::make_dct2_f32(input_power.len()).unwrap();
         let mut working = input_power.to_vec();
         let mut scratch = vec![0f32; plan.scratch_size()];
@@ -217,7 +217,7 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
         *z = rand::rng().random();
     }
 
-    c.bench_function(format!("rustdct dct2 {group}d").as_str(), |b| {
+    c.bench_function(format!("rustdct type2 {group}d").as_str(), |b| {
         let mut planner = rustdct::DctPlanner::new();
         let plan = planner.plan_dct2(input_power.len());
         let mut working = input_power.to_vec();
@@ -226,8 +226,58 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
         })
     });
 
-    c.bench_function(format!("pxdct dct2 {group}d").as_str(), |b| {
+    c.bench_function(format!("pxdct type2 {group}d").as_str(), |b| {
         let plan = Pxdct::make_dct2_f64(input_power.len()).unwrap();
+        let mut working = input_power.to_vec();
+        let mut scratch = vec![0.; plan.scratch_size()];
+        b.iter(|| {
+            plan.execute_with_scratch(&mut working, &mut scratch)
+                .unwrap();
+        })
+    });
+}
+
+fn check_power_group_dst2(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) {
+    let mut input_power = vec![0f32; n];
+    for z in input_power.iter_mut() {
+        *z = rand::rng().random();
+    }
+
+    c.bench_function(format!("rustdct type2 dst {group}s").as_str(), |b| {
+        let mut planner = rustdct::DctPlanner::new();
+        let plan = planner.plan_dct2(input_power.len());
+        let mut working = input_power.to_vec();
+        b.iter(|| {
+            plan.process_dst2(&mut working);
+        })
+    });
+
+    c.bench_function(format!("pxdct type2 dst {group}s").as_str(), |b| {
+        let plan = Pxdct::make_dst2_f32(input_power.len()).unwrap();
+        let mut working = input_power.to_vec();
+        let mut scratch = vec![0f32; plan.scratch_size()];
+        b.iter(|| {
+            plan.execute_with_scratch(&mut working, &mut scratch)
+                .unwrap();
+        })
+    });
+
+    let mut input_power = vec![0f64; n];
+    for z in input_power.iter_mut() {
+        *z = rand::rng().random();
+    }
+
+    c.bench_function(format!("rustdct type2 dst {group}d").as_str(), |b| {
+        let mut planner = rustdct::DctPlanner::new();
+        let plan = planner.plan_dst2(input_power.len());
+        let mut working = input_power.to_vec();
+        b.iter(|| {
+            plan.process_dct2(&mut working);
+        })
+    });
+
+    c.bench_function(format!("pxdct type2 dst {group}d").as_str(), |b| {
+        let plan = Pxdct::make_dst2_f64(input_power.len()).unwrap();
         let mut working = input_power.to_vec();
         let mut scratch = vec![0.; plan.scratch_size()];
         b.iter(|| {
@@ -267,7 +317,7 @@ fn check_power_group_fft(c: &mut BenchmarkGroup<WallTime>, n: usize, group: Stri
         })
     });
 
-    c.bench_function(format!("pxdct dct2 {group}s").as_str(), |b| {
+    c.bench_function(format!("pxdct type2 {group}s").as_str(), |b| {
         let plan = Pxdct::make_dct2_f32(input_power.len()).unwrap();
         let mut working = input_power.to_vec();
         let mut scratch = vec![0f32; plan.scratch_size()];
@@ -287,6 +337,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     // bench_pxdct_averages(c, 150);
     // bench_rustdct_averages(c, 1800);
     // bench_pxdct_averages(c, 1800);
+
+    check_power_group_dst2(c, 8, "8".to_string());
+    check_power_group_dst2(c, 16, "16".to_string());
+    check_power_group_dst2(c, 32, "32".to_string());
+    check_power_group_dst2(c, 64, "64".to_string());
+    check_power_group_dst2(c, 128, "128".to_string());
+    check_power_group_dst2(c, 256, "256".to_string());
+    check_power_group_dst2(c, 512, "512".to_string());
+    check_power_group_dst2(c, 1024, "1024".to_string());
 
     check_power_group_fft(c, 1024, "1024".to_string());
     check_power_group_fft(c, 1536, "1536".to_string());

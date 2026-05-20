@@ -27,10 +27,10 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::MixedRadix5Sample;
-use crate::dct2::prime_butterflies::Dct2Butterfly5;
 use crate::mla::fmla;
 use crate::neon::util::NeonStoreF;
+use crate::type2::MixedRadix5Sample;
+use crate::type2::prime_butterflies::Dct2Butterfly5;
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{One, Zero};
@@ -43,7 +43,7 @@ pub(crate) struct NeonDct2Butterfly25f {
 
 impl Default for NeonDct2Butterfly25f {
     fn default() -> Self {
-        let twiddles = crate::dct2::Dct2Butterfly25Twiddles::default();
+        let twiddles = crate::type2::Dct2Butterfly25Twiddles::default();
         let rotation = twiddles.rotation_layer;
         let cos_twiddles = twiddles.cos_twiddles;
         NeonDct2Butterfly25f {

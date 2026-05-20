@@ -27,25 +27,157 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::butterflies::MixedRadix9Sample;
-use crate::dct2::util::{radixq_cos_twiddle, radixq_rotation_twiddle};
 use crate::mla::fmla;
+use crate::type2::util::{radixq_cos_twiddle, radixq_rotation_twiddle};
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::{AsPrimitive, Zero};
 use std::sync::Arc;
 
-pub(crate) struct Dct2MixedRadix9<T> {
+pub(crate) trait MixedRadix7Sample {
+    // from sage.all import *
+    // import struct
+    //
+    // R = RealField(90)
+    //
+    // def float_to_hex(f):
+    //     packed = struct.pack('>f', float(f))
+    //     return '0x' + packed.hex()
+    //
+    // def phase_a(q, m, j):
+    //     img = (((q - 1 - 2*m)*j*R.pi())/(R(2) * q)).cos()
+    //     return img
+    //
+    // even2 = phase_a(7, 0, 2)
+    // print(even2)
+    //
+    // print(float_to_hex(even2))
+    //
+    // def double_to_hex(f):
+    //         packed = struct.pack('>d', float(f))
+    //         return '0x' + packed.hex()
+    //
+    // print(double_to_hex(even2))
+    const R7_COS_EVEN2_M0: Self;
+    // even2 = phase_a(7, 1, 2)
+    // print(even2)
+    const R7_COS_EVEN2_M1: Self;
+    // even2 = phase_a(7, 2, 2)
+    // print(even2)
+    const R7_COS_EVEN2_M2: Self;
+    // from sage.all import *
+    // import struct
+    //
+    // R = RealField(90)
+    //
+    // def float_to_hex(f):
+    //     packed = struct.pack('>f', float(f))
+    //     return '0x' + packed.hex()
+    //
+    // def phase_b(q, m, j):
+    //     theta = (q - 1 - 2*m)*(2*j+1)
+    //     img = ((theta*R.pi())/(2*q)).sin()
+    //     return img
+    //
+    // odd = phase_b(7, 0, 0)
+    // print(odd)
+    //
+    // print(float_to_hex(odd))
+    //
+    // def double_to_hex(f):
+    //         packed = struct.pack('>d', float(f))
+    //         return '0x' + packed.hex()
+    //
+    // print(double_to_hex(odd))
+    const R7_SIN_ODD0_M0: Self;
+    // odd = phase_b(7, 1, 0)
+    // print(odd)
+    const R7_SIN_ODD0_M1: Self;
+    // odd = phase_b(7, 2, 0)
+    // print(odd)
+    const R7_SIN_ODD0_M2: Self;
+    // from sage.all import *
+    // import struct
+    //
+    // R = RealField(90)
+    //
+    // def float_to_hex(f):
+    //     packed = struct.pack('>f', float(f))
+    //     return '0x' + packed.hex()
+    //
+    // def phase_b(q, m, j):
+    //     theta = (q - 1 - 2*m)*(2*j+1)
+    //     img = ((theta*R.pi())/(2*q)).sin()
+    //     return img
+    //
+    // odd = phase_b(7, 0, 0)
+    // print(odd)
+    //
+    // print(float_to_hex(odd))
+    //
+    // def double_to_hex(f):
+    //         packed = struct.pack('>d', float(f))
+    //         return '0x' + packed.hex()
+    //
+    // print(double_to_hex(odd))
+    const R7_SIN_ODD1_M0: Self;
+    // odd = phase_b(7, 1, 1)
+    // print(odd)
+    const R7_SIN_ODD1_M1: Self;
+    // odd = phase_b(7, 1, 2)
+    // print(odd)
+    const R7_SIN_ODD1_M2: Self;
+    // odd = phase_b(7, 0, 2)
+    // print(odd)
+    const R7_SIN_ODD2_M0: Self;
+    // odd = phase_b(7, 1, 2)
+    // print(odd)
+    const R7_SIN_ODD2_M1: Self;
+    // odd = phase_b(7, 2, 2)
+    // print(odd)
+    const R7_SIN_ODD2_M2: Self;
+}
+
+impl MixedRadix7Sample for f32 {
+    const R7_COS_EVEN2_M0: Self = f32::from_bits(0xbf66a5e5);
+    const R7_COS_EVEN2_M1: Self = f32::from_bits(0xbe63dc87);
+    const R7_COS_EVEN2_M2: Self = f32::from_bits(0x3f1f9d07);
+    const R7_SIN_ODD0_M0: Self = f32::from_bits(0x3f7994e0);
+    const R7_SIN_ODD0_M1: Self = f32::from_bits(0x3f48261c);
+    const R7_SIN_ODD0_M2: Self = f32::from_bits(0x3ede2602);
+    const R7_SIN_ODD1_M0: Self = -Self::R7_SIN_ODD0_M1;
+    const R7_SIN_ODD1_M1: Self = Self::R7_SIN_ODD0_M2;
+    const R7_SIN_ODD1_M2: Self = Self::R7_SIN_ODD0_M0;
+    const R7_SIN_ODD2_M0: Self = Self::R7_SIN_ODD0_M2;
+    const R7_SIN_ODD2_M1: Self = -Self::R7_SIN_ODD0_M0;
+    const R7_SIN_ODD2_M2: Self = Self::R7_SIN_ODD0_M1;
+}
+impl MixedRadix7Sample for f64 {
+    const R7_COS_EVEN2_M0: Self = f64::from_bits(0xbfecd4bca9cb5c71);
+    const R7_COS_EVEN2_M1: Self = f64::from_bits(0xbfcc7b90e3024582);
+    const R7_COS_EVEN2_M2: Self = f64::from_bits(0x3fe3f3a0e28bedd1);
+    const R7_SIN_ODD0_M0: Self = f64::from_bits(0x3fef329c0558e969);
+    const R7_SIN_ODD0_M1: Self = f64::from_bits(0x3fe904c37505de4b);
+    const R7_SIN_ODD0_M2: Self = f64::from_bits(0x3fdbc4c04d71abc1);
+    const R7_SIN_ODD1_M0: Self = -Self::R7_SIN_ODD0_M1;
+    const R7_SIN_ODD1_M1: Self = Self::R7_SIN_ODD0_M2;
+    const R7_SIN_ODD1_M2: Self = Self::R7_SIN_ODD0_M0;
+    const R7_SIN_ODD2_M0: Self = Self::R7_SIN_ODD0_M2;
+    const R7_SIN_ODD2_M1: Self = -Self::R7_SIN_ODD0_M0;
+    const R7_SIN_ODD2_M2: Self = Self::R7_SIN_ODD0_M1;
+}
+
+pub(crate) struct Dct2MixedRadix7<T> {
     rotation_layer: Vec<Complex<T>>,
     cos_twiddles: Vec<Complex<T>>,
     inner_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     execution_length: usize,
+    inner_dct_scratch_length: usize,
     q_modules: usize,
-    inner_dct_scratch_size: usize,
 }
 
-impl<T: DctSample + MixedRadix9Sample> Dct2MixedRadix9<T>
+impl<T: DctSample + MixedRadix7Sample> Dct2MixedRadix7<T>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -54,24 +186,24 @@ where
     pub(crate) fn new(
         len: usize,
         inner_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
-    ) -> Result<Dct2MixedRadix9<T>, PxdctError> {
+    ) -> Result<Dct2MixedRadix7<T>, PxdctError> {
         assert!(
-            len.is_multiple_of(9),
-            "Mixed radix 9 should not be called on sizes no divisible by 9"
+            len.is_multiple_of(7),
+            "Mixed radix 7 should not be called on sizes no divisible by 7"
         );
 
-        let q_modules = len / 9;
+        let q_modules = len / 7;
 
-        // always 4 inner groups in Radix-9
-        let inner_groups = 4;
+        // always 3 inner groups in Radix-7
+        let inner_groups = 3;
 
         // Precompute rotation twiddles for k≥1
         // Format: [m0_k1, m1_k1, m0_k2, m1_k2, ...]
-        let mut rotation_layer = try_vec![Complex::<T>::zero(); inner_groups * (q_modules - 1)];
-        for (k, rotation_layer) in rotation_layer.chunks_exact_mut(inner_groups).enumerate() {
+        let mut rotation_layer = try_vec![Complex::<T>::zero(); 3 * (q_modules - 1)];
+        for (k, rotation_layer) in rotation_layer.chunks_exact_mut(3).enumerate() {
             for (m, layer) in rotation_layer.iter_mut().enumerate() {
                 *layer =
-                    radixq_rotation_twiddle(9, m, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
+                    radixq_rotation_twiddle(7, m, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
             }
         }
 
@@ -81,9 +213,9 @@ where
         for (k, k_layer) in cos_twiddles.chunks_exact_mut(inner_groups).enumerate() {
             for (m, m_layer) in k_layer.iter_mut().enumerate() {
                 let k = k + 1;
-                let even = radixq_cos_twiddle(9, m, k.as_(), len);
+                let even = radixq_cos_twiddle(7, m, k.as_(), len);
                 let odd = radixq_cos_twiddle(
-                    9,
+                    7,
                     m,
                     if k == 0 {
                         k.as_()
@@ -96,21 +228,22 @@ where
             }
         }
 
-        let q_modules = len / 9;
-        let inner_dct_scratch_size = inner_dct.scratch_size();
+        let inner_dct_scratch_length = inner_dct.scratch_size();
 
-        Ok(Dct2MixedRadix9 {
+        let q_modules = len / 7;
+
+        Ok(Dct2MixedRadix7 {
             rotation_layer,
             inner_dct,
             cos_twiddles,
             execution_length: len,
+            inner_dct_scratch_length,
             q_modules,
-            inner_dct_scratch_size,
         })
     }
 }
 
-impl<T: DctSample + MixedRadix9Sample> Dct2MixedRadix9<T>
+impl<T: DctSample + MixedRadix7Sample> Dct2MixedRadix7<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -121,12 +254,13 @@ where
         scratch: &mut [T],
     ) -> Result<(), PxdctError> {
         let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
+
         let (a_buffer, c_s_buffer) = scratch.split_at_mut(self.q_modules);
-        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules * 4);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules * 3);
 
         // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
         for (n, dst) in a_buffer.iter_mut().enumerate() {
-            *dst = data[n * 9 + 4];
+            *dst = data[n * 7 + 3];
         }
 
         // Extract and combine symmetric pairs with sign alternation for S buffer
@@ -137,8 +271,8 @@ where
         {
             let mut sign = T::one();
             for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate() {
-                let u0 = data[9 * n + m];
-                let u1 = data[9 * n + 9 - m - 1];
+                let u0 = data[7 * n + m];
+                let u1 = data[7 * n + 7 - m - 1];
 
                 *c_dst = u0 + u1;
                 *s_dst = (u0 - u1).mulsign(sign);
@@ -152,7 +286,7 @@ where
             .execute_with_scratch(scratch, inner_scratch)?;
 
         let (a_buffer, c_s_buffer) = scratch.split_at_mut(self.q_modules);
-        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules * 4);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules * 3);
 
         {
             // Step 3: Recombine transformed buffers with twiddle factors
@@ -160,119 +294,97 @@ where
             // Handle k=0 case (DC and low frequencies)
             let qc = c_buffer[0];
             let mut c0 = qc; // Component C₀ (position 0)
-            let mut c1 = qc * T::R9_EVEN_TWIDDLE_0; // Component C₂ (position 2, uses j=2)
-            let mut c2 = qc * T::R9_EVEN_TWIDDLE_2; // Component C₄ (position 4, uses j=4)
-            let mut c3 = qc * -T::HALF; // Component C6 (position 6, uses j=6)
-            let mut c4 = qc * T::R9_EVEN_TWIDDLE_1; // Component C8 (position 8, uses j=8)
+            let mut c1 = qc * T::R7_COS_EVEN2_M0; // Component C₂ (position 2, uses j=2)
+            let mut c2 = qc * T::R7_COS_EVEN2_M2; // Component C₄ (position 4, uses j=4)
+            let mut c3 = qc * T::R7_COS_EVEN2_M1; // Component C6 (position 6, uses j=6)
 
             let s0_twiddled = s_buffer[0];
 
-            let mut s0 = s0_twiddled * T::R9_ODD_TWIDDLE_0;
-            let mut s1 = s0_twiddled * -T::R9_ODD_TWIDDLE_1;
-            let mut s2 = s0_twiddled * T::R9_ODD_TWIDDLE_2;
-            let mut s3 = s0_twiddled * -T::R9_ODD_TWIDDLE_3;
+            let mut s0 = s0_twiddled * T::R7_SIN_ODD0_M0;
+            let mut s1 = s0_twiddled * T::R7_SIN_ODD1_M0;
+            let mut s2 = s0_twiddled * T::R7_SIN_ODD2_M0;
 
-            let ci = unsafe { *c_buffer.get_unchecked(self.q_modules) };
-            let si = unsafe { *s_buffer.get_unchecked(self.q_modules) };
+            {
+                let ci = unsafe { *c_buffer.get_unchecked(self.q_modules) };
+                let si = unsafe { *s_buffer.get_unchecked(self.q_modules) };
 
-            let ci2 = unsafe { *c_buffer.get_unchecked(self.q_modules * 2) };
-            let si2 = unsafe { *s_buffer.get_unchecked(self.q_modules * 2) };
+                let ci2 = unsafe { *c_buffer.get_unchecked(self.q_modules * 2) };
+                let si2 = unsafe { *s_buffer.get_unchecked(self.q_modules * 2) };
 
-            let ci3 = unsafe { *c_buffer.get_unchecked(self.q_modules * 3) };
-            let si3 = unsafe { *s_buffer.get_unchecked(self.q_modules * 3) };
+                c0 = ci + c0 + ci2;
 
-            c0 = ci + c0 + ci2 + ci3;
+                c1 = fmla(ci, T::R7_COS_EVEN2_M1, c1);
+                c1 = fmla(ci2, T::R7_COS_EVEN2_M2, c1);
 
+                c2 = fmla(ci, T::R7_COS_EVEN2_M0, c2);
+                c2 = fmla(ci2, T::R7_COS_EVEN2_M1, c2);
+
+                c3 = fmla(ci, T::R7_COS_EVEN2_M2, c3);
+                c3 = fmla(ci2, T::R7_COS_EVEN2_M0, c3);
+
+                s0 = fmla(si, T::R7_SIN_ODD0_M1, s0);
+                s0 = fmla(si2, T::R7_SIN_ODD0_M2, s0);
+
+                s1 = fmla(si, T::R7_SIN_ODD1_M1, s1);
+                s1 = fmla(si2, T::R7_SIN_ODD1_M2, s1);
+
+                s2 = fmla(si, T::R7_SIN_ODD2_M1, s2);
+                s2 = fmla(si2, T::R7_SIN_ODD2_M2, s2);
+            }
+
+            // Write output: C₀ (pos 0), S₁ (pos q_modules), C₂ (pos 2*q_modules),
+            //               S₃ (pos 3*q_modules), C₄ (pos 4*q_modules)
             let a0 = a_buffer[0];
-
             let dc = c0 + a0;
             data[0] = dc;
 
-            c1 = fmla(ci, -T::HALF, c1);
-            c1 = fmla(ci2, T::R9_EVEN_TWIDDLE_1, c1);
-            c1 = fmla(ci3, T::R9_EVEN_TWIDDLE_2, c1);
-
-            c2 = fmla(ci, -T::HALF, c2);
-            c2 = fmla(ci2, T::R9_EVEN_TWIDDLE_0, c2);
-            c2 = fmla(ci3, T::R9_EVEN_TWIDDLE_1, c2);
-
             let dc2 = c2 + a0;
             data[self.q_modules * 4] = dc2;
-
-            c3 = ci + c3;
-            c3 = fmla(ci2, -T::HALF, c3);
-            c3 = fmla(ci3, -T::HALF, c3);
-
-            let dc3 = c3 + a0;
-            data[self.q_modules * 6] = -dc3;
-
-            c4 = fmla(ci, -T::HALF, c4);
-            c4 = fmla(ci2, T::R9_EVEN_TWIDDLE_2, c4);
-            c4 = fmla(ci3, T::R9_EVEN_TWIDDLE_0, c4);
-
-            let dc4 = c4 + a0;
-            data[self.q_modules * 8] = dc4;
-
-            s0 = fmla(si, T::R9_ODD_TWIDDLE_1, s0);
-            s0 = fmla(si2, T::R9_ODD_TWIDDLE_2, s0);
-            s0 = fmla(si3, T::R9_ODD_TWIDDLE_3, s0);
-
-            s1 = fmla(si2, T::R9_ODD_TWIDDLE_1, s1);
-            s1 = fmla(si3, T::R9_ODD_TWIDDLE_1, s1);
-
-            s2 = fmla(si, -T::R9_ODD_TWIDDLE_1, s2);
-            s2 = fmla(si2, -T::R9_ODD_TWIDDLE_3, s2);
-            s2 = fmla(si3, T::R9_ODD_TWIDDLE_0, s2);
-
-            s3 = fmla(si, T::R9_ODD_TWIDDLE_1, s3);
-            s3 = fmla(si2, -T::R9_ODD_TWIDDLE_0, s3);
-            s3 = fmla(si3, T::R9_ODD_TWIDDLE_2, s3);
-
             data[self.q_modules * 3] = -s1;
             data[self.q_modules] = s0;
 
             let qid2 = -(c1 + a0); // negated 2j
             data[self.q_modules * 2] = qid2;
+
+            let dc3 = c3 + a0;
+            data[self.q_modules * 6] = -dc3;
             data[self.q_modules * 5] = s2;
-            data[self.q_modules * 7] = -s3;
 
             // Step 4: Handle k≥1 cases with rotation twiddles
             for k in 1..self.q_modules {
                 // Apply rotation twiddles to combine forward and inverted components
-                let rotation_twiddle = unsafe { *self.rotation_layer.get_unchecked((k - 1) * 4) };
+                let rotation_twiddle = unsafe { *self.rotation_layer.get_unchecked((k - 1) * 3) };
 
                 let c_forward = unsafe { *c_buffer.get_unchecked(k) };
                 let s_forward = unsafe { *s_buffer.get_unchecked(self.q_modules - k) };
 
                 let rotated_dc = fmla(s_forward, rotation_twiddle.re, c_forward);
 
-                let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 4) };
+                let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 3) };
 
                 let twiddled_dc = rotated_dc * twiddle.re;
 
                 let mut dc0 = twiddled_dc;
-                let mut dc2 = twiddled_dc * T::R9_EVEN_TWIDDLE_0;
-                let mut dc4 = twiddled_dc * T::R9_EVEN_TWIDDLE_2;
-                let mut dc6 = twiddled_dc * -T::HALF;
-                let mut dc8 = twiddled_dc * T::R9_EVEN_TWIDDLE_1;
+                let mut dc2 = twiddled_dc * T::R7_COS_EVEN2_M0;
+                let mut dc4 = twiddled_dc * T::R7_COS_EVEN2_M2;
+                let mut dc6 = twiddled_dc * T::R7_COS_EVEN2_M1;
 
                 let rotated_ds = fmla(c_forward, rotation_twiddle.im, s_forward);
 
                 let twiddled_ds = rotated_ds * twiddle.im;
 
-                let mut ds1 = twiddled_ds * T::R9_ODD_TWIDDLE_0;
-                let mut ds3 = twiddled_ds * -T::R9_ODD_TWIDDLE_1;
-                let mut ds5 = twiddled_ds * T::R9_ODD_TWIDDLE_2;
-                let mut ds7 = twiddled_ds * -T::R9_ODD_TWIDDLE_3;
+                let mut ds1 = twiddled_ds * T::R7_SIN_ODD0_M0;
+                let mut ds3 = twiddled_ds * T::R7_SIN_ODD1_M0;
+                let mut ds5 = twiddled_ds * T::R7_SIN_ODD2_M0;
 
                 {
                     let c_forward = unsafe { *c_buffer.get_unchecked(self.q_modules + k) };
                     let s_forward = unsafe { *s_buffer.get_unchecked(self.q_modules * 2 - k) };
 
                     let rotation_twiddle =
-                        unsafe { *self.rotation_layer.get_unchecked((k - 1) * 4 + 1) };
+                        unsafe { *self.rotation_layer.get_unchecked((k - 1) * 3 + 1) };
 
-                    let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 4 + 1) };
+                    let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 3 + 1) };
 
                     let rotated_dc1 = fmla(s_forward, rotation_twiddle.re, c_forward);
                     let rotated_ds2 = fmla(c_forward, rotation_twiddle.im, s_forward);
@@ -281,14 +393,13 @@ where
                     let twiddled_ds = twiddle.im * rotated_ds2;
 
                     dc0 = twiddled_dc + dc0;
-                    dc2 = fmla(twiddled_dc, -T::HALF, dc2);
-                    dc4 = fmla(twiddled_dc, -T::HALF, dc4);
-                    dc6 = twiddled_dc + dc6;
-                    dc8 = fmla(twiddled_dc, -T::HALF, dc8);
+                    dc2 = fmla(twiddled_dc, T::R7_COS_EVEN2_M1, dc2);
+                    dc4 = fmla(twiddled_dc, T::R7_COS_EVEN2_M0, dc4);
+                    dc6 = fmla(twiddled_dc, T::R7_COS_EVEN2_M2, dc6);
 
-                    ds1 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_1, ds1);
-                    ds5 = fmla(twiddled_ds, -T::R9_ODD_TWIDDLE_1, ds5);
-                    ds7 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_1, ds7);
+                    ds1 = fmla(twiddled_ds, T::R7_SIN_ODD0_M1, ds1);
+                    ds3 = fmla(twiddled_ds, T::R7_SIN_ODD1_M1, ds3);
+                    ds5 = fmla(twiddled_ds, T::R7_SIN_ODD2_M1, ds5);
                 }
 
                 {
@@ -296,36 +407,9 @@ where
                     let s_forward = unsafe { *s_buffer.get_unchecked(self.q_modules * 3 - k) };
 
                     let rotation_twiddle =
-                        unsafe { *self.rotation_layer.get_unchecked((k - 1) * 4 + 2) };
+                        unsafe { *self.rotation_layer.get_unchecked((k - 1) * 3 + 2) };
 
-                    let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 4 + 2) };
-
-                    let rotated_dc1 = fmla(s_forward, rotation_twiddle.re, c_forward);
-                    let rotated_ds2 = fmla(c_forward, rotation_twiddle.im, s_forward);
-
-                    let twiddled_dc = twiddle.re * rotated_dc1;
-                    let twiddled_ds = twiddle.im * rotated_ds2;
-
-                    dc0 = twiddled_dc + dc0;
-                    dc2 = fmla(twiddled_dc, T::R9_EVEN_TWIDDLE_1, dc2);
-                    dc4 = fmla(twiddled_dc, T::R9_EVEN_TWIDDLE_0, dc4);
-                    dc6 = fmla(twiddled_dc, -T::HALF, dc6);
-                    dc8 = fmla(twiddled_dc, T::R9_EVEN_TWIDDLE_2, dc8);
-
-                    ds1 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_2, ds1);
-                    ds3 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_1, ds3);
-                    ds5 = fmla(twiddled_ds, -T::R9_ODD_TWIDDLE_3, ds5);
-                    ds7 = fmla(twiddled_ds, -T::R9_ODD_TWIDDLE_0, ds7);
-                }
-
-                {
-                    let c_forward = unsafe { *c_buffer.get_unchecked(self.q_modules * 3 + k) };
-                    let s_forward = unsafe { *s_buffer.get_unchecked(self.q_modules * 4 - k) };
-
-                    let rotation_twiddle =
-                        unsafe { *self.rotation_layer.get_unchecked((k - 1) * 4 + 3) };
-
-                    let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 4 + 3) };
+                    let twiddle = unsafe { *self.cos_twiddles.get_unchecked((k - 1) * 3 + 2) };
 
                     let rotated_dc1 = fmla(s_forward, rotation_twiddle.re, c_forward);
                     let rotated_ds2 = fmla(c_forward, rotation_twiddle.im, s_forward);
@@ -334,35 +418,30 @@ where
                     let twiddled_ds = twiddle.im * rotated_ds2;
 
                     dc0 = twiddled_dc + dc0;
-                    dc2 = fmla(twiddled_dc, T::R9_EVEN_TWIDDLE_2, dc2);
-                    dc4 = fmla(twiddled_dc, T::R9_EVEN_TWIDDLE_1, dc4);
-                    dc6 = fmla(twiddled_dc, -T::HALF, dc6);
-                    dc8 = fmla(twiddled_dc, T::R9_EVEN_TWIDDLE_0, dc8);
+                    dc2 = fmla(twiddled_dc, T::R7_COS_EVEN2_M2, dc2);
+                    dc4 = fmla(twiddled_dc, T::R7_COS_EVEN2_M1, dc4);
+                    dc6 = fmla(twiddled_dc, T::R7_COS_EVEN2_M0, dc6);
 
-                    ds1 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_3, ds1);
-                    ds3 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_1, ds3);
-                    ds5 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_0, ds5);
-                    ds7 = fmla(twiddled_ds, T::R9_ODD_TWIDDLE_2, ds7);
+                    ds1 = fmla(twiddled_ds, T::R7_SIN_ODD0_M2, ds1);
+                    ds3 = fmla(twiddled_ds, T::R7_SIN_ODD1_M2, ds3);
+                    ds5 = fmla(twiddled_ds, T::R7_SIN_ODD2_M2, ds5);
                 }
 
                 let a0 = unsafe { *a_buffer.get_unchecked(k) };
                 let dc = dc0 + a0;
-
-                dc2 = -(dc2 + a0);
-                dc4 += a0;
-                dc6 += a0;
-                dc8 += a0;
-
                 data[k] = dc;
 
                 let dss1 = fmla(2f64.as_(), ds1, -dc);
                 data[self.q_modules * 2 - k] = dss1;
 
+                dc2 = -(dc2 + a0); // negated 2j
                 dc2 = fmla(2f64.as_(), dc2, -dss1);
                 data[self.q_modules * 2 + k] = dc2;
 
                 let dss3 = fmla(2f64.as_(), -ds3, -dc2);
                 data[self.q_modules * 4 - k] = dss3;
+
+                dc4 += a0;
 
                 let mdc4 = fmla(2f64.as_(), dc4, -dss3);
                 data[self.q_modules * 4 + k] = mdc4;
@@ -370,21 +449,18 @@ where
                 let dss5 = fmla(2f64.as_(), ds5, -mdc4);
                 data[self.q_modules * 6 - k] = dss5;
 
+                dc6 += a0;
                 dc6 = fmla(2f64.as_(), -dc6, -dss5);
+
                 data[self.q_modules * 6 + k] = dc6;
-
-                let dss6 = fmla(2f64.as_(), -ds7, -dc6);
-                data[self.q_modules * 8 - k] = dss6;
-
-                dc8 = fmla(2f64.as_(), dc8, -dss6);
-                data[self.q_modules * 8 + k] = dc8;
             }
         }
+
         Ok(())
     }
 }
 
-impl<T: DctSample + MixedRadix9Sample> PxdctExecutor<T> for Dct2MixedRadix9<T>
+impl<T: DctSample + MixedRadix7Sample> PxdctExecutor<T> for Dct2MixedRadix7<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -441,9 +517,8 @@ where
         self.execution_length
     }
 
-    #[inline]
     fn scratch_size(&self) -> usize {
-        self.execution_length + self.inner_dct_scratch_size
+        self.execution_length + self.inner_dct_scratch_length
     }
 }
 
@@ -454,22 +529,25 @@ mod tests {
     use crate::tests::naive_dct2_f32;
 
     #[test]
-    fn test_radix9_dct() {
+    fn test_radix7_dct() {
         let mut input = vec![0.; 7 * 5];
         for (i, z) in input.iter_mut().enumerate() {
             *z = i as f32 + rand::random::<f32>() * 10.0;
         }
-        let mut input = vec![
-            7.6871257, 1.2637726, 11.096954, 4.113755, 6.3156953, 12.343984, 9.859292, 15.516256,
-            12.010594, 7.6871257, 1.2637726, 11.096954, 4.113755, 6.3156953, 12.343984, 9.859292,
-            15.516256, 12.010594, 7.6871257, 1.2637726, 11.096954, 4.113755, 6.3156953, 12.343984,
-            9.859292, 15.516256, 12.010594,
-        ];
+        // let mut input = vec![
+        //     7.6871257, 1.2637726, 11.096954, 4.113755, 6.3156953, 12.343984, 9.859292, 15.516256,
+        //     12.010594, 18.957434, 11.183157, 16.510174, 13.310775, 21.062075, 19.775341, 20.445467,
+        //     22.57258, 25.571342, 23.987795, 19.597996, 24.935028, 21.360756, 22.820232, 27.915956,
+        //     31.28283, 27.915956, 31.28283, 7.6871257, 1.2637726, 11.096954, 4.113755, 6.3156953,
+        //     12.343984, 9.859292, 15.516256, 12.010594, 18.957434, 11.183157, 16.510174, 13.310775,
+        //     21.062075, 19.775341, 20.445467, 22.57258, 25.571342, 23.987795, 19.597996, 24.935028,
+        //     21.360756,
+        // ];
         let mut reference_input = input.clone();
         // let rr = Pxdct::make_dct2_f32(25).unwrap();
         // rr.execute(&mut reference_input).unwrap();
         reference_input = naive_dct2_f32(&reference_input);
-        let bf = Dct2MixedRadix9::new(input.len(), Pxdct::make_dct2_f32(input.len() / 9).unwrap())
+        let bf = Dct2MixedRadix7::new(input.len(), Pxdct::make_dct2_f32(input.len() / 7).unwrap())
             .unwrap();
         bf.execute(&mut input).unwrap();
         println!(

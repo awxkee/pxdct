@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::dct2::Dct2OutputRemapper;
+use crate::type2::Dct2OutputRemapper;
 use crate::util::DctSample;
 use std::arch::aarch64::*;
 

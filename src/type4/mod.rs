@@ -28,6 +28,7 @@
  */
 mod bf_3n;
 mod butterflies;
+mod dst;
 mod fft;
 mod fft_even;
 mod identity;
@@ -44,7 +45,6 @@ mod radix5;
 mod radix7;
 mod radix9;
 mod utils;
-mod dst;
 
 #[allow(unused)]
 pub(crate) use bf_3n::{Dct4Butterfly9, Dct4Butterfly27, Dct4Butterfly81, Dct4MixedRadix9Sample};
@@ -53,6 +53,7 @@ pub(crate) use butterflies::{
     Dct4Butterfly20, Dct4Butterfly22, Dct4Butterfly24, Dct4Butterfly26, Dct4Butterfly28,
     Dct4Butterfly30,
 };
+pub(crate) use dst::Dst4OverDct4;
 pub(crate) use fft::Dct4Fft;
 pub(crate) use fft_even::Dct4FftEven;
 pub(crate) use identity::Dct4Identity;
@@ -85,4 +86,3 @@ pub(crate) use radix17::Dct4MixedRadix17;
 #[allow(unused)]
 pub(crate) use radix19::Dct4MixedRadix19;
 pub(crate) use utils::radixq_dct4_rotation_twiddle;
-pub(crate) use dst::Dst4OverDct4;

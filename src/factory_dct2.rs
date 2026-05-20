@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::dct2::Dct2Coprime;
+use crate::type2::Dct2Coprime;
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 use crate::util::has_valid_avx;
 use crate::{PxdctError, PxdctExecutor};
@@ -146,7 +146,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::SplitRadixDct2;
+            use crate::type2::SplitRadixDct2;
             Ok(
                 Arc::new(SplitRadixDct2::new(length, half_dct, quarter_dct)?)
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>,
@@ -171,7 +171,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix2;
+            use crate::type2::Dct2MixedRadix2;
             Ok(Arc::new(Dct2MixedRadix2::new(length, inner_dct)?))
         }
     }
@@ -193,7 +193,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix3q;
+            use crate::type2::Dct2MixedRadix3q;
             Ok(Arc::new(Dct2MixedRadix3q::new(length, inner_dct)?))
         }
     }
@@ -215,7 +215,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix5;
+            use crate::type2::Dct2MixedRadix5;
             Ok(Arc::new(Dct2MixedRadix5::new(length, inner_dct)?))
         }
     }
@@ -237,7 +237,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix6;
+            use crate::type2::Dct2MixedRadix6;
             Ok(Arc::new(Dct2MixedRadix6::new(length, inner_dct)?))
         }
     }
@@ -259,7 +259,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix7;
+            use crate::type2::Dct2MixedRadix7;
             Ok(Arc::new(Dct2MixedRadix7::new(length, inner_dct)?))
         }
     }
@@ -281,7 +281,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix9;
+            use crate::type2::Dct2MixedRadix9;
             Ok(Arc::new(Dct2MixedRadix9::new(length, inner_dct)?))
         }
     }
@@ -303,7 +303,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix11;
+            use crate::type2::Dct2MixedRadix11;
             Ok(Arc::new(Dct2MixedRadix11::new(length, inner_dct)?))
         }
     }
@@ -325,7 +325,7 @@ impl Dct2Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix13;
+            use crate::type2::Dct2MixedRadix13;
             Ok(Arc::new(Dct2MixedRadix13::new(length, inner_dct)?))
         }
     }
@@ -340,14 +340,14 @@ impl Dct2Factory for f32 {
     fn dct2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct2::power2_butterflies::Dct2Butterfly2;
+            use crate::type2::power2_butterflies::Dct2Butterfly2;
             Arc::new(Dct2Butterfly2::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
     }
 
     fn dct2_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::prime_butterflies::Dct2Butterfly3;
+        use crate::type2::prime_butterflies::Dct2Butterfly3;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -374,7 +374,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly4::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::power2_butterflies::Dct2Butterfly4;
+            use crate::type2::power2_butterflies::Dct2Butterfly4;
             Arc::new(Dct2Butterfly4::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -391,7 +391,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly5::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly5;
+            use crate::type2::prime_butterflies::Dct2Butterfly5;
             Arc::new(Dct2Butterfly5::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -425,7 +425,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly7::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly7;
+            use crate::type2::prime_butterflies::Dct2Butterfly7;
             Arc::new(Dct2Butterfly7::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -442,7 +442,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly8::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::power2_butterflies::Dct2Butterfly8;
+            use crate::type2::power2_butterflies::Dct2Butterfly8;
             Arc::new(Dct2Butterfly8::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -486,7 +486,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly11::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly11;
+            use crate::type2::prime_butterflies::Dct2Butterfly11;
             Arc::new(Dct2Butterfly11::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -520,7 +520,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly13::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly13;
+            use crate::type2::prime_butterflies::Dct2Butterfly13;
             Arc::new(Dct2Butterfly13::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -545,7 +545,7 @@ impl Dct2Factory for f32 {
     }
 
     fn dct2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::power2_butterflies::Dct2Butterfly16;
+        use crate::type2::power2_butterflies::Dct2Butterfly16;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -572,7 +572,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly17::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly17;
+            use crate::type2::prime_butterflies::Dct2Butterfly17;
             Arc::new(Dct2Butterfly17::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -598,7 +598,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly19::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly19;
+            use crate::type2::prime_butterflies::Dct2Butterfly19;
             Arc::new(Dct2Butterfly19::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -633,7 +633,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly23::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly23;
+            use crate::type2::prime_butterflies::Dct2Butterfly23;
             Arc::new(Dct2Butterfly23::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -667,7 +667,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::Dct2Butterfly25;
+                use crate::type2::Dct2Butterfly25;
                 Arc::new(Dct2Butterfly25::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -720,7 +720,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly29::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly29;
+            use crate::type2::prime_butterflies::Dct2Butterfly29;
             Arc::new(Dct2Butterfly29::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -746,7 +746,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly31::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly31;
+            use crate::type2::prime_butterflies::Dct2Butterfly31;
             Arc::new(Dct2Butterfly31::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -771,7 +771,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly32;
+                use crate::type2::power2_butterflies::Dct2Butterfly32;
                 Arc::new(Dct2Butterfly32::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -824,7 +824,7 @@ impl Dct2Factory for f32 {
                 return Arc::new(AvxDct2Butterfly37::default())
                     as Arc<dyn PxdctExecutor<f32> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly37;
+            use crate::type2::prime_butterflies::Dct2Butterfly37;
             Arc::new(Dct2Butterfly37::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -867,7 +867,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::Dct2Butterfly49;
+                use crate::type2::Dct2Butterfly49;
                 Arc::new(Dct2Butterfly49::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -893,7 +893,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly64;
+                use crate::type2::power2_butterflies::Dct2Butterfly64;
                 Arc::new(Dct2Butterfly64::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -945,7 +945,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly128;
+                use crate::type2::power2_butterflies::Dct2Butterfly128;
                 Arc::new(Dct2Butterfly128::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -1023,7 +1023,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly256;
+                use crate::type2::power2_butterflies::Dct2Butterfly256;
                 Arc::new(Dct2Butterfly256::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -1049,7 +1049,7 @@ impl Dct2Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly512;
+                use crate::type2::power2_butterflies::Dct2Butterfly512;
                 Arc::new(Dct2Butterfly512::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -1091,7 +1091,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::SplitRadixDct2;
+            use crate::type2::SplitRadixDct2;
             Ok(
                 Arc::new(SplitRadixDct2::new(length, half_dct, quarter_dct)?)
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>,
@@ -1116,7 +1116,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix2;
+            use crate::type2::Dct2MixedRadix2;
             Ok(Arc::new(Dct2MixedRadix2::new(length, inner_dct)?))
         }
     }
@@ -1138,7 +1138,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix3q;
+            use crate::type2::Dct2MixedRadix3q;
             Ok(Arc::new(Dct2MixedRadix3q::new(length, inner_dct)?))
         }
     }
@@ -1159,7 +1159,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix5;
+            use crate::type2::Dct2MixedRadix5;
             Ok(Arc::new(Dct2MixedRadix5::new(length, inner_dct)?))
         }
     }
@@ -1181,7 +1181,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix6;
+            use crate::type2::Dct2MixedRadix6;
             Ok(Arc::new(Dct2MixedRadix6::new(length, inner_dct)?))
         }
     }
@@ -1203,7 +1203,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix7;
+            use crate::type2::Dct2MixedRadix7;
             Ok(Arc::new(Dct2MixedRadix7::new(length, inner_dct)?))
         }
     }
@@ -1225,7 +1225,7 @@ impl Dct2Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct2::Dct2MixedRadix9;
+            use crate::type2::Dct2MixedRadix9;
             Ok(Arc::new(Dct2MixedRadix9::new(length, inner_dct)?))
         }
     }
@@ -1240,7 +1240,7 @@ impl Dct2Factory for f64 {
             return Ok(Arc::new(AvxDct2MixedRadix11d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
         }
-        use crate::dct2::Dct2MixedRadix11;
+        use crate::type2::Dct2MixedRadix11;
         Ok(Arc::new(Dct2MixedRadix11::new(length, inner_dct)?))
     }
 
@@ -1254,7 +1254,7 @@ impl Dct2Factory for f64 {
             return Ok(Arc::new(AvxDct2MixedRadix13d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
         }
-        use crate::dct2::Dct2MixedRadix13;
+        use crate::type2::Dct2MixedRadix13;
         Ok(Arc::new(Dct2MixedRadix13::new(length, inner_dct)?))
     }
 
@@ -1266,7 +1266,7 @@ impl Dct2Factory for f64 {
     }
 
     fn dct2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::power2_butterflies::Dct2Butterfly2;
+        use crate::type2::power2_butterflies::Dct2Butterfly2;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             Arc::new(Dct2Butterfly2::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
@@ -1275,7 +1275,7 @@ impl Dct2Factory for f64 {
     }
 
     fn dct2_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::prime_butterflies::Dct2Butterfly3;
+        use crate::type2::prime_butterflies::Dct2Butterfly3;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -1292,7 +1292,7 @@ impl Dct2Factory for f64 {
     }
 
     fn dct2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::power2_butterflies::Dct2Butterfly4;
+        use crate::type2::power2_butterflies::Dct2Butterfly4;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -1319,7 +1319,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly5::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly5;
+            use crate::type2::prime_butterflies::Dct2Butterfly5;
             Arc::new(Dct2Butterfly5::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1353,14 +1353,14 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly7::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly7;
+            use crate::type2::prime_butterflies::Dct2Butterfly7;
             Arc::new(Dct2Butterfly7::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
     }
 
     fn dct2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::power2_butterflies::Dct2Butterfly8;
+        use crate::type2::power2_butterflies::Dct2Butterfly8;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -1412,7 +1412,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly11::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly11;
+            use crate::type2::prime_butterflies::Dct2Butterfly11;
             Arc::new(Dct2Butterfly11::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1446,7 +1446,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly13::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly13;
+            use crate::type2::prime_butterflies::Dct2Butterfly13;
             Arc::new(Dct2Butterfly13::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1471,7 +1471,7 @@ impl Dct2Factory for f64 {
     }
 
     fn dct2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct2::power2_butterflies::Dct2Butterfly16;
+        use crate::type2::power2_butterflies::Dct2Butterfly16;
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "x86_64", feature = "avx"))]
@@ -1498,7 +1498,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly17::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly17;
+            use crate::type2::prime_butterflies::Dct2Butterfly17;
             Arc::new(Dct2Butterfly17::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1524,7 +1524,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly19::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly19;
+            use crate::type2::prime_butterflies::Dct2Butterfly19;
             Arc::new(Dct2Butterfly19::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1559,7 +1559,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly23::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly23;
+            use crate::type2::prime_butterflies::Dct2Butterfly23;
             Arc::new(Dct2Butterfly23::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1585,7 +1585,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly25d::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::Dct2Butterfly25;
+            use crate::type2::Dct2Butterfly25;
             Arc::new(Dct2Butterfly25::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1628,7 +1628,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly29::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly29;
+            use crate::type2::prime_butterflies::Dct2Butterfly29;
             Arc::new(Dct2Butterfly29::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1654,7 +1654,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly31::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly31;
+            use crate::type2::prime_butterflies::Dct2Butterfly31;
             Arc::new(Dct2Butterfly31::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1679,7 +1679,7 @@ impl Dct2Factory for f64 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly32;
+                use crate::type2::power2_butterflies::Dct2Butterfly32;
                 Arc::new(Dct2Butterfly32::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
             }
         })
@@ -1732,7 +1732,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly37::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::prime_butterflies::Dct2Butterfly37;
+            use crate::type2::prime_butterflies::Dct2Butterfly37;
             Arc::new(Dct2Butterfly37::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1767,7 +1767,7 @@ impl Dct2Factory for f64 {
                 return Arc::new(AvxDct2Butterfly49d::default())
                     as Arc<dyn PxdctExecutor<f64> + Send + Sync>;
             }
-            use crate::dct2::Dct2Butterfly49;
+            use crate::type2::Dct2Butterfly49;
             Arc::new(Dct2Butterfly49::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1792,7 +1792,7 @@ impl Dct2Factory for f64 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly64;
+                use crate::type2::power2_butterflies::Dct2Butterfly64;
                 Arc::new(Dct2Butterfly64::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
             }
         })
@@ -1835,7 +1835,7 @@ impl Dct2Factory for f64 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly128;
+                use crate::type2::power2_butterflies::Dct2Butterfly128;
                 Arc::new(Dct2Butterfly128::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
             }
         })
@@ -1904,7 +1904,7 @@ impl Dct2Factory for f64 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly256;
+                use crate::type2::power2_butterflies::Dct2Butterfly256;
                 Arc::new(Dct2Butterfly256::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
             }
         })
@@ -1930,7 +1930,7 @@ impl Dct2Factory for f64 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct2::power2_butterflies::Dct2Butterfly512;
+                use crate::type2::power2_butterflies::Dct2Butterfly512;
                 Arc::new(Dct2Butterfly512::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
             }
         })

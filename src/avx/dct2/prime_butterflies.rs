@@ -28,8 +28,8 @@
  */
 use crate::avx::util::{define_avx_butterfly, fma};
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::prime_butterflies::{MixedRadix11Sample, MixedRadix31Sample, MixedRadix37Sample};
 use crate::twiddles::compute_twiddle;
+use crate::type2::prime_butterflies::{MixedRadix11Sample, MixedRadix31Sample, MixedRadix37Sample};
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;

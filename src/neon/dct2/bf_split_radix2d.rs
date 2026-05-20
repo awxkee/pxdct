@@ -27,11 +27,11 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
 use crate::factory_dct2::Dct2Factory;
 use crate::mla::fmla;
 use crate::neon::store_d::NeonStoreD;
 use crate::twiddles::compute_twiddle;
+use crate::type2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::Zero;
 use std::sync::Arc;

@@ -29,7 +29,7 @@
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
-use crate::dct2::{MixedRadix3Sample, radixq_cos_twiddle, radixq_rotation_twiddle};
+use crate::type2::{MixedRadix3Sample, radixq_cos_twiddle, radixq_rotation_twiddle};
 use crate::util::{DctConstants, DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{AsPrimitive, One};

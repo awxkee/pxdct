@@ -35,7 +35,6 @@
 mod avx;
 mod bidirectional;
 mod butterflies;
-mod dct2;
 mod dct3;
 mod dst2;
 mod dst3;
@@ -58,13 +57,12 @@ mod transpose;
 mod twiddles;
 mod two_dims;
 mod type1;
+mod type2;
 mod type4;
 mod type7;
 mod util;
 
-use crate::dct2::Dct2Fft;
 use crate::dct3::SplitRadixDst3;
-use crate::dst2::Dst2Fft;
 use crate::dst3::Dst3Fft;
 use crate::dst3_butterfly::{
     Dst3Butterfly2, Dst3Butterfly3, Dst3Butterfly4, Dst3Butterfly5, Dst3Butterfly8, Dst3Butterfly16,
@@ -80,8 +78,8 @@ use crate::prime_factors::PrimeFactors;
 use crate::scaling::ScalingInterceptor;
 use crate::transpose::TransposeFactory;
 use crate::two_dims::TwoDimensionalDct;
+use crate::type2::Dct2Fft;
 use crate::util::DctSample;
-use dct2::power2_butterflies::{Dst2Butterfly2, Dst2Butterfly4};
 use num_traits::AsPrimitive;
 pub use pxdct_error::PxdctError;
 use std::sync::{Arc, OnceLock};
@@ -534,93 +532,58 @@ impl Pxdct {
         }))
     }
 
+    fn dst2_strategy<T: Copy + Dst2Factory + Dct2Factory + DctSample>(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    where
+        f64: AsPrimitive<T>,
+    {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+
+        match length {
+            2 => return Ok(T::dst2_butterfly2()),
+            3 => return Ok(T::dst2_butterfly3()),
+            4 => return Ok(T::dst2_butterfly4()),
+            5 => return Ok(T::dst2_butterfly5()),
+            6 => return Ok(T::dst2_butterfly6()),
+            7 => return Ok(T::dst2_butterfly7()),
+            8 => return Ok(T::dst2_butterfly8()),
+            9 => return Ok(T::dst2_butterfly9()),
+            16 => return Ok(T::dst2_butterfly16()),
+            _ => {}
+        }
+
+        if length.is_power_of_two() && length > 2 {
+            return T::dst2_split_radix(
+                length,
+                Pxdct::dct2_strategy(length / 2)?,
+                Pxdct::dct2_strategy(length / 4)?,
+            );
+        }
+
+        // this is not very performant at the moment, much easier go with FFT for many cases
+        // but it could be improved so we'll just keep it for simple cases
+        if length <= 24 && length.is_multiple_of(3) {
+            return T::dst2_mixed_radix3(Pxdct::dst2_strategy(length / 3)?);
+        }
+
+        T::dst2_fft(length)
+    }
+
     /// Creates a single-precision (f32) DST-II executor.
     pub fn make_dst2_f32(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
-        if length == 0 {
-            return Err(PxdctError::ZeroSizedDct);
-        }
-        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
-            #[allow(clippy::collapsible_if)]
-            if length == 4 {
-                use crate::avx::AvxDst2Butterfly4;
-                static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-                return Ok(Q
-                    .get_or_init(|| {
-                        Arc::new(AvxDst2Butterfly4::default())
-                            as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                    })
-                    .clone());
-            }
-        }
-        if length == 2 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst2Butterfly2::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 4 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst2Butterfly4::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        }
-        Dst2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
+        Pxdct::dst2_strategy(length)
     }
 
     /// Creates a double-precision (f64) DST-II executor.
     pub fn make_dst2_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
-        if length == 0 {
-            return Err(PxdctError::ZeroSizedDct);
-        }
-        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
-            #[allow(clippy::collapsible_if)]
-            if length == 4 {
-                use crate::avx::AvxDst2Butterfly4;
-                static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
-                return Ok(Q
-                    .get_or_init(|| {
-                        Arc::new(AvxDst2Butterfly4::default())
-                            as Arc<dyn PxdctExecutor<f64> + Send + Sync>
-                    })
-                    .clone());
-            }
-        }
-        if length == 2 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst2Butterfly2::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
-                })
-                .clone());
-        } else if length == 4 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst2Butterfly4::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
-                })
-                .clone());
-        }
-
-        if length.is_power_of_two() && length > 2 {
-            return f64::dst2_split_radix(
-                length,
-                Pxdct::make_dct2_f64(length / 2)?,
-                Pxdct::make_dct2_f64(length / 4)?,
-            );
-        }
-
-        Dst2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
+        Pxdct::dst2_strategy(length)
     }
 
     /// Creates a single-precision (f32) DST-III executor.

@@ -27,11 +27,11 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::power2_butterflies::{
-    Dct2Butterfly2, Dct2Butterfly4, Dct2Butterfly8, Dct2Butterfly16,
-};
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
+use crate::type2::power2_butterflies::{
+    Dct2Butterfly2, Dct2Butterfly4, Dct2Butterfly8, Dct2Butterfly16,
+};
 use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

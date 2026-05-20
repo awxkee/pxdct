@@ -292,6 +292,7 @@ impl AvxSplitRadixDst2d {
                 .iter()
                 .zip(dst.as_chunks_mut::<2>().0.iter_mut())
             {
+                dst[0] = src[0];
                 dst[1] = src[1].neg();
             }
 
@@ -344,8 +345,8 @@ impl PxdctExecutor<f64> for AvxSplitRadixDst2d {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
     use crate::tests::naive_dct2;
+    use crate::type2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
     use crate::util::has_valid_avx;
     use rand::RngExt;
 
