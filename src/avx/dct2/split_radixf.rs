@@ -95,7 +95,7 @@ impl AvxSplitRadixDct2f {
 
         let conj_odd = AvxStoreF::set_values8(0.0, -0.0, 0.0, -0.0, 0.0, -0.0, 0.0, -0.0);
 
-        for (i, twiddle_pack) in self.twiddles.chunks_exact(2).enumerate() {
+        for (i, twiddle_pack) in self.twiddles.as_chunks::<2>().0.iter().enumerate() {
             let twiddle_re = twiddle_pack[0];
             let twiddle_im = twiddle_pack[1];
             let input_bottom = AvxStoreF::load(data.slice_from(i * 8..));
@@ -289,7 +289,12 @@ impl AvxSplitRadixDst2f {
             .chunks_exact(self.execution_length)
             .zip(output.chunks_exact_mut(self.execution_length))
         {
-            for (src, dst) in src.chunks_exact(2).zip(dst.chunks_exact_mut(2)) {
+            for (src, dst) in src
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .zip(dst.as_chunks_mut::<2>().0.iter_mut())
+            {
                 dst[1] = src[1].neg();
             }
 

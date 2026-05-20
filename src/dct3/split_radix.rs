@@ -282,7 +282,7 @@ where
 
             self.split_radix_dct3.execute_with_scratch(chunk, scratch)?;
 
-            for dst in chunk.chunks_exact_mut(2) {
+            for dst in chunk.as_chunks_mut::<2>().0.iter_mut() {
                 dst[1] = dst[1].neg();
             }
         }
@@ -314,7 +314,7 @@ where
 
             self.split_radix_dct3.execute_with_scratch(dst, scratch)?;
 
-            for dst in dst.chunks_exact_mut(2) {
+            for dst in dst.as_chunks_mut::<2>().0.iter_mut() {
                 dst[1] = dst[1].neg();
             }
         }

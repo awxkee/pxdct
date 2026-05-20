@@ -23,6 +23,7 @@ Hardware acceleration is applied automatically:
 
 | Transform | Description             |
 |-----------|-------------------------|
+| DCT-I     | type I DCT              |
 | DCT-II    | the DCT                 |
 | DCT-III   | Inverse DCT             |
 | DCT-IV    | Used in MDCT            |

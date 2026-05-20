@@ -267,7 +267,7 @@ where
         let mut c_buffer = [T::zero(); 10];
         let mut s_buffer = [T::zero(); 10];
 
-        for chunk in data.chunks_exact_mut(25) {
+        for chunk in data.as_chunks_mut::<25>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
@@ -296,7 +296,12 @@ where
         let mut s_buffer = [T::zero(); 10];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(25).zip(output.chunks_exact_mut(25)) {
+        for (src, dst) in input
+            .as_chunks::<25>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<25>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut a_buffer,
@@ -323,10 +328,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
-    use crate::tests::naive_dct2;
-    use rand::RngExt;
 
     gen_test_butterfly!(test_bf25, f64, Dct2Butterfly25, 25, 1e-7, naive_dct2);
 }

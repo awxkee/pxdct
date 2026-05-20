@@ -39,6 +39,7 @@ pub enum PxdctError {
     ScratchBufferIsTooSmall(usize, usize),
     InvalidScratchSize(usize, usize),
     OutOfPlaceSizeDoesntMatch(usize, usize),
+    MinimumPoints(usize, String),
 }
 
 impl Error for PxdctError {}
@@ -64,6 +65,9 @@ impl Display for PxdctError {
             PxdctError::OutOfPlaceSizeDoesntMatch(u0, u1) => f.write_fmt(format_args!(
                 "Input and output sizes doesn't match {u0} vs {u1}"
             )),
+            PxdctError::MinimumPoints(points, dct_type) => {
+                f.write_fmt(format_args!("{dct_type} requires at least {points} points"))
+            }
         }
     }
 }

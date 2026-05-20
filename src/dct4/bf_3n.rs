@@ -484,10 +484,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
-    use crate::tests::naive_dct4;
-    use rand::RngExt;
 
     gen_test_butterfly!(test_bf_dct4_9, f64, Dct4Butterfly9, 9, 1e-7, naive_dct4);
     gen_test_butterfly!(test_bf_dct4_27, f64, Dct4Butterfly27, 27, 1e-7, naive_dct4);
