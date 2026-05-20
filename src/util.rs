@@ -516,8 +516,8 @@ use crate::dct2::prime_butterflies::{
     MixedRadix29Sample,
 };
 use crate::dct2::{MixedRadix5Sample, MixedRadix7Sample};
-use crate::dct4::Dct4MixedRadix9Sample;
 use crate::transpose::TransposeFactory;
+use crate::type4::Dct4MixedRadix9Sample;
 pub(crate) use create_dct2_3;
 pub(crate) use create_dct2_3_real;
 

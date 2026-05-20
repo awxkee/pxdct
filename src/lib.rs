@@ -37,7 +37,6 @@ mod bidirectional;
 mod butterflies;
 mod dct2;
 mod dct3;
-mod dct4;
 mod dst2;
 mod dst3;
 mod dst3_butterfly;
@@ -59,6 +58,7 @@ mod transpose;
 mod twiddles;
 mod two_dims;
 mod type1;
+mod type4;
 mod type7;
 mod util;
 
@@ -773,16 +773,24 @@ impl Pxdct {
             return T::dct4_mixed_radix3(length, Pxdct::strategy_dct4(half_length)?);
         }
 
-        if length.is_power_of_two() {
-            return T::dct4_radix2(length, Pxdct::dct2_strategy(length / 2)?);
-        }
-
         if length.is_multiple_of(2) {
+            if length.is_power_of_two() {
+                return T::dct4_radix2(length, Pxdct::dct2_strategy(length / 2)?);
+            }
+
             let half_length = length / 2;
+            // If more than one factor of 2 remains, go straight to FFT-based path
+            // rather than recursing through mixed-radix-2 repeatedly
+            if half_length.is_multiple_of(2) {
+                return T::dct4_fft_even(
+                    T::make_fft(length, FftDirection::Forward)
+                        .map_err(|x| PxdctError::FftError(x.to_string()))?,
+                );
+            }
             return T::dct4_mixed_radix2(length, Pxdct::dct2_strategy(half_length)?);
         }
 
-        T::dct4_fft(
+        T::dct4_fft_odd(
             T::make_fft(length, FftDirection::Forward)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?,
         )

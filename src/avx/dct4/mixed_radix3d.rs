@@ -29,7 +29,7 @@
 use crate::avx::stored::AvxStoreD;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
-use crate::dct4::radixq_dct4_rotation_twiddle;
+use crate::type4::radixq_dct4_rotation_twiddle;
 use crate::util::{DctConstants, DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{AsPrimitive, One};
@@ -231,8 +231,8 @@ impl AvxDct4MixedRadix3d {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct4::Dct4Butterfly3;
     use crate::tests::naive_dct4;
+    use crate::type4::Dct4Butterfly3;
     use crate::util::has_valid_avx;
     use rand::RngExt;
 

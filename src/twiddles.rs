@@ -84,7 +84,6 @@ impl FftTrigonometry for f64 {
     }
 }
 
-#[inline]
 pub(crate) fn compute_twiddle<T: Float + FftTrigonometry + 'static>(
     index: usize,
     fft_len: usize,

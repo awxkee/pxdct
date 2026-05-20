@@ -27,9 +27,9 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct4::prime_butterflies::Dct4MixedRadix19Sample;
-use crate::dct4::utils::radixq_dct4_rotation_twiddle;
 use crate::mla::fmla;
+use crate::type4::prime_butterflies::Dct4MixedRadix19Sample;
+use crate::type4::utils::radixq_dct4_rotation_twiddle;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
@@ -528,8 +528,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct4::Dct4Identity;
     use crate::tests::naive_dct4;
+    use crate::type4::Dct4Identity;
     use rand::RngExt;
 
     #[test]

@@ -28,7 +28,7 @@
  */
 use crate::avx::util::fma;
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct4::{Dct4MixedRadix7Sample, Dct4MixedRadix11Sample, Dct4MixedRadix13Sample};
+use crate::type4::{Dct4MixedRadix7Sample, Dct4MixedRadix11Sample, Dct4MixedRadix13Sample};
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;

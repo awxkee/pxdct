@@ -27,25 +27,24 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct4::prime_butterflies::Dct4MixedRadix5Sample;
-use crate::dct4::utils::radixq_dct4_rotation_twiddle;
 use crate::mla::fmla;
+use crate::type4::utils::radixq_dct4_rotation_twiddle;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
 use std::sync::Arc;
 
-pub(crate) struct Dct4MixedRadix5<T> {
+pub(crate) struct Dct4MixedRadix3<T> {
     inner_dct4: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     rotation_twiddles: Vec<Complex<T>>,
     execution_length: usize,
-    inner_dct4_scratch_size: usize,
     q_modules: usize,
     s: usize,
+    inner_dct4_scratch_size: usize,
 }
 
-impl<T: DctSample> Dct4MixedRadix5<T>
+impl<T: DctSample> Dct4MixedRadix3<T>
 where
     f64: AsPrimitive<T>,
     usize: AsPrimitive<T>,
@@ -57,34 +56,30 @@ where
     ) -> Result<Self, PxdctError> {
         assert_eq!(
             inner_dct4.length(),
-            len / 5,
-            "DCT-IV Mixed-Radix-5 length DCTs must be one fifth of DCT-IV"
+            len / 3,
+            "DCT-IV Mixed-Radix-3 length DCTs must be third of DCT-IV"
         );
 
-        let mut twiddles = try_vec![Complex::<T>::default(); len / 5 * 2];
-        for (k, dst) in twiddles.chunks_exact_mut(2).enumerate() {
-            dst[0] = radixq_dct4_rotation_twiddle(5, 0, k, len);
-            dst[1] = radixq_dct4_rotation_twiddle(5, 1, k, len);
+        let mut twiddles = try_vec![Complex::<T>::default(); len / 3];
+        for (k, dst) in twiddles.iter_mut().enumerate() {
+            *dst = radixq_dct4_rotation_twiddle(3, 0, k, len);
         }
 
+        let q_modules = len / 3;
         let inner_dct4_scratch_size = inner_dct4.scratch_size();
-
-        let q_modules = len / 5;
-
-        let s = 2 * len / 5;
 
         Ok(Self {
             inner_dct4,
             execution_length: len,
             rotation_twiddles: twiddles,
-            inner_dct4_scratch_size,
             q_modules,
-            s,
+            s: 2 * len / 3,
+            inner_dct4_scratch_size,
         })
     }
 }
 
-impl<T: DctSample + Dct4MixedRadix5Sample> Dct4MixedRadix5<T>
+impl<T: DctSample> Dct4MixedRadix3<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -96,11 +91,11 @@ where
     ) -> Result<(), PxdctError> {
         let (scratch, inner_scratch) = scratch.split_at_mut(self.execution_length);
         let (a_buffer, c_s_buffer) = scratch.split_at_mut(self.q_modules);
-        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules * 2);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules);
 
         // Step 1: Decompose input into A (center), C (even-symmetric), S (odd-symmetric) buffers
         for (n, dst) in a_buffer.iter_mut().enumerate() {
-            *dst = data[n * 5 + 2];
+            *dst = data[n * 3 + 1];
         }
 
         // Extract and combine symmetric pairs with sign alternation for S buffer
@@ -111,8 +106,8 @@ where
         {
             let mut sign = T::one();
             for (n, (c_dst, s_dst)) in c_buffer.iter_mut().zip(s_buffer.iter_mut()).enumerate() {
-                let u0 = data[5 * n + m];
-                let u1 = data[5 * n + 5 - m - 1];
+                let u0 = data[3 * n + m];
+                let u1 = data[3 * n + 3 - m - 1];
 
                 *c_dst = u0 + u1;
                 *s_dst = (u0 - u1).mulsign(sign);
@@ -126,62 +121,37 @@ where
             .execute_with_scratch(scratch, inner_scratch)?;
 
         let (a_buffer, c_s_buffer) = scratch.split_at_mut(self.q_modules);
-        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules * 2);
+        let (c_buffer, s_buffer) = c_s_buffer.split_at_mut(self.q_modules);
 
-        // Step 4: Handle k≥0 cases with rotation twiddles
+        // Step 4: Handle k≥1 cases with rotation twiddles
         for k in 0..self.q_modules {
-            let c_v0 = unsafe { *c_buffer.get_unchecked(k) };
-            let s_v0 = unsafe { *s_buffer.get_unchecked(self.q_modules - 1 - k) };
-            let a_v0 = unsafe { *a_buffer.get_unchecked(k) };
+            let c_v = unsafe { *c_buffer.get_unchecked(k) };
+            let s_v = unsafe { *s_buffer.get_unchecked(self.q_modules - 1 - k) };
+            let a_v = unsafe { *a_buffer.get_unchecked(k) };
 
-            let c_v1 = unsafe { *c_buffer.get_unchecked(self.q_modules + k) };
-            let s_v1 = unsafe { *s_buffer.get_unchecked(self.q_modules * 2 - 1 - k) };
+            let twiddle = unsafe { self.rotation_twiddles.get_unchecked(k) };
 
-            let twiddle0 = unsafe { self.rotation_twiddles.get_unchecked(k * 2) };
-            let twiddle1 = unsafe { self.rotation_twiddles.get_unchecked(k * 2 + 1) };
-
-            let iq0 = fmla(c_v0, twiddle0.re, s_v0 * twiddle0.im);
-            let siq0 = fmla(c_v0, twiddle0.im, -s_v0 * twiddle0.re);
-            let mut u0 = iq0;
+            let mut u0 = fmla(c_v, twiddle.re, s_v * twiddle.im);
             let mut u1 = u0;
-            let mut v0 = siq0;
+            let mut v0 = fmla(c_v, twiddle.im, -s_v * twiddle.re);
 
-            u1 *= T::D4_R5_ROT_TWIDDLE_0;
-            v0 *= T::D4_R5_ROT_TWIDDLE_1;
-
-            let iq1 = fmla(c_v1, twiddle1.re, s_v1 * twiddle1.im);
-            let siq1 = fmla(c_v1, twiddle1.im, -s_v1 * twiddle1.re);
-
-            u1 = fmla(iq1, -T::D4_R5_ROT_TWIDDLE_3, u1);
-            v0 = fmla(siq1, T::D4_R5_ROT_TWIDDLE_2, v0);
-
-            u0 += iq1 + a_v0;
-            u1 = u1 - a_v0;
+            u0 += a_v;
+            u1 *= T::HALF;
+            v0 *= T::SQRT_3_OVER_2;
+            u1 = u1 - a_v;
 
             let uc0 = u1 - v0;
             let uc1 = u1 + v0;
 
-            let mut u2 = iq0;
-            let mut v2 = siq0;
-            u2 *= T::D4_R5_ROT_TWIDDLE_3;
-            v2 *= T::D4_R5_ROT_TWIDDLE_2;
-            u2 = fmla(iq1, -T::D4_R5_ROT_TWIDDLE_0, u2);
-            v2 = fmla(siq1, -T::D4_R5_ROT_TWIDDLE_1, v2);
-            u2 += a_v0;
-            let uc2 = u2 - v2;
-            let uc3 = u2 + v2;
-
             data[k] = u0;
             data[self.s + k] = uc1;
             data[self.s - 1 - k] = uc0;
-            data[2 * self.s - 1 - k] = uc2;
-            data[2 * self.s + k] = uc3;
         }
         Ok(())
     }
 }
 
-impl<T: DctSample + Dct4MixedRadix5Sample> PxdctExecutor<T> for Dct4MixedRadix5<T>
+impl<T: DctSample> PxdctExecutor<T> for Dct4MixedRadix3<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -247,8 +217,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct4::Dct4Identity;
     use crate::tests::naive_dct4;
+    use crate::type4::Dct4Butterfly3;
     use rand::RngExt;
 
     #[test]
@@ -263,10 +233,14 @@ mod tests {
             1.0859464680821782,
             1.8842070837939089,
             1.744160875935288,
+            1.0859464680821782,
+            1.8842070837939089,
+            1.744160875935288,
+            1.0859464680821782,
         ];
         let reference_input = input.clone();
         let reference_input = naive_dct4(&reference_input);
-        let bf = Dct4MixedRadix5::new(5, Arc::new(Dct4Identity::default())).unwrap();
+        let bf = Dct4MixedRadix3::new(9, Arc::new(Dct4Butterfly3::default())).unwrap();
         bf.execute(&mut input).unwrap();
         input
             .iter()

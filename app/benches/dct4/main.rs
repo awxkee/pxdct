@@ -16,7 +16,7 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
         *z = rand::rng().random();
     }
 
-    c.bench_function(format!("rustdct dct4 {group}s").as_str(), |b| {
+    c.bench_function(format!("rustdct type4 {group}s").as_str(), |b| {
         let mut planner = rustdct::DctPlanner::new();
         let plan = planner.plan_dct4(input_power.len());
         let mut working = input_power.to_vec();
@@ -25,7 +25,7 @@ fn check_power_group(c: &mut BenchmarkGroup<WallTime>, n: usize, group: String) 
         })
     });
 
-    c.bench_function(format!("pxdct dct4 {group}s").as_str(), |b| {
+    c.bench_function(format!("pxdct type4 {group}s").as_str(), |b| {
         let plan = Pxdct::make_dct4_f32(input_power.len()).unwrap();
         let mut working = input_power.to_vec();
         b.iter(|| {
