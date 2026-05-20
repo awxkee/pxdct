@@ -54,7 +54,7 @@ impl Dct1Factory for f32 {
         half_p1_dct1: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
         half_dct3: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f32> {
-        use crate::dct1::SplitRadixDct1;
+        use crate::type1::SplitRadixDct1;
         Ok(Arc::new(SplitRadixDct1::new(
             length,
             half_p1_dct1,
@@ -63,52 +63,52 @@ impl Dct1Factory for f32 {
     }
 
     fn dct1_fft(length: usize) -> Returning<Self> {
-        use crate::dct1::Dct1Fft;
+        use crate::type1::Dct1Fft;
         Ok(Arc::new(Dct1Fft::new(length)?))
     }
 
     fn dct1_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly2;
+        use crate::type1::Dct1Butterfly2;
         Arc::new(Dct1Butterfly2::default())
     }
 
     fn dct1_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly3;
+        use crate::type1::Dct1Butterfly3;
         Arc::new(Dct1Butterfly3::default())
     }
 
     fn dct1_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly4;
+        use crate::type1::Dct1Butterfly4;
         Arc::new(Dct1Butterfly4::default())
     }
 
     fn dct1_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly5;
+        use crate::type1::Dct1Butterfly5;
         Arc::new(Dct1Butterfly5::default())
     }
 
     fn dct1_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly6;
+        use crate::type1::Dct1Butterfly6;
         Arc::new(Dct1Butterfly6::default())
     }
 
     fn dct1_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly7;
+        use crate::type1::Dct1Butterfly7;
         Arc::new(Dct1Butterfly7::default())
     }
 
     fn dct1_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly8;
+        use crate::type1::Dct1Butterfly8;
         Arc::new(Dct1Butterfly8::default())
     }
 
     fn dct1_butterfly9() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly9;
+        use crate::type1::Dct1Butterfly9;
         Arc::new(Dct1Butterfly9::default())
     }
 
     fn dct1_butterfly17() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly17;
+        use crate::type1::Dct1Butterfly17;
         Arc::new(Dct1Butterfly17::default())
     }
 }
@@ -119,7 +119,7 @@ impl Dct1Factory for f64 {
         half_p1_dct1: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
         half_dct3: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f64> {
-        use crate::dct1::SplitRadixDct1;
+        use crate::type1::SplitRadixDct1;
         Ok(Arc::new(SplitRadixDct1::new(
             length,
             half_p1_dct1,
@@ -128,52 +128,52 @@ impl Dct1Factory for f64 {
     }
 
     fn dct1_fft(length: usize) -> Returning<Self> {
-        use crate::dct1::Dct1Fft;
+        use crate::type1::Dct1Fft;
         Ok(Arc::new(Dct1Fft::new(length)?))
     }
 
     fn dct1_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly2;
+        use crate::type1::Dct1Butterfly2;
         Arc::new(Dct1Butterfly2::default())
     }
 
     fn dct1_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly3;
+        use crate::type1::Dct1Butterfly3;
         Arc::new(Dct1Butterfly3::default())
     }
 
     fn dct1_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly4;
+        use crate::type1::Dct1Butterfly4;
         Arc::new(Dct1Butterfly4::default())
     }
 
     fn dct1_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly5;
+        use crate::type1::Dct1Butterfly5;
         Arc::new(Dct1Butterfly5::default())
     }
 
     fn dct1_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly6;
+        use crate::type1::Dct1Butterfly6;
         Arc::new(Dct1Butterfly6::default())
     }
 
     fn dct1_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly7;
+        use crate::type1::Dct1Butterfly7;
         Arc::new(Dct1Butterfly7::default())
     }
 
     fn dct1_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly8;
+        use crate::type1::Dct1Butterfly8;
         Arc::new(Dct1Butterfly8::default())
     }
 
     fn dct1_butterfly9() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly9;
+        use crate::type1::Dct1Butterfly9;
         Arc::new(Dct1Butterfly9::default())
     }
 
     fn dct1_butterfly17() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
-        use crate::dct1::Dct1Butterfly17;
+        use crate::type1::Dct1Butterfly17;
         Arc::new(Dct1Butterfly17::default())
     }
 }

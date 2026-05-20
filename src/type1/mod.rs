@@ -27,6 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 mod butterflies;
+mod dst;
 mod fft;
 mod split_radix;
 
@@ -34,5 +35,6 @@ pub(crate) use butterflies::{
     Dct1Butterfly2, Dct1Butterfly3, Dct1Butterfly4, Dct1Butterfly5, Dct1Butterfly6, Dct1Butterfly7,
     Dct1Butterfly8, Dct1Butterfly9, Dct1Butterfly17,
 };
+pub(crate) use dst::Dst1Fft;
 pub(crate) use fft::Dct1Fft;
 pub(crate) use split_radix::SplitRadixDct1;
