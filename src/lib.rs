@@ -187,6 +187,61 @@ macro_rules! make_dct2_butterflies {
     };
 }
 
+macro_rules! generate_dst3_butterflies {
+    ($length: expr, $f_type: ident) => {
+        let length = $length;
+        if length == 2 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly2::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 3 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly3::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 4 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly4::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 5 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly5::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 8 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly8::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 16 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly16::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        }
+    };
+}
+
 impl Pxdct {
     fn dct2_strategy<T: DctSample + Dct2Factory + Send + Sync>(
         length: usize,
@@ -559,50 +614,7 @@ impl Pxdct {
             return Err(PxdctError::ZeroSizedDct);
         }
 
-        if length == 2 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly2::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 3 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly3::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 4 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly4::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 5 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly5::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 8 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly8::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 16 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly16::default())
-                        as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        }
+        generate_dst3_butterflies!(length, f32);
 
         if length.is_power_of_two() && length > 2 {
             return Ok(Arc::new(SplitRadixDst3::new(
@@ -622,6 +634,8 @@ impl Pxdct {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
+
+        generate_dst3_butterflies!(length, f64);
 
         if length.is_power_of_two() && length > 2 {
             return Ok(Arc::new(SplitRadixDst3::new(
