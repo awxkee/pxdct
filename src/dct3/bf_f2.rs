@@ -661,10 +661,7 @@ define_in_place_butterfly!(Dct3Butterfly64, 64);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
-    use crate::tests::naive_dct3;
-    use rand::RngExt;
 
     gen_test_butterfly!(test_bf_dct3_2, f64, Dct3Butterfly2, 2, 1e-7, naive_dct3);
     gen_test_butterfly!(test_bf_dct3_4, f64, Dct3Butterfly4, 4, 1e-7, naive_dct3);

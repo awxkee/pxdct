@@ -2254,11 +2254,14 @@ macro_rules! gen_test_butterfly {
         #[test]
         fn $test_name() {
             let mut input = vec![0.; $size];
+            use rand::RngExt;
             for z in input.iter_mut() {
                 *z = rand::rng().random_range(1.0..2.0);
             }
+            use crate::tests::$naive_reference;
             let reference_input = input.clone();
             let reference_input = $naive_reference(&reference_input);
+            use crate::PxdctExecutor;
             let bf = $bf_name::<$f_typ>::default();
             bf.execute(&mut input).unwrap();
             assert_eq!(bf.length(), $size);
@@ -2477,9 +2480,6 @@ pub(super) use gen_test_butterfly_f;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PxdctExecutor;
-    use crate::tests::naive_dct2;
-    use rand::RngExt;
 
     gen_test_butterfly!(test_bf3, f64, Dct2Butterfly3, 3, 1e-7, naive_dct2);
     gen_test_butterfly!(test_bf4, f64, Dct2Butterfly4, 4, 1e-7, naive_dct2);

@@ -27,6 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 mod coprime_generator;
+mod dct1_split_radix;
 mod dct2_gen;
 mod dct2_gen_fma;
 mod dct2_gen_neon;
@@ -35,6 +36,7 @@ mod dct3_coprime;
 mod dct3_gen;
 mod dct4_butterfly_generator;
 mod dct4_gen;
+mod radix4c;
 mod solver;
 mod split_radix_dct3;
 

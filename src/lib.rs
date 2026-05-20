@@ -35,12 +35,14 @@
 mod avx;
 mod bidirectional;
 mod butterflies;
+mod dct1;
 mod dct2;
 mod dct3;
 mod dct4;
 mod dst2;
 mod dst3;
 mod dst3_butterfly;
+mod factory_dct1;
 mod factory_dct2;
 mod factory_dct3;
 mod factory_dct4;
@@ -66,6 +68,7 @@ use crate::dst3::Dst3Fft;
 use crate::dst3_butterfly::{
     Dst3Butterfly2, Dst3Butterfly3, Dst3Butterfly4, Dst3Butterfly5, Dst3Butterfly8, Dst3Butterfly16,
 };
+use crate::factory_dct1::Dct1Factory;
 use crate::factory_dct2::Dct2Factory;
 use crate::factory_dct3::Dct3Factory;
 use crate::factory_dct4::Dct4Factory;
@@ -180,6 +183,61 @@ macro_rules! make_dct2_butterflies {
             return Ok($f_type::dct2_butterfly256());
         } else if $length == 512 {
             return Ok($f_type::dct2_butterfly512());
+        }
+    };
+}
+
+macro_rules! generate_dst3_butterflies {
+    ($length: expr, $f_type: ident) => {
+        let length = $length;
+        if length == 2 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly2::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 3 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly3::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 4 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly4::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 5 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly5::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 8 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly8::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
+        } else if length == 16 {
+            static Q: OnceLock<Arc<dyn PxdctExecutor<$f_type> + Send + Sync>> = OnceLock::new();
+            return Ok(Q
+                .get_or_init(|| {
+                    Arc::new(Dst3Butterfly16::default())
+                        as Arc<dyn PxdctExecutor<$f_type> + Send + Sync>
+                })
+                .clone());
         }
     };
 }
@@ -376,6 +434,53 @@ impl Pxdct {
         T::dct3_fft(length)
     }
 
+    fn dct1_strategy<T: Copy + Dct1Factory + Dct3Factory>(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError> {
+        if length < 2 {
+            return Err(PxdctError::MinimumPoints(2, "DCT-I".to_string()));
+        }
+
+        match length {
+            2 => return Ok(T::dct1_butterfly2()),
+            3 => return Ok(T::dct1_butterfly3()),
+            4 => return Ok(T::dct1_butterfly4()),
+            5 => return Ok(T::dct1_butterfly5()),
+            6 => return Ok(T::dct1_butterfly6()),
+            7 => return Ok(T::dct1_butterfly7()),
+            8 => return Ok(T::dct1_butterfly8()),
+            9 => return Ok(T::dct1_butterfly9()),
+            17 => return Ok(T::dct1_butterfly17()),
+            _ => {}
+        }
+
+        let n = length - 1;
+        if n > 0 && n % 2 == 0 {
+            let n1 = n / 2;
+
+            let half_p1_dct1 = Pxdct::dct1_strategy(n1 + 1)?;
+            let half_dct3 = Pxdct::dct3_strategy(n1)?;
+
+            return T::split_radix(length, half_p1_dct1, half_dct3);
+        }
+
+        T::dct1_fft(length)
+    }
+
+    /// Creates a single-precision (f32) DCT-I executor.
+    pub fn make_dct1_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        Pxdct::dct1_strategy(length)
+    }
+
+    /// Creates a single-precision (f64) DCT-I executor.
+    pub fn make_dct1_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Pxdct::dct1_strategy(length)
+    }
+
     /// Creates a single-precision (f32) DCT-III executor.
     pub fn make_dct3_f32(
         length: usize,
@@ -509,50 +614,7 @@ impl Pxdct {
             return Err(PxdctError::ZeroSizedDct);
         }
 
-        if length == 2 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly2::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 3 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly3::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 4 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly4::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 5 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly5::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 8 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly8::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        } else if length == 16 {
-            static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
-            return Ok(Q
-                .get_or_init(|| {
-                    Arc::new(Dst3Butterfly16::default())
-                        as Arc<dyn PxdctExecutor<f32> + Send + Sync>
-                })
-                .clone());
-        }
+        generate_dst3_butterflies!(length, f32);
 
         if length.is_power_of_two() && length > 2 {
             return Ok(Arc::new(SplitRadixDst3::new(
@@ -572,6 +634,8 @@ impl Pxdct {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
+
+        generate_dst3_butterflies!(length, f64);
 
         if length.is_power_of_two() && length > 2 {
             return Ok(Arc::new(SplitRadixDst3::new(
@@ -996,6 +1060,21 @@ mod tests {
         result
     }
 
+    pub(crate) fn naive_dct1(input: &[f64]) -> Vec<f64> {
+        let n = input.len() - 1; // N = len - 1
+        let mut output = vec![0.0; input.len()];
+        for k in 0..=n {
+            let mut sum = input[0] + (if k % 2 == 0 { 1.0 } else { -1.0 }) * input[n];
+            for j in 1..n {
+                sum += 2.0
+                    * input[j]
+                    * (std::f64::consts::PI * (k as f64) * (j as f64) / (n as f64)).cos();
+            }
+            output[k] = sum;
+        }
+        output
+    }
+
     #[test]
     fn dct2_roundtrip() {
         for i in 1..250 {
@@ -1265,6 +1344,44 @@ mod tests {
 
             working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
                 assert!((x - c).abs() < 0.00001, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst1_split_radix() {
+        for i in 3usize..6 {
+            let mut array = vec![0.; 2usize.pow(i as u32) + 1];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct1_f64(array.len()).unwrap();
+            let naive_ref = naive_dct1(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst1_all() {
+        for i in 2usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct1_f64(array.len()).unwrap();
+            let naive_ref = naive_dct1(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
             });
         }
     }

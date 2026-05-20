@@ -345,10 +345,7 @@ define_in_place_butterfly!(ScaledDct2Butterfly16, 16);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PxdctExecutor;
     use crate::butterflies::gen_test_butterfly;
-    use crate::tests::naive_scaled_dct2;
-    use rand::RngExt;
 
     gen_test_butterfly!(
         test_bf_scaled_dct4,
