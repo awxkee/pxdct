@@ -16,6 +16,11 @@ fuzz_target!(|data: DctArbitrary| {
 
     let len = data.size as usize;
 
+    // current workaround for stdarch bug
+    if data.size < 30 {
+        return;
+    }
+
     let mut array = vec![0.0; len];
     for (i, k) in array.iter_mut().enumerate() {
         *k = i as f32 / len as f32;
