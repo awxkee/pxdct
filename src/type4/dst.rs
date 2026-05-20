@@ -33,53 +33,37 @@ use num_traits::AsPrimitive;
 use std::sync::Arc;
 
 /// DST-IV via DCT-IV:
-/// DST-IV(x)[k] = DCT-IV(x')[k]
-/// where x'[n] = (-1)^n * x[N-1-n]  (reverse + alternate signs)
-/// Result is already the DST-IV output.
-pub(crate) struct Dst4<T: DctSample> {
+/// DST-IV(x)[k] = (-1)^k * DCT-IV(x_reversed)[k]
+pub(crate) struct Dst4OverDct4<T: DctSample> {
     dct4: Arc<dyn PxdctExecutor<T> + Send + Sync>,
     execution_length: usize,
 }
 
-impl<T: DctSample> Dst4<T>
+impl<T: DctSample> Dst4OverDct4<T>
 where
     f64: AsPrimitive<T>,
 {
     pub(crate) fn new(
         dct4: Arc<dyn PxdctExecutor<T> + Send + Sync>,
-    ) -> Result<Dst4<T>, PxdctError> {
+    ) -> Result<Dst4OverDct4<T>, PxdctError> {
         let len = dct4.length();
-        Ok(Dst4 {
+        Ok(Dst4OverDct4 {
             dct4,
             execution_length: len,
         })
     }
 
     #[inline]
-    fn preprocess(chunk: &mut [T]) {
-        // Reverse in-place then apply (-1)^n
-        chunk.reverse();
+    fn postprocess(chunk: &mut [T]) {
         let mut sign = T::one();
-        let neg_one = -T::one();
         for x in chunk.iter_mut() {
             *x = *x * sign;
-            sign *= neg_one;
-        }
-    }
-
-    #[inline]
-    fn preprocess_into(src: &[T], dst: &mut [T]) {
-        let len = src.len();
-        let mut sign = T::one();
-        let neg_one = -T::one();
-        for i in 0..len {
-            dst[i] = src[len - 1 - i] * sign;
-            sign *= neg_one;
+            sign = -sign;
         }
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dst4<T>
+impl<T: DctSample> PxdctExecutor<T> for Dst4OverDct4<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -99,8 +83,9 @@ where
         let full_scratch = validate_scratch!(scratch, self.scratch_size());
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
-            Self::preprocess(chunk);
+            chunk.reverse();
             self.dct4.execute_with_scratch(chunk, full_scratch)?;
+            Self::postprocess(chunk);
         }
 
         Ok(())
@@ -126,8 +111,11 @@ where
             .chunks_exact(self.execution_length)
             .zip(output.chunks_exact_mut(self.execution_length))
         {
-            Self::preprocess_into(src, dst);
+            dst.iter_mut()
+                .zip(src.iter().rev())
+                .for_each(|(d, &s)| *d = s);
             self.dct4.execute_with_scratch(dst, full_scratch)?;
+            Self::postprocess(dst);
         }
 
         Ok(())
@@ -145,27 +133,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Dst4;
+    use super::Dst4OverDct4;
+    use crate::tests::naive_dst4;
     use crate::{Pxdct, PxdctExecutor};
-
-    fn naive_dst4(input: &[f64]) -> Vec<f64> {
-        let n = input.len();
-        (0..n)
-            .map(|k| {
-                input
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &x)| {
-                        let angle = std::f64::consts::PI
-                            * (2 * i + 1) as f64
-                            * (2 * k + 1) as f64
-                            / (4 * n) as f64;
-                        x * angle.sin()
-                    })
-                    .sum()
-            })
-            .collect()
-    }
 
     #[test]
     fn test_dst4_size7() {
@@ -173,11 +143,15 @@ mod tests {
         let mut working = input.clone();
         let control = naive_dst4(&input);
         let dct4 = Pxdct::strategy_dct4(input.len()).unwrap();
-        let dst4 = Dst4::new(dct4).unwrap();
+        let dst4 = Dst4OverDct4::new(dct4).unwrap();
         dst4.execute(&mut working).unwrap();
-        working.iter().zip(control.iter()).enumerate().for_each(|(i, (&x, &c))| {
-            assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
-        });
+        working
+            .iter()
+            .zip(control.iter())
+            .enumerate()
+            .for_each(|(i, (&x, &c))| {
+                assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
+            });
     }
 
     #[test]
@@ -186,11 +160,15 @@ mod tests {
         let mut working = input.clone();
         let control = naive_dst4(&input);
         let dct4 = Pxdct::strategy_dct4(input.len()).unwrap();
-        let dst4 = Dst4::new(dct4).unwrap();
+        let dst4 = Dst4OverDct4::new(dct4).unwrap();
         dst4.execute(&mut working).unwrap();
-        working.iter().zip(control.iter()).enumerate().for_each(|(i, (&x, &c))| {
-            assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
-        });
+        working
+            .iter()
+            .zip(control.iter())
+            .enumerate()
+            .for_each(|(i, (&x, &c))| {
+                assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
+            });
     }
 
     #[test]
@@ -199,11 +177,15 @@ mod tests {
         let mut working = input.clone();
         let control = naive_dst4(&input);
         let dct4 = Pxdct::strategy_dct4(input.len()).unwrap();
-        let dst4 = Dst4::new(dct4).unwrap();
+        let dst4 = Dst4OverDct4::new(dct4).unwrap();
         dst4.execute(&mut working).unwrap();
-        working.iter().zip(control.iter()).enumerate().for_each(|(i, (&x, &c))| {
-            assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
-        });
+        working
+            .iter()
+            .zip(control.iter())
+            .enumerate()
+            .for_each(|(i, (&x, &c))| {
+                assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
+            });
     }
 
     #[test]
@@ -212,11 +194,15 @@ mod tests {
         let mut output = vec![0.0f64; 7];
         let control = naive_dst4(&input);
         let dct4 = Pxdct::strategy_dct4(input.len()).unwrap();
-        let dst4 = Dst4::new(dct4).unwrap();
+        let dst4 = Dst4OverDct4::new(dct4).unwrap();
         dst4.execute_into(&input, &mut output).unwrap();
-        output.iter().zip(control.iter()).enumerate().for_each(|(i, (&x, &c))| {
-            assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
-        });
+        output
+            .iter()
+            .zip(control.iter())
+            .enumerate()
+            .for_each(|(i, (&x, &c))| {
+                assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
+            });
     }
 
     #[test]
@@ -226,14 +212,18 @@ mod tests {
             let mut working = input.clone();
             let control = naive_dst4(&input);
             let dct4 = Pxdct::strategy_dct4(n).unwrap();
-            let dst4 = Dst4::new(dct4).unwrap();
+            let dst4 = Dst4OverDct4::new(dct4).unwrap();
             dst4.execute(&mut working).unwrap();
-            working.iter().zip(control.iter()).enumerate().for_each(|(i, (&x, &c))| {
-                assert!(
-                    (x - c).abs() < 1e-7,
-                    "size {n}, index {i}: got {x}, expected {c}"
-                );
-            });
+            working
+                .iter()
+                .zip(control.iter())
+                .enumerate()
+                .for_each(|(i, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-7,
+                        "size {n}, index {i}: got {x}, expected {c}"
+                    );
+                });
         }
     }
 }

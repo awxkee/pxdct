@@ -828,6 +828,22 @@ impl Pxdct {
         }))
     }
 
+    /// Creates a single-precision (f32) DST-IV executor.
+    pub fn make_dst4_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        use crate::type4::Dst4OverDct4;
+        Ok(Arc::new(Dst4OverDct4::new(Pxdct::strategy_dct4(length)?)?))
+    }
+
+    /// Creates a double-precision (f64) DST-IV executor.
+    pub fn make_dst4_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        use crate::type4::Dst4OverDct4;
+        Ok(Arc::new(Dst4OverDct4::new(Pxdct::strategy_dct4(length)?)?))
+    }
+
     /// Creates a single-precision (f32) DST-VII executor.
     pub fn make_dst7_f32(
         length: usize,
@@ -1779,6 +1795,64 @@ mod tests {
 
             let dct_forward = Pxdct::make_dct7_f64(array.len()).unwrap();
             let naive_ref = naive_dct7(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    pub(crate) fn naive_dst4(input: &[f64]) -> Vec<f64> {
+        let n = input.len();
+        (0..n)
+            .map(|k| {
+                input
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let angle = std::f64::consts::PI * (2 * i + 1) as f64 * (2 * k + 1) as f64
+                            / (4 * n) as f64;
+                        x * angle.sin()
+                    })
+                    .sum()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dst4_all() {
+        for i in 2usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst4_f64(array.len()).unwrap();
+            let naive_ref = naive_dst4(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst4_all_into() {
+        for i in 2usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dst4_f64(array.len()).unwrap();
+            let naive_ref = naive_dst4(&array);
 
             dct_forward
                 .execute_into(&array, &mut working_array)

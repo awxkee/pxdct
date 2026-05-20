@@ -85,3 +85,4 @@ pub(crate) use radix17::Dct4MixedRadix17;
 #[allow(unused)]
 pub(crate) use radix19::Dct4MixedRadix19;
 pub(crate) use utils::radixq_dct4_rotation_twiddle;
+pub(crate) use dst::Dst4OverDct4;
