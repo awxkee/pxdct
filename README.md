@@ -1,17 +1,17 @@
 # Pxdct — Discrete Cosine and Sine Transform Factory
 
-Pxdct is a high-performance DCT/DST library for Rust supporting
-arbitrary transform lengths not just powers of 2.
+Pxdct is a high-performance DCT/DST library for Rust supporting arbitrary transform lengths, not just powers of 2.
 
 ## Why Pxdct
 
-Most DCT libraries require power-of-2 window sizes. Pxdct efficiently
-handles any length by automatically selecting the best algorithm:
+Most DCT libraries require power-of-2 window sizes. Pxdct efficiently handles any length by automatically selecting the best algorithm:
 
 - Split-radix for power-of-2 sizes
-- Mixed-radix decomposition for sizes with small prime factors (3, 5, 7, 11, 13...)
+- Mixed-radix decomposition for sizes with small prime factors (3, 5, 7, 11, 13…)
 - Prime Factor Algorithm (PFA) for coprime factorizations
 - Butterflies for sizes up to 512
+
+Hardware acceleration is applied automatically where available (AVX2, NEON).
 
 Hardware acceleration is applied automatically:
 - AVX2
@@ -21,14 +21,13 @@ Hardware acceleration is applied automatically:
 
 ## Supported Transforms
 
-| Transform | Description             |
-|-----------|-------------------------|
-| DCT-I     | type I DCT              |
-| DCT-II    | the DCT                 |
-| DCT-III   | Inverse DCT             |
-| DCT-IV    | Used in MDCT            |
-| DST-II    | Discrete Sine Transform |
-| DST-III   | Inverse DST             |
+| Transform         | Description           |
+|-------------------|-----------------------|
+| DCT-I / DST-I     | Type 1                |
+| DCT-II / DST-II   | The classic DCT / DST |
+| DCT-III / DST-III | Inverse of type II    |
+| DCT-IV            | Used in MDCT          |
+| DCT-VII / DST-VII | Type 7                |
 
 Both `f32` and `f64` precision are supported.
 

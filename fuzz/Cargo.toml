@@ -50,6 +50,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "type7"
+path = "type7/type7.rs"
+test = false
+doc = false
+bench = false
+
 [features]
 default = []
 avx = ["pxdct/avx"]

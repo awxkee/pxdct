@@ -101,6 +101,7 @@ jobs:
       - run: cargo fuzz run dct2_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct4_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run type1 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
+      - run: cargo fuzz run type7 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
 
   fuzz_x86_64:
     name: Fuzzing x86_64
@@ -117,6 +118,7 @@ jobs:
       - run: cargo fuzz run dct2_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct4_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run type1 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
+      - run: cargo fuzz run type7 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
 
   tests_x86_sse_isolated:
     name: Testing x86 SSE isolated
