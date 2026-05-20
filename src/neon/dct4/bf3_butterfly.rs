@@ -27,10 +27,10 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct4::Dct4Butterfly9;
 use crate::mla::fmla;
 use crate::neon::dct4::mixed_radix3f::dct4_radix_n_rotation_twiddles_neon;
 use crate::neon::util::NeonStoreF;
+use crate::type4::Dct4Butterfly9;
 use crate::util::DctConstants;
 use crate::{PxdctError, PxdctExecutor};
 

@@ -27,10 +27,10 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::BidirectionalStore;
-use crate::dct4::radixq_dct4_rotation_twiddle;
 use crate::mla::fmla;
 use crate::neon::store_d::NeonStoreD;
 use crate::neon::util::boring_neon_mixed_radix;
+use crate::type4::radixq_dct4_rotation_twiddle;
 use crate::util::{DctConstants, DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{AsPrimitive, One};
@@ -225,8 +225,8 @@ boring_neon_mixed_radix!(NeonDct4MixedRadix3d, f64);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct4::Dct4Butterfly3;
     use crate::tests::naive_dct4;
+    use crate::type4::Dct4Butterfly3;
     use rand::RngExt;
 
     #[test]

@@ -11,6 +11,8 @@ Most DCT libraries require power-of-2 window sizes. Pxdct efficiently handles an
 - Prime Factor Algorithm (PFA) for coprime factorizations
 - Butterflies for sizes up to 512
 
+Sizes that are products of small primes (2, 3, 5, 7, 11, 13) perform best. Large prime sizes fall back to a general FFT-based path and are still O(n log n) but slower than smooth numbers of similar magnitude.
+
 Hardware acceleration is applied automatically where available (AVX2, NEON).
 
 Hardware acceleration is applied automatically:

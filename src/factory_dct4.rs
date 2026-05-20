@@ -27,13 +27,13 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::PxdctExecutor;
-use crate::dct4::{
+use crate::factory_dct2::Returning;
+use crate::type4::{
     Dct4Butterfly2, Dct4Butterfly3, Dct4Butterfly4, Dct4Butterfly6, Dct4Butterfly8,
     Dct4Butterfly10, Dct4Butterfly12, Dct4Butterfly14, Dct4Butterfly16, Dct4Butterfly18,
     Dct4Butterfly20, Dct4Butterfly22, Dct4Butterfly24, Dct4Butterfly26, Dct4Butterfly28,
     Dct4Butterfly30, Dct4Butterfly32, Dct4Fft, Dct4Identity, Dct4Radix2,
 };
-use crate::factory_dct2::Returning;
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 use crate::util::has_valid_avx;
 use std::sync::{Arc, OnceLock};
@@ -80,7 +80,8 @@ pub(crate) trait Dct4Factory {
         len: usize,
         half_dct4: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self>;
-    fn dct4_fft(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self>;
+    fn dct4_fft_odd(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self>;
+    fn dct4_fft_even(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self>;
     fn dct4_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
     fn dct4_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
     fn dct4_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
@@ -148,7 +149,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix2;
+            use crate::type4::Dct4MixedRadix2;
             Ok(Arc::new(Dct4MixedRadix2::new(len, half_dct2)?))
         }
     }
@@ -169,7 +170,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix3;
+            use crate::type4::Dct4MixedRadix3;
             Ok(Arc::new(Dct4MixedRadix3::new(len, half_dct4)?))
         }
     }
@@ -190,7 +191,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix5;
+            use crate::type4::Dct4MixedRadix5;
             Ok(Arc::new(Dct4MixedRadix5::new(len, half_dct4)?))
         }
     }
@@ -211,7 +212,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix7;
+            use crate::type4::Dct4MixedRadix7;
             Ok(Arc::new(Dct4MixedRadix7::new(len, half_dct4)?))
         }
     }
@@ -232,7 +233,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix9;
+            use crate::type4::Dct4MixedRadix9;
             Ok(Arc::new(Dct4MixedRadix9::new(len, half_dct4)?))
         }
     }
@@ -253,7 +254,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix11;
+            use crate::type4::Dct4MixedRadix11;
             Ok(Arc::new(Dct4MixedRadix11::new(len, half_dct4)?))
         }
     }
@@ -274,7 +275,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix13;
+            use crate::type4::Dct4MixedRadix13;
             Ok(Arc::new(Dct4MixedRadix13::new(len, half_dct4)?))
         }
     }
@@ -295,7 +296,7 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix17;
+            use crate::type4::Dct4MixedRadix17;
             Ok(Arc::new(Dct4MixedRadix17::new(len, half_dct4)?))
         }
     }
@@ -316,13 +317,18 @@ impl Dct4Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix19;
+            use crate::type4::Dct4MixedRadix19;
             Ok(Arc::new(Dct4MixedRadix19::new(len, half_dct4)?))
         }
     }
 
-    fn dct4_fft(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
+    fn dct4_fft_odd(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
         Ok(Arc::new(Dct4Fft::new(fft)))
+    }
+
+    fn dct4_fft_even(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
+        use crate::type4::Dct4FftEven;
+        Ok(Arc::new(Dct4FftEven::new(fft)))
     }
 
     fn dct4_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
@@ -365,7 +371,7 @@ impl Dct4Factory for f32 {
     fn dct4_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly5;
+            use crate::type4::Dct4Butterfly5;
             Arc::new(Dct4Butterfly5::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -387,7 +393,7 @@ impl Dct4Factory for f32 {
                 use crate::avx::AvxDct4Butterfly7;
                 return Arc::new(AvxDct4Butterfly7::default());
             }
-            use crate::dct4::Dct4Butterfly7;
+            use crate::type4::Dct4Butterfly7;
             Arc::new(Dct4Butterfly7::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -409,7 +415,7 @@ impl Dct4Factory for f32 {
                 use crate::avx::AvxDct4Butterfly9;
                 return Arc::new(AvxDct4Butterfly9::default());
             }
-            use crate::dct4::Dct4Butterfly9;
+            use crate::type4::Dct4Butterfly9;
             Arc::new(Dct4Butterfly9::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -431,7 +437,7 @@ impl Dct4Factory for f32 {
                 use crate::avx::AvxDct4Butterfly11;
                 return Arc::new(AvxDct4Butterfly11::default());
             }
-            use crate::dct4::Dct4Butterfly11;
+            use crate::type4::Dct4Butterfly11;
             Arc::new(Dct4Butterfly11::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -453,7 +459,7 @@ impl Dct4Factory for f32 {
                 use crate::avx::AvxDct4Butterfly13;
                 return Arc::new(AvxDct4Butterfly13::default());
             }
-            use crate::dct4::Dct4Butterfly13;
+            use crate::type4::Dct4Butterfly13;
             Arc::new(Dct4Butterfly13::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -478,7 +484,7 @@ impl Dct4Factory for f32 {
     fn dct4_butterfly17() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly17;
+            use crate::type4::Dct4Butterfly17;
             Arc::new(Dct4Butterfly17::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -495,7 +501,7 @@ impl Dct4Factory for f32 {
     fn dct4_butterfly19() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly19;
+            use crate::type4::Dct4Butterfly19;
             Arc::new(Dct4Butterfly19::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -520,7 +526,7 @@ impl Dct4Factory for f32 {
     fn dct4_butterfly23() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly23;
+            use crate::type4::Dct4Butterfly23;
             Arc::new(Dct4Butterfly23::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -558,7 +564,7 @@ impl Dct4Factory for f32 {
             }
             #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
             {
-                use crate::dct4::Dct4Butterfly27;
+                use crate::type4::Dct4Butterfly27;
                 Arc::new(Dct4Butterfly27::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
             }
         })
@@ -576,7 +582,7 @@ impl Dct4Factory for f32 {
     fn dct4_butterfly29() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly29;
+            use crate::type4::Dct4Butterfly29;
             Arc::new(Dct4Butterfly29::default()) as Arc<dyn PxdctExecutor<f32> + Send + Sync>
         })
         .clone()
@@ -621,7 +627,7 @@ impl Dct4Factory for f64 {
             use crate::avx::AvxDct4MixedRadix2d;
             return Ok(Arc::new(AvxDct4MixedRadix2d::new(len, half_dct2)?));
         }
-        use crate::dct4::Dct4MixedRadix2;
+        use crate::type4::Dct4MixedRadix2;
         Ok(Arc::new(Dct4MixedRadix2::new(len, half_dct2)?))
     }
 
@@ -641,7 +647,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix3;
+            use crate::type4::Dct4MixedRadix3;
             Ok(Arc::new(Dct4MixedRadix3::new(len, half_dct4)?))
         }
     }
@@ -662,7 +668,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix5;
+            use crate::type4::Dct4MixedRadix5;
             Ok(Arc::new(Dct4MixedRadix5::new(len, half_dct4)?))
         }
     }
@@ -683,7 +689,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix7;
+            use crate::type4::Dct4MixedRadix7;
             Ok(Arc::new(Dct4MixedRadix7::new(len, half_dct4)?))
         }
     }
@@ -704,7 +710,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix9;
+            use crate::type4::Dct4MixedRadix9;
             Ok(Arc::new(Dct4MixedRadix9::new(len, half_dct4)?))
         }
     }
@@ -725,7 +731,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix11;
+            use crate::type4::Dct4MixedRadix11;
             Ok(Arc::new(Dct4MixedRadix11::new(len, half_dct4)?))
         }
     }
@@ -746,7 +752,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix13;
+            use crate::type4::Dct4MixedRadix13;
             Ok(Arc::new(Dct4MixedRadix13::new(len, half_dct4)?))
         }
     }
@@ -767,7 +773,7 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix17;
+            use crate::type4::Dct4MixedRadix17;
             Ok(Arc::new(Dct4MixedRadix17::new(len, half_dct4)?))
         }
     }
@@ -788,13 +794,18 @@ impl Dct4Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct4::Dct4MixedRadix19;
+            use crate::type4::Dct4MixedRadix19;
             Ok(Arc::new(Dct4MixedRadix19::new(len, half_dct4)?))
         }
     }
 
-    fn dct4_fft(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
+    fn dct4_fft_odd(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
         Ok(Arc::new(Dct4Fft::new(fft)))
+    }
+
+    fn dct4_fft_even(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
+        use crate::type4::Dct4FftEven;
+        Ok(Arc::new(Dct4FftEven::new(fft)))
     }
 
     fn dct4_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
@@ -837,7 +848,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly5;
+            use crate::type4::Dct4Butterfly5;
             Arc::new(Dct4Butterfly5::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -854,7 +865,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly7;
+            use crate::type4::Dct4Butterfly7;
             Arc::new(Dct4Butterfly7::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -876,7 +887,7 @@ impl Dct4Factory for f64 {
                 use crate::avx::AvxDct4Butterfly9;
                 return Arc::new(AvxDct4Butterfly9::default());
             }
-            use crate::dct4::Dct4Butterfly9;
+            use crate::type4::Dct4Butterfly9;
             Arc::new(Dct4Butterfly9::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -898,7 +909,7 @@ impl Dct4Factory for f64 {
                 use crate::avx::AvxDct4Butterfly11;
                 return Arc::new(AvxDct4Butterfly11::default());
             }
-            use crate::dct4::Dct4Butterfly11;
+            use crate::type4::Dct4Butterfly11;
             Arc::new(Dct4Butterfly11::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -920,7 +931,7 @@ impl Dct4Factory for f64 {
                 use crate::avx::AvxDct4Butterfly13;
                 return Arc::new(AvxDct4Butterfly13::default());
             }
-            use crate::dct4::Dct4Butterfly13;
+            use crate::type4::Dct4Butterfly13;
             Arc::new(Dct4Butterfly13::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -945,7 +956,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly17() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly17;
+            use crate::type4::Dct4Butterfly17;
             Arc::new(Dct4Butterfly17::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -962,7 +973,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly19() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly19;
+            use crate::type4::Dct4Butterfly19;
             Arc::new(Dct4Butterfly19::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -987,7 +998,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly23() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly23;
+            use crate::type4::Dct4Butterfly23;
             Arc::new(Dct4Butterfly23::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1012,7 +1023,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly27() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly27;
+            use crate::type4::Dct4Butterfly27;
             Arc::new(Dct4Butterfly27::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()
@@ -1029,7 +1040,7 @@ impl Dct4Factory for f64 {
     fn dct4_butterfly29() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
-            use crate::dct4::Dct4Butterfly29;
+            use crate::type4::Dct4Butterfly29;
             Arc::new(Dct4Butterfly29::default()) as Arc<dyn PxdctExecutor<f64> + Send + Sync>
         })
         .clone()

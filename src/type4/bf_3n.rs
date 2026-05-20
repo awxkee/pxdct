@@ -27,9 +27,9 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct4::radixq_dct4_rotation_twiddle;
 use crate::factory_dct4::Dct4Factory;
 use crate::mla::fmla;
+use crate::type4::radixq_dct4_rotation_twiddle;
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

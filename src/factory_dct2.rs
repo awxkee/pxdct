@@ -27,6 +27,8 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::dct2::Dct2Coprime;
+#[cfg(all(target_arch = "x86_64", feature = "avx"))]
+use crate::util::has_valid_avx;
 use crate::{PxdctError, PxdctExecutor};
 use std::sync::{Arc, OnceLock};
 
@@ -126,8 +128,7 @@ impl Dct2Factory for f32 {
         quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxSplitRadixDct2f;
             return Ok(Arc::new(AvxSplitRadixDct2f::new(
                 length,
@@ -158,8 +159,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f32> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix2;
             return Ok(Arc::new(AvxDct2MixedRadix2::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -181,8 +181,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f32> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix3f;
             return Ok(Arc::new(AvxDct2MixedRadix3f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -204,8 +203,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix5f;
             return Ok(Arc::new(AvxDct2MixedRadix5f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -227,8 +225,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f32> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix6f;
             return Ok(Arc::new(AvxDct2MixedRadix6f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -250,8 +247,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix7f;
             return Ok(Arc::new(AvxDct2MixedRadix7f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -273,8 +269,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix9f;
             return Ok(Arc::new(AvxDct2MixedRadix9f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -296,8 +291,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix11f;
             return Ok(Arc::new(AvxDct2MixedRadix11f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -319,8 +313,7 @@ impl Dct2Factory for f32 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix13f;
             return Ok(Arc::new(AvxDct2MixedRadix13f::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f32> + Send + Sync>);
@@ -1080,8 +1073,7 @@ impl Dct2Factory for f64 {
         quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxSplitRadixDct2d;
             return Ok(Arc::new(AvxSplitRadixDct2d::new(
                 length,
@@ -1112,8 +1104,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f64> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix2;
             return Ok(Arc::new(AvxDct2MixedRadix2::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
@@ -1135,8 +1126,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f64> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix3d;
             return Ok(Arc::new(AvxDct2MixedRadix3d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
@@ -1158,8 +1148,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix5d;
             return Ok(Arc::new(AvxDct2MixedRadix5d::new(length, inner_dct)?));
         }
@@ -1180,8 +1169,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<f64> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix6d;
             return Ok(Arc::new(AvxDct2MixedRadix6d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
@@ -1203,8 +1191,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix7d;
             return Ok(Arc::new(AvxDct2MixedRadix7d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
@@ -1226,8 +1213,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix9d;
             return Ok(Arc::new(AvxDct2MixedRadix9d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
@@ -1249,8 +1235,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix11d;
             return Ok(Arc::new(AvxDct2MixedRadix11d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
@@ -1264,8 +1249,7 @@ impl Dct2Factory for f64 {
         inner_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
-        if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-        {
+        if has_valid_avx() {
             use crate::avx::AvxDct2MixedRadix13d;
             return Ok(Arc::new(AvxDct2MixedRadix13d::new(length, inner_dct)?)
                 as Arc<dyn PxdctExecutor<f64> + Send + Sync>);
