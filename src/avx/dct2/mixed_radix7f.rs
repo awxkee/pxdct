@@ -32,7 +32,7 @@ use crate::avx::dct2::mixed_radix3f::{
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
-use crate::dct2::MixedRadix7Sample;
+use crate::type2::MixedRadix7Sample;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::One;
@@ -358,8 +358,8 @@ impl AvxDct2MixedRadix7f {
 mod tests {
     use super::*;
     use crate::Pxdct;
-    use crate::dct2::Dct2MixedRadix7;
     use crate::tests::naive_dct2_f32;
+    use crate::type2::Dct2MixedRadix7;
     use crate::util::has_valid_avx;
 
     #[test]

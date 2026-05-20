@@ -511,12 +511,12 @@ macro_rules! create_dct2_3_real {
 }
 
 use crate::butterflies::MixedRadix9Sample;
-use crate::dct2::prime_butterflies::{
+use crate::transpose::TransposeFactory;
+use crate::type2::prime_butterflies::{
     MixedRadix13Sample, MixedRadix17Sample, MixedRadix19Sample, MixedRadix23Sample,
     MixedRadix29Sample,
 };
-use crate::dct2::{MixedRadix5Sample, MixedRadix7Sample};
-use crate::transpose::TransposeFactory;
+use crate::type2::{MixedRadix5Sample, MixedRadix7Sample};
 use crate::type4::Dct4MixedRadix9Sample;
 pub(crate) use create_dct2_3;
 pub(crate) use create_dct2_3_real;

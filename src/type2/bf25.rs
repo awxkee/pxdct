@@ -27,10 +27,10 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::mixed_radix5::MixedRadix5Sample;
-use crate::dct2::prime_butterflies::Dct2Butterfly5;
-use crate::dct2::util::{radixq_cos_twiddle, radixq_rotation_twiddle};
 use crate::mla::fmla;
+use crate::type2::mixed_radix5::MixedRadix5Sample;
+use crate::type2::prime_butterflies::Dct2Butterfly5;
+use crate::type2::util::{radixq_cos_twiddle, radixq_rotation_twiddle};
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

@@ -30,7 +30,7 @@ use crate::avx::AvxDct2Butterfly5;
 use crate::avx::stored::AvxStoreD;
 use crate::avx::util::fma;
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::MixedRadix5Sample;
+use crate::type2::MixedRadix5Sample;
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::One;
@@ -50,7 +50,7 @@ impl Default for AvxDct2Butterfly25d {
 impl AvxDct2Butterfly25d {
     #[target_feature(enable = "avx2")]
     pub(crate) fn new() -> Self {
-        let twiddles = crate::dct2::Dct2Butterfly25Twiddles::default();
+        let twiddles = crate::type2::Dct2Butterfly25Twiddles::default();
         let rotation = twiddles.rotation_layer;
         let cos_twiddles = twiddles.cos_twiddles;
         AvxDct2Butterfly25d {

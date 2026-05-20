@@ -31,12 +31,12 @@ use crate::butterflies::{
     Dct2Butterfly6, Dct2Butterfly9, Dct2Butterfly10, Dct2Butterfly12, Dct2Butterfly14,
     Dct2Butterfly15,
 };
-use crate::dct2::prime_butterflies::{
+use crate::mla::fmla;
+use crate::twiddles::compute_twiddle;
+use crate::type2::prime_butterflies::{
     Dct2Butterfly3, Dct2Butterfly5, Dct2Butterfly7, Dct2Butterfly11, Dct2Butterfly13,
     MixedRadix11Sample,
 };
-use crate::mla::fmla;
-use crate::twiddles::compute_twiddle;
 use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

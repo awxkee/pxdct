@@ -33,7 +33,7 @@ use crate::avx::dct2::mixed_radix3f::{
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::fma;
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::MixedRadix7Sample;
+use crate::type2::MixedRadix7Sample;
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::{One, Zero};

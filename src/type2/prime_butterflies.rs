@@ -29,9 +29,9 @@
 #![allow(unused)]
 
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::MixedRadix7Sample;
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
+use crate::type2::MixedRadix7Sample;
 use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

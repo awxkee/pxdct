@@ -255,8 +255,8 @@ boring_neon_mixed_radix!(NeonDct4MixedRadix2f, f32);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct2::prime_butterflies::Dct2Butterfly17;
     use crate::tests::naive_dct4_f32;
+    use crate::type2::prime_butterflies::Dct2Butterfly17;
     use rand::RngExt;
 
     #[test]

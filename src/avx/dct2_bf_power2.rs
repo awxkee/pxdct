@@ -27,8 +27,8 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::avx::util::{define_avx_butterfly, fma};
-use crate::dct2::power2_butterflies::{Dct2Butterfly2, Dst2Butterfly2};
 use crate::twiddles::compute_twiddle;
+use crate::type2::power2_butterflies::{Dct2Butterfly2, Dst2Butterfly2};
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

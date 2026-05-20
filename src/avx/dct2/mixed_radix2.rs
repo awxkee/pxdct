@@ -543,8 +543,8 @@ where
 mod tests {
     use super::*;
     use crate::butterflies::Dct2Butterfly6;
-    use crate::dct2::prime_butterflies::Dct2Butterfly17;
     use crate::tests::{naive_dct2, naive_dct2_f32};
+    use crate::type2::prime_butterflies::Dct2Butterfly17;
     use crate::util::has_valid_avx;
 
     #[test]

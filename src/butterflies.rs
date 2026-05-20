@@ -2464,15 +2464,15 @@ macro_rules! gen_test_butterfly_f {
 }
 
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct2::MixedRadix7Sample;
-use crate::dct2::power2_butterflies::{
+use crate::factory_dct2::Dct2Factory;
+use crate::type2::MixedRadix7Sample;
+use crate::type2::power2_butterflies::{
     Dct2Butterfly2, Dct2Butterfly4, Dct2Butterfly8, Dct2Butterfly16,
 };
-use crate::dct2::prime_butterflies::{
+use crate::type2::prime_butterflies::{
     Dct2Butterfly3, Dct2Butterfly5, Dct2Butterfly7, Dct2Butterfly11, Dct2Butterfly13,
     MixedRadix11Sample,
 };
-use crate::factory_dct2::Dct2Factory;
 #[cfg(test)]
 #[allow(unused)]
 pub(super) use gen_test_butterfly_f;

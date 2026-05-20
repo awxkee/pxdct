@@ -377,7 +377,13 @@ impl PxdctExecutor<f32> for NeonSplitRadixDst2f {
             .chunks_exact(self.execution_length)
             .zip(output.chunks_exact_mut(self.execution_length))
         {
-            for (src, dst) in src.chunks_exact(2).zip(dst.chunks_exact_mut(2)) {
+            for (src, dst) in src
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .zip(dst.as_chunks_mut::<2>().0.iter_mut())
+            {
+                dst[0] = src[0];
                 dst[1] = src[1].neg();
             }
 
@@ -401,8 +407,8 @@ impl PxdctExecutor<f32> for NeonSplitRadixDst2f {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
     use crate::tests::{naive_dct2_f32, naive_scaled_dct2_f32};
+    use crate::type2::power2_butterflies::{Dct2Butterfly8, Dct2Butterfly16};
     use rand::RngExt;
 
     #[test]

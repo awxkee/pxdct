@@ -27,12 +27,12 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::BidirectionalStore;
-use crate::dct2::MixedRadix5Sample;
 use crate::mla::fmla;
 use crate::neon::dct2::mixed_radix3::{
     dct2_radix_n_cos_twiddles_neon, dct2_radix_n_rotation_twiddles_neon,
 };
 use crate::neon::util::{NeonStoreF, boring_neon_mixed_radix};
+use crate::type2::MixedRadix5Sample;
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::One;
