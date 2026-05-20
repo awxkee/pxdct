@@ -35,7 +35,6 @@
 mod avx;
 mod bidirectional;
 mod butterflies;
-mod type1;
 mod dct2;
 mod dct3;
 mod dct4;
@@ -59,6 +58,8 @@ mod spectrum_mul;
 mod transpose;
 mod twiddles;
 mod two_dims;
+mod type1;
+mod type7;
 mod util;
 
 use crate::dct2::Dct2Fft;
@@ -819,6 +820,50 @@ impl Pxdct {
         }))
     }
 
+    /// Creates a single-precision (f32) DST-VII executor.
+    pub fn make_dst7_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type7::Dst7Fft;
+        Ok(Arc::new(Dst7Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DST-VII executor.
+    pub fn make_dst7_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type7::Dst7Fft;
+        Ok(Arc::new(Dst7Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) DST-VII executor.
+    pub fn make_dct7_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type7::Dct7Fft;
+        Ok(Arc::new(Dct7Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DST-VII executor.
+    pub fn make_dct7_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type7::Dct7Fft;
+        Ok(Arc::new(Dct7Fft::new(length)?))
+    }
+
     /// Creates 2D DCT executor.
     ///
     /// For matrix WxH to get an inverse use H as width and W as height.
@@ -1105,6 +1150,40 @@ mod tests {
             output[k] = sum;
         }
         output
+    }
+
+    pub(crate) fn naive_dst7(input: &[f64]) -> Vec<f64> {
+        let n = input.len();
+        (0..n)
+            .map(|k| {
+                input
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let angle = std::f64::consts::PI * (2 * i + 1) as f64 * (k + 1) as f64
+                            / (2 * n + 1) as f64;
+                        x * angle.sin()
+                    })
+                    .sum()
+            })
+            .collect()
+    }
+
+    pub(crate) fn naive_dct7(input: &[f64]) -> Vec<f64> {
+        let n = input.len();
+        (0..n)
+            .map(|k| {
+                input
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let angle = (k as f64 + 0.5) * (i as f64 + 1.0) * std::f64::consts::PI
+                            / (n as f64 + 0.5);
+                        x * angle.cos()
+                    })
+                    .sum()
+            })
+            .collect()
     }
 
     #[test]
@@ -1433,6 +1512,272 @@ mod tests {
 
             working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
                 assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct2_roundtrip_into() {
+        for i in 1..250 {
+            let mut array = vec![0f32; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f32;
+            }
+            let mut transient = vec![0f32; i];
+            let mut working_array = vec![0f32; i];
+
+            let dct_forward = Pxdct::make_dct2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct3_f32(array.len()).unwrap();
+
+            dct_forward.execute_into(&array, &mut transient).unwrap();
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct2_roundtrip_into_f64() {
+        for i in 1..250 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut transient = vec![0f64; i];
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct2_f64(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct3_f64(array.len()).unwrap();
+
+            dct_forward.execute_into(&array, &mut transient).unwrap();
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f64) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst2_roundtrip_into() {
+        for i in 1..250 {
+            let mut array = vec![0f32; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f32;
+            }
+            let mut transient = vec![0f32; i];
+            let mut working_array = vec![0f32; i];
+
+            let dct_forward = Pxdct::make_dst2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dst3_f32(array.len()).unwrap();
+
+            dct_forward.execute_into(&array, &mut transient).unwrap();
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct4_roundtrip_into() {
+        for i in 1..250 {
+            let mut array = vec![0f32; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f32;
+            }
+            let mut transient = vec![0f32; i];
+            let mut working_array = vec![0f32; i];
+
+            let dct_forward = Pxdct::make_dct4_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct4_f32(array.len()).unwrap();
+
+            dct_forward.execute_into(&array, &mut transient).unwrap();
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f32) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.01, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct4_roundtrip_into_f64() {
+        for i in 1..300 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut transient = vec![0f64; i];
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct4_f64(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dct4_f64(array.len()).unwrap();
+
+            dct_forward.execute_into(&array, &mut transient).unwrap();
+            dct_inverse
+                .execute_into(&transient, &mut working_array)
+                .unwrap();
+
+            for k in working_array.iter_mut() {
+                *k = *k / (i as f64) * 2.;
+            }
+
+            working_array.iter().zip(array.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 0.00001, "Difference to control values exceeded 0.00001 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct1_all_into() {
+        for i in 2usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct1_f64(array.len()).unwrap();
+            let naive_ref = naive_dct1(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst1_all_into() {
+        for i in 2usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dst1_f64(array.len()).unwrap();
+            let naive_ref = naive_dst1(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst7_all() {
+        for i in 2usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst7_f64(array.len()).unwrap();
+            let naive_ref = naive_dst7(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst7_all_into() {
+        for i in 2usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dst7_f64(array.len()).unwrap();
+            let naive_ref = naive_dst7(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct7_all() {
+        for i in 2usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct7_f64(array.len()).unwrap();
+            let naive_ref = naive_dct7(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct7_all_into() {
+        for i in 2usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct7_f64(array.len()).unwrap();
+            let naive_ref = naive_dct7(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
             });
         }
     }

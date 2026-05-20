@@ -163,8 +163,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::PxdctExecutor;
-    use crate::type1::fft::Dct1Fft;
     use crate::tests::naive_dct1;
+    use crate::type1::fft::Dct1Fft;
 
     #[test]
     fn test_14() {
