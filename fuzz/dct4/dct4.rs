@@ -24,7 +24,9 @@ fuzz_target!(|data: DctArbitrary| {
     let mut zap = vec![0.0; len];
 
     let dct4 = Pxdct::make_dct4_f32(len).unwrap();
+    let dst4 = Pxdct::make_dst4_f32(len).unwrap();
 
     dct4.execute(&mut array).unwrap();
     dct4.execute_into(&mut array, &mut zap).unwrap();
+    dst4.execute(&mut array).unwrap();
 });

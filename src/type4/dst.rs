@@ -57,7 +57,7 @@ where
     fn postprocess(chunk: &mut [T]) {
         let mut sign = T::one();
         for x in chunk.iter_mut() {
-            *x = *x * sign;
+            *x *= sign;
             sign = -sign;
         }
     }
