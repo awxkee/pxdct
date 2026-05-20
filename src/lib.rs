@@ -35,7 +35,7 @@
 mod avx;
 mod bidirectional;
 mod butterflies;
-mod dct1;
+mod type1;
 mod dct2;
 mod dct3;
 mod dct4;
@@ -455,7 +455,7 @@ impl Pxdct {
         }
 
         let n = length - 1;
-        if n > 0 && n % 2 == 0 {
+        if n > 0 && n.is_multiple_of(2) {
             let n1 = n / 2;
 
             let half_p1_dct1 = Pxdct::dct1_strategy(n1 + 1)?;
@@ -479,6 +479,22 @@ impl Pxdct {
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         Pxdct::dct1_strategy(length)
+    }
+
+    /// Creates a single-precision (f32) DST-I executor.
+    pub fn make_dst1_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        use crate::type1::Dst1Fft;
+        Ok(Arc::new(Dst1Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f64) DST-I executor.
+    pub fn make_dst1_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        use crate::type1::Dst1Fft;
+        Ok(Arc::new(Dst1Fft::new(length)?))
     }
 
     /// Creates a single-precision (f32) DCT-III executor.
@@ -1060,6 +1076,22 @@ mod tests {
         result
     }
 
+    pub(crate) fn naive_dst1(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f64 + 1.0) * (input_index as f64 + 1.0) * std::f64::consts::PI
+                        / ((input.len() + 1) as f64);
+                let twiddle = sin_inner.sin();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
     pub(crate) fn naive_dct1(input: &[f64]) -> Vec<f64> {
         let n = input.len() - 1; // N = len - 1
         let mut output = vec![0.0; input.len()];
@@ -1368,7 +1400,7 @@ mod tests {
     }
 
     #[test]
-    fn dst1_all() {
+    fn dct1_all() {
         for i in 2usize..150 {
             let mut array = vec![0.; i];
             for i in 1..i + 1 {
@@ -1377,6 +1409,25 @@ mod tests {
             let mut working_array = array.clone();
             let dct_forward = Pxdct::make_dct1_f64(array.len()).unwrap();
             let naive_ref = naive_dct1(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst1_all() {
+        for i in 2usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst1_f64(array.len()).unwrap();
+            let naive_ref = naive_dst1(&array);
 
             dct_forward.execute(&mut working_array).unwrap();
 
