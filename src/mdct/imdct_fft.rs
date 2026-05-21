@@ -57,6 +57,7 @@
 
 //! Optimized IMDCT via an N/2-point complex FFT.
 
+use crate::mla::fmla;
 use crate::twiddles::FftTrigonometry;
 use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
@@ -155,21 +156,25 @@ where
             // r1, i1 from reference:
             //   r1 = r0*c + i0*s
             //   i1 = r0*s - i0*c
-            let r1 = r0 * c + i0 * s;
-            let i1 = r0 * s - i0 * c;
+            let r1 = fmla(r0, c, i0 * s);
+            let i1 = fmla(r0, s, -i0 * c);
 
             if nn < n2 {
                 // First-half fan-out (4 distinct slots in lower 3N/2 of output)
-                output[n32 - 1 - nn] = r1;
-                output[n32 + nn] = r1;
-                output[n2 + nn] = i1;
-                output[n2 - 1 - nn] = i1.neg();
+                unsafe {
+                    *output.get_unchecked_mut(n32 - 1 - nn) = r1;
+                    *output.get_unchecked_mut(n32 + nn) = r1;
+                    *output.get_unchecked_mut(n2 + nn) = i1;
+                    *output.get_unchecked_mut(n2 - 1 - nn) = i1.neg();
+                }
             } else {
                 // Second-half fan-out (wraps into both ends of the buffer)
-                output[n32 - 1 - nn] = r1;
-                output[nn - n2] = r1.neg();
-                output[n2 + nn] = i1;
-                output[n52 - 1 - nn] = i1;
+                unsafe {
+                    *output.get_unchecked_mut(n32 - 1 - nn) = r1;
+                    *output.get_unchecked_mut(nn - n2) = r1.neg();
+                    *output.get_unchecked_mut(n2 + nn) = i1;
+                    *output.get_unchecked_mut(n52 - 1 - nn) = i1;
+                }
             }
         }
     }
