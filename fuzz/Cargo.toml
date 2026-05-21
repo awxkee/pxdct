@@ -64,6 +64,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "type5"
+path = "type5/type5.rs"
+test = false
+doc = false
+bench = false
+
 [features]
 default = []
 avx = ["pxdct/avx"]

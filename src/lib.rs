@@ -59,6 +59,7 @@ mod two_dims;
 mod type1;
 mod type2;
 mod type4;
+mod type5;
 mod type6;
 mod type7;
 mod util;
@@ -806,6 +807,50 @@ impl Pxdct {
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
         use crate::type4::Dst4OverDct4;
         Ok(Arc::new(Dst4OverDct4::new(Pxdct::strategy_dct4(length)?)?))
+    }
+
+    /// Creates a single-precision (f32) DCT-V executor.
+    pub fn make_dct5_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type5::Dct5Fft;
+        Ok(Arc::new(Dct5Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DCT-V executor.
+    pub fn make_dct5_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type5::Dct5Fft;
+        Ok(Arc::new(Dct5Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) DST-V executor.
+    pub fn make_dst5_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type5::Dst5Fft;
+        Ok(Arc::new(Dst5Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DST-V executor.
+    pub fn make_dst5_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type5::Dst5Fft;
+        Ok(Arc::new(Dst5Fft::new(length)?))
     }
 
     /// Creates a single-precision (f32) DCT-VI executor.
@@ -1982,6 +2027,122 @@ mod tests {
 
             let dct_forward = Pxdct::make_dct6_f64(array.len()).unwrap();
             let naive_ref = naive_dct6(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    pub(crate) fn naive_dct5(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == 0 { 0.5 } else { 1.0 };
+                let cos_inner = (output_index as f64) * (input_index as f64) * std::f64::consts::PI
+                    / (input.len() as f64 - 0.5);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle * multiplier;
+            }
+            result.push(entry);
+        }
+
+        result
+    }
+
+    #[test]
+    fn dct5_all() {
+        for i in 1usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct5_f64(array.len()).unwrap();
+            let naive_ref = naive_dct5(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct5_all_into() {
+        for i in 1usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct5_f64(array.len()).unwrap();
+            let naive_ref = naive_dct5(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    pub(crate) fn naive_dst5(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f64 + 1.0) * (input_index as f64 + 1.0) * std::f64::consts::PI
+                        / (input.len() as f64 + 0.5);
+                let twiddle = sin_inner.sin();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    #[test]
+    fn dst5_all() {
+        for i in 1usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst5_f64(array.len()).unwrap();
+            let naive_ref = naive_dst5(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst5_all_into() {
+        for i in 1usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dst5_f64(array.len()).unwrap();
+            let naive_ref = naive_dst5(&array);
 
             dct_forward
                 .execute_into(&array, &mut working_array)
