@@ -26,8 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-mod imdct;
+mod imdct_fft;
 mod mdct_fft;
 
-pub(crate) use imdct::ImdctFft;
+pub(crate) use imdct_fft::ImdctFft;
 pub(crate) use mdct_fft::MdctFft;

@@ -243,24 +243,30 @@ impl DctPlan {
     /// -------
     /// None
     fn execute<'py>(&self, _py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<()> {
+        if self.is_out_of_place_only() {
+            return Err(PyValueError::new_err(format!(
+                "'{}' cannot be executed in-place (input and output sizes differ).                  Use execute_into(input, output) instead.",
+                self.kind
+            )));
+        }
         match &self.executor {
             Executor::F32(exec) => {
                 let arr = data
                     .cast::<PyArray1<f32>>()
                     .map_err(|_| PyValueError::new_err("Expected a 1-D float32 numpy array"))?;
                 self.check_len(arr.len())?;
-                let buf = unsafe { arr.as_slice_mut() }
+                let mut buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(buf).map_err(pxdct_err_to_py)
+                exec.execute(&mut buf).map_err(pxdct_err_to_py)
             }
             Executor::F64(exec) => {
                 let arr = data
                     .cast::<PyArray1<f64>>()
                     .map_err(|_| PyValueError::new_err("Expected a 1-D float64 numpy array"))?;
                 self.check_len(arr.len())?;
-                let buf = unsafe { arr.as_slice_mut() }
+                let mut buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(buf).map_err(pxdct_err_to_py)
+                exec.execute(&mut buf).map_err(pxdct_err_to_py)
             }
         }
     }
@@ -296,12 +302,20 @@ impl DctPlan {
         input: &Bound<'py, PyAny>,
         output: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let expected_in = self.input_len();
+        let expected_out = self.output_len();
+
         match &self.executor {
             Executor::F32(exec) => {
                 let src = input.cast::<PyArray1<f32>>().map_err(|_| {
                     PyValueError::new_err("Expected a 1-D float32 numpy array for input")
                 })?;
-                self.check_len(src.len())?;
+                if src.len() != expected_in {
+                    return Err(PyValueError::new_err(format!(
+                        "Plan expects input length {expected_in}, got {}",
+                        src.len()
+                    )));
+                }
                 let src_s = unsafe { src.as_slice() }
                     .map_err(|_| PyRuntimeError::new_err("Input must be C-contiguous"))?;
 
@@ -310,15 +324,22 @@ impl DctPlan {
                         let dst = out.cast::<PyArray1<f32>>().map_err(|_| {
                             PyValueError::new_err("Expected a 1-D float32 numpy array for output")
                         })?;
-                        self.check_len(dst.len())?;
-                        let dst_s = unsafe { dst.as_slice_mut() }
+                        if dst.len() != expected_out {
+                            return Err(PyValueError::new_err(format!(
+                                "Plan expects output length {expected_out}, got {}",
+                                dst.len()
+                            )));
+                        }
+                        let mut dst_s = unsafe { dst.as_slice_mut() }
                             .map_err(|_| PyRuntimeError::new_err("Output must be C-contiguous"))?;
-                        exec.execute_into(src_s, dst_s).map_err(pxdct_err_to_py)?;
+                        exec.execute_into(src_s, &mut dst_s)
+                            .map_err(pxdct_err_to_py)?;
                         Ok(out.clone().into_any())
                     }
                     None => {
-                        let mut buf = src_s.to_vec();
-                        exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
+                        let mut buf = vec![0f32; expected_out];
+                        exec.execute_into(src_s, &mut buf)
+                            .map_err(pxdct_err_to_py)?;
                         Ok(PyArray1::from_vec(py, buf).into_any())
                     }
                 }
@@ -327,7 +348,12 @@ impl DctPlan {
                 let src = input.cast::<PyArray1<f64>>().map_err(|_| {
                     PyValueError::new_err("Expected a 1-D float64 numpy array for input")
                 })?;
-                self.check_len(src.len())?;
+                if src.len() != expected_in {
+                    return Err(PyValueError::new_err(format!(
+                        "Plan expects input length {expected_in}, got {}",
+                        src.len()
+                    )));
+                }
                 let src_s = unsafe { src.as_slice() }
                     .map_err(|_| PyRuntimeError::new_err("Input must be C-contiguous"))?;
 
@@ -336,15 +362,22 @@ impl DctPlan {
                         let dst = out.cast::<PyArray1<f64>>().map_err(|_| {
                             PyValueError::new_err("Expected a 1-D float64 numpy array for output")
                         })?;
-                        self.check_len(dst.len())?;
-                        let dst_s = unsafe { dst.as_slice_mut() }
+                        if dst.len() != expected_out {
+                            return Err(PyValueError::new_err(format!(
+                                "Plan expects output length {expected_out}, got {}",
+                                dst.len()
+                            )));
+                        }
+                        let mut dst_s = unsafe { dst.as_slice_mut() }
                             .map_err(|_| PyRuntimeError::new_err("Output must be C-contiguous"))?;
-                        exec.execute_into(src_s, dst_s).map_err(pxdct_err_to_py)?;
+                        exec.execute_into(src_s, &mut dst_s)
+                            .map_err(pxdct_err_to_py)?;
                         Ok(out.clone().into_any())
                     }
                     None => {
-                        let mut buf = src_s.to_vec();
-                        exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
+                        let mut buf = vec![0f64; expected_out];
+                        exec.execute_into(src_s, &mut buf)
+                            .map_err(pxdct_err_to_py)?;
                         Ok(PyArray1::from_vec(py, buf).into_any())
                     }
                 }
@@ -363,6 +396,27 @@ impl DctPlan {
         } else {
             Ok(())
         }
+    }
+
+    /// Expected input array length (differs from `self.length` for MDCT).
+    fn input_len(&self) -> usize {
+        match self.kind.to_ascii_lowercase().as_str() {
+            "mdct" => self.length * 2, // input block is 2*N
+            _ => self.length,
+        }
+    }
+
+    /// Expected output array length (differs from `self.length` for IMDCT).
+    fn output_len(&self) -> usize {
+        match self.kind.to_ascii_lowercase().as_str() {
+            "imdct" => self.length * 2, // output block is 2*N
+            _ => self.length,
+        }
+    }
+
+    /// Whether the transform is inherently out-of-place (MDCT / IMDCT).
+    fn is_out_of_place_only(&self) -> bool {
+        matches!(self.kind.to_ascii_lowercase().as_str(), "mdct" | "imdct")
     }
 }
 
@@ -468,9 +522,9 @@ impl DctPlan2D {
                         arr.len()
                     )));
                 }
-                let buf = unsafe { arr.as_slice_mut() }
+                let mut buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(buf).map_err(pxdct_err_to_py)
+                exec.execute(&mut buf).map_err(pxdct_err_to_py)
             }
             Dct2DInner::F64(exec) => {
                 let arr = data
@@ -485,9 +539,9 @@ impl DctPlan2D {
                         arr.len()
                     )));
                 }
-                let buf = unsafe { arr.as_slice_mut() }
+                let mut buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(buf).map_err(pxdct_err_to_py)
+                exec.execute(&mut buf).map_err(pxdct_err_to_py)
             }
         }
     }
@@ -515,28 +569,79 @@ fn dct<'py>(
     dtype: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
     let key = parse_kind(kind)?;
+
+    // MDCT/IMDCT are inherently out-of-place: input and output lengths differ.
+    // For MDCT:  plan(n), input = 2n, output = n.
+    // For IMDCT: plan(n), input = n,  output = 2n.
+    // The plan length is inferred from the *input* array: n = len for IMDCT,
+    // n = len/2 for MDCT.
+    let is_mdct = key == "mdct";
+    let is_imdct = key == "imdct";
+
     match dtype {
         "f32" | "float32" => {
             let arr = data.call_method1("astype", ("float32",))?;
             let arr = arr.cast::<PyArray1<f32>>().map_err(|_| {
                 PyValueError::new_err("Could not interpret data as 1-D float32 array")
             })?;
-            let n = arr.len();
-            let exec = build_executor_f32(key, n)?;
-            let mut buf: Vec<f32> = unsafe { arr.as_slice()? }.to_vec();
-            exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
-            Ok(PyArray1::from_vec(py, buf).into_any())
+            let in_len = arr.len();
+            let buf_in: Vec<f32> = unsafe { arr.as_slice()? }.to_vec();
+
+            if is_mdct {
+                if in_len % 2 != 0 {
+                    return Err(PyValueError::new_err("MDCT input length must be even"));
+                }
+                let n = in_len / 2;
+                let exec = build_executor_f32(key, n)?;
+                let mut buf_out = vec![0f32; n];
+                exec.execute_into(&buf_in, &mut buf_out)
+                    .map_err(pxdct_err_to_py)?;
+                Ok(PyArray1::from_vec(py, buf_out).into_any())
+            } else if is_imdct {
+                let n = in_len;
+                let exec = build_executor_f32(key, n)?;
+                let mut buf_out = vec![0f32; n * 2];
+                exec.execute_into(&buf_in, &mut buf_out)
+                    .map_err(pxdct_err_to_py)?;
+                Ok(PyArray1::from_vec(py, buf_out).into_any())
+            } else {
+                let exec = build_executor_f32(key, in_len)?;
+                let mut buf = buf_in;
+                exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
+                Ok(PyArray1::from_vec(py, buf).into_any())
+            }
         }
         "f64" | "float64" => {
             let arr = data.call_method1("astype", ("float64",))?;
             let arr = arr.cast::<PyArray1<f64>>().map_err(|_| {
                 PyValueError::new_err("Could not interpret data as 1-D float64 array")
             })?;
-            let n = arr.len();
-            let exec = build_executor_f64(key, n)?;
-            let mut buf: Vec<f64> = unsafe { arr.as_slice()? }.to_vec();
-            exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
-            Ok(PyArray1::from_vec(py, buf).into_any())
+            let in_len = arr.len();
+            let buf_in: Vec<f64> = unsafe { arr.as_slice()? }.to_vec();
+
+            if is_mdct {
+                if in_len % 2 != 0 {
+                    return Err(PyValueError::new_err("MDCT input length must be even"));
+                }
+                let n = in_len / 2;
+                let exec = build_executor_f64(key, n)?;
+                let mut buf_out = vec![0f64; n];
+                exec.execute_into(&buf_in, &mut buf_out)
+                    .map_err(pxdct_err_to_py)?;
+                Ok(PyArray1::from_vec(py, buf_out).into_any())
+            } else if is_imdct {
+                let n = in_len;
+                let exec = build_executor_f64(key, n)?;
+                let mut buf_out = vec![0f64; n * 2];
+                exec.execute_into(&buf_in, &mut buf_out)
+                    .map_err(pxdct_err_to_py)?;
+                Ok(PyArray1::from_vec(py, buf_out).into_any())
+            } else {
+                let exec = build_executor_f64(key, in_len)?;
+                let mut buf = buf_in;
+                exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
+                Ok(PyArray1::from_vec(py, buf).into_any())
+            }
         }
         other => Err(PyValueError::new_err(format!("Unknown dtype '{other}'"))),
     }
