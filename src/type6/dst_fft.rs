@@ -27,27 +27,56 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * // Copyright (c) Radzivon Bartoshyk 5/2026. All rights reserved.
+ * //
+ * // Redistribution and use in source and binary forms, with or without modification,
+ * // are permitted provided that the following conditions are met:
+ * //
+ * // 1.  Redistributions of source code must retain the above copyright notice, this
+ * // list of conditions and the following disclaimer.
+ * //
+ * // 2.  Redistributions in binary form must reproduce the above copyright notice,
+ * // this list of conditions and the following disclaimer in the documentation
+ * // and/or other materials provided with the distribution.
+ * //
+ * // 3.  Neither the name of the copyright holder nor the names of its
+ * // contributors may be used to endorse or promote products derived from
+ * // this software without specific prior written permission.
+ * //
+ * // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * // IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * // DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * // FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * // DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * // SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
 use zaft::R2CFftExecutor;
 
-pub(crate) struct Dst7Fft<T> {
+pub(crate) struct Dst6Fft<T> {
     fft_executor: Arc<dyn R2CFftExecutor<T> + Send + Sync>,
     execution_length: usize,
     fft_scratch_size: usize,
 }
 
-impl<T: DctSample> Dst7Fft<T>
+impl<T: DctSample> Dst6Fft<T>
 where
     f64: AsPrimitive<T>,
 {
-    pub(crate) fn new(len: usize) -> Result<Dst7Fft<T>, PxdctError> {
+    pub(crate) fn new(len: usize) -> Result<Dst6Fft<T>, PxdctError> {
         let fft_size = 2 * len + 1;
         let inner_fft = T::make_fft_r2c(fft_size)?;
         let fft_scratch_size = inner_fft.complex_scratch_length();
-        Ok(Dst7Fft {
+        Ok(Dst6Fft {
             fft_executor: inner_fft,
             fft_scratch_size,
             execution_length: len,
@@ -55,7 +84,7 @@ where
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dst7Fft<T>
+impl<T: DctSample> PxdctExecutor<T> for Dst6Fft<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -74,7 +103,7 @@ where
 
         let n = self.execution_length;
         let fft_size = 2 * n + 1;
-        let complex_len = fft_size / 2 + 1;
+        let complex_len = fft_size / 2 + 1; // = N+1
 
         let full_scratch = validate_scratch!(scratch, self.scratch_size());
         let (scratch_real, rem_scratch) = full_scratch.split_at_mut(fft_size);
@@ -83,45 +112,32 @@ where
         let scratch_fft = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
 
         for chunk in data.chunks_exact_mut(n) {
+            // Odd-symmetric real sequence configuration
             scratch_real[0] = T::zero();
-
-            // Map odd-indexed sequence elements
-            for (i, &src) in chunk.iter().skip(1).step_by(2).enumerate() {
-                let l = i + 1;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
-
-            // Map even-indexed sequence elements
-            for (i, &src) in chunk.iter().step_by(2).enumerate() {
-                let l = n - i;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
+            scratch_real[1..=n]
+                .iter_mut()
+                .zip(chunk.iter().rev())
+                .for_each(|(dst, &src)| *dst = src.neg());
+            scratch_real[n + 1..]
+                .iter_mut()
+                .zip(chunk.iter())
+                .for_each(|(dst, &src)| *dst = src);
 
             self.fft_executor
                 .execute_with_scratch(scratch_real, scratch_complex, scratch_fft)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?;
 
-            let half = n.div_ceil(2); // number of iterations where idx <= n
-
-            for (k, dst) in chunk[..half].iter_mut().enumerate() {
-                let idx = 2 * k + 1;
-                unsafe {
-                    *dst = scratch_complex.get_unchecked(idx).im * T::HALF;
-                }
-            }
-
-            for (k, dst) in chunk[half..].iter_mut().enumerate() {
-                let idx = 2 * (k + half) + 1;
-                unsafe {
-                    *dst = scratch_complex.get_unchecked(fft_size - idx).im * -T::HALF;
-                }
-            }
+            chunk
+                .iter_mut()
+                .zip(scratch_complex[1..=n].iter())
+                .enumerate()
+                .for_each(|(k, (dst, c))| {
+                    *dst = if k % 2 == 1 {
+                        c.im * -T::HALF
+                    } else {
+                        c.im * T::HALF
+                    };
+                });
         }
 
         Ok(())
@@ -153,44 +169,29 @@ where
 
         for (src, dst) in input.chunks_exact(n).zip(output.chunks_exact_mut(n)) {
             scratch_real[0] = T::zero();
-
-            // Map odd-indexed sequence elements
-            for (i, &src) in src.iter().skip(1).step_by(2).enumerate() {
-                let l = i + 1;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
-
-            // Map even-indexed sequence elements
-            for (i, &src) in src.iter().step_by(2).enumerate() {
-                let l = n - i;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
+            scratch_real[1..=n]
+                .iter_mut()
+                .zip(src.iter().rev())
+                .for_each(|(dst, &src)| *dst = src.neg());
+            scratch_real[n + 1..]
+                .iter_mut()
+                .zip(src.iter())
+                .for_each(|(dst, &src)| *dst = src);
 
             self.fft_executor
                 .execute_with_scratch(scratch_real, scratch_complex, scratch_fft)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?;
 
-            let half = n.div_ceil(2); // number of iterations where idx <= n
-
-            for (k, dst) in dst[..half].iter_mut().enumerate() {
-                let idx = 2 * k + 1;
-                unsafe {
-                    *dst = scratch_complex.get_unchecked(idx).im * T::HALF;
-                }
-            }
-
-            for (k, dst) in dst[half..].iter_mut().enumerate() {
-                let idx = 2 * (k + half) + 1;
-                unsafe {
-                    *dst = scratch_complex.get_unchecked(fft_size - idx).im * -T::HALF;
-                }
-            }
+            dst.iter_mut()
+                .zip(scratch_complex[1..=n].iter())
+                .enumerate()
+                .for_each(|(k, (dst, c))| {
+                    *dst = if k % 2 == 1 {
+                        c.im * -T::HALF
+                    } else {
+                        c.im * T::HALF
+                    };
+                });
         }
 
         Ok(())
@@ -209,15 +210,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Dst7Fft;
+    use super::Dst6Fft;
     use crate::PxdctExecutor;
-    use crate::tests::naive_dst7;
+    use crate::tests::naive_dst6;
 
     #[test]
-    fn test_dst7_size2() {
+    fn test_dst6_size2() {
         let mut array = vec![1.0f64, 3.0];
-        let dst = Dst7Fft::<f64>::new(array.len()).unwrap();
-        let control = naive_dst7(&array);
+        let dst = Dst6Fft::<f64>::new(array.len()).unwrap();
+        let control = naive_dst6(&array);
         dst.execute(&mut array).unwrap();
         array
             .iter()
@@ -229,10 +230,10 @@ mod tests {
     }
 
     #[test]
-    fn test_dst7_size7() {
+    fn test_dst6_size7() {
         let mut array = vec![1., 2., 3., 4., 5., 6., 7.];
-        let dst = Dst7Fft::<f64>::new(array.len()).unwrap();
-        let control = naive_dst7(&array);
+        let dst = Dst6Fft::<f64>::new(array.len()).unwrap();
+        let control = naive_dst6(&array);
         dst.execute(&mut array).unwrap();
         array
             .iter()
@@ -244,10 +245,10 @@ mod tests {
     }
 
     #[test]
-    fn test_dst7_size14() {
+    fn test_dst6_size14() {
         let mut array: Vec<f64> = (1..=14).map(|x| x as f64).collect();
-        let dst = Dst7Fft::<f64>::new(array.len()).unwrap();
-        let control = naive_dst7(&array);
+        let dst = Dst6Fft::<f64>::new(array.len()).unwrap();
+        let control = naive_dst6(&array);
         dst.execute(&mut array).unwrap();
         array
             .iter()
@@ -259,11 +260,11 @@ mod tests {
     }
 
     #[test]
-    fn test_dst7_into_size7() {
+    fn test_dst6_into_size7() {
         let input = vec![1., 2., 3., 4., 5., 6., 7.];
         let mut output = vec![0.0f64; 7];
-        let dst = Dst7Fft::<f64>::new(input.len()).unwrap();
-        let control = naive_dst7(&input);
+        let dst = Dst6Fft::<f64>::new(input.len()).unwrap();
+        let control = naive_dst6(&input);
         dst.execute_into(&input, &mut output).unwrap();
         output
             .iter()

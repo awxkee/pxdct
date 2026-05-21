@@ -33,17 +33,17 @@ use num_traits::AsPrimitive;
 use std::sync::Arc;
 use zaft::R2CFftExecutor;
 
-pub(crate) struct Dct7Fft<T> {
+pub(crate) struct Dct6Fft<T> {
     fft_executor: Arc<dyn R2CFftExecutor<T> + Send + Sync>,
     execution_length: usize,
     fft_scratch_size: usize,
 }
 
-impl<T: DctSample> Dct7Fft<T>
+impl<T: DctSample> Dct6Fft<T>
 where
     f64: AsPrimitive<T>,
 {
-    pub(crate) fn new(len: usize) -> Result<Dct7Fft<T>, PxdctError> {
+    pub(crate) fn new(len: usize) -> Result<Dct6Fft<T>, PxdctError> {
         if len == 0 {
             return Err(PxdctError::InvalidSizeMultiplier(0, 0));
         }
@@ -52,34 +52,41 @@ where
         let fft_size = if len == 1 { 2 } else { 4 * len - 2 };
         let inner_fft = T::make_fft_r2c(fft_size)?;
         let fft_scratch_size = inner_fft.complex_scratch_length();
-        Ok(Dct7Fft {
+        Ok(Dct6Fft {
             fft_executor: inner_fft,
             fft_scratch_size,
             execution_length: len,
         })
     }
 
-    /// Build the length-L = 4N-2 real, half-period-antisymmetric input for the DFT.
+    /// Build the length-L = 4N-2 real, even-symmetric input for the DFT.
     ///
-    /// Called only when N >= 2 (caller guarantees this).
+    /// Layout:
+    ///     y_{2n+1}      = x_n          for n = 0 .. N-1   (odd indices 1, 3, ..., 2N-1)
+    ///     y_{L - (2n+1)} = x_n         for n = 0 .. N-2   (mirror; n = N-1 is self-mirrored)
+    ///     all other indices            = 0
+    ///
     fn build_scratch(scratch_real: &mut [T], chunk: &[T]) {
         let n = chunk.len();
         debug_assert!(n >= 2);
-        let l = 4 * n - 2; // L
-        let h = 2 * n - 1; // L / 2
-
+        let l = 4 * n - 2; // L = 2M = 4N - 2
         scratch_real[..l].fill(T::zero());
 
-        scratch_real[0] = chunk[0] * T::HALF;
-        scratch_real[1..n].copy_from_slice(&chunk[1..n]);
-
-        // Antisymmetric half-period extension: y_{m + H} = -y_m for m = 0..H-1.
-        // Only m = 0..N-1 has nonzero source, so loop just that range.
-        let (left, right) = scratch_real.split_at_mut(h);
-        right[..n]
-            .iter_mut()
-            .zip(left[..n].iter())
-            .for_each(|(dst, src)| *dst = src.neg());
+        // x_n at index 2n+1, mirrored to L - (2n+1) = 4N - 3 - 2n.
+        // For n = N-1: 2n+1 = 2N-1 = M, and L - M = M, so the slot is self-mirrored;
+        // writing only the forward slot is correct (matches the once-only Nyquist term).
+        for (i, &v) in chunk.iter().enumerate() {
+            let pos = 2 * i + 1;
+            unsafe {
+                *scratch_real.get_unchecked_mut(pos) = v;
+            }
+            if i + 1 != n {
+                // Equivalent to `pos != l - pos`, i.e. not the self-mirrored index.
+                unsafe {
+                    *scratch_real.get_unchecked_mut(l - pos) = v;
+                }
+            }
+        }
     }
 
     fn trivial_inplace(data: &mut [T]) {
@@ -95,7 +102,7 @@ where
     }
 }
 
-impl<T: DctSample> PxdctExecutor<T> for Dct7Fft<T>
+impl<T: DctSample> PxdctExecutor<T> for Dct6Fft<T>
 where
     f64: AsPrimitive<T>,
 {
@@ -114,13 +121,14 @@ where
 
         let n = self.execution_length;
 
+        // N == 1 closed form: X_0 = 0.5 * x_0.
         if n == 1 {
             Self::trivial_inplace(data);
             return Ok(());
         }
 
         let fft_size = 4 * n - 2;
-        let complex_len = fft_size / 2 + 1; // = 2N
+        let complex_len = fft_size / 2 + 1; // = 2N - 1 + 1 = 2N
 
         let full_scratch = validate_scratch!(scratch, self.scratch_size());
         let (scratch_real, rem_scratch) = full_scratch.split_at_mut(fft_size);
@@ -135,10 +143,11 @@ where
                 .execute_with_scratch(scratch_real, scratch_complex, scratch_fft)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?;
 
-            chunk
-                .iter_mut()
-                .zip(scratch_complex.iter().skip(1).step_by(2))
-                .for_each(|(dst, src)| *dst = src.re * T::HALF);
+            // X_k = Re(Y_k) / 2 for k = 0..N-1. The R2C output has complex_len = 2N
+            // bins, so we just read the first N. No folding required.
+            for (d, c) in chunk.iter_mut().zip(scratch_complex.iter()) {
+                *d = c.re * T::HALF;
+            }
         }
 
         Ok(())
@@ -181,9 +190,9 @@ where
                 .execute_with_scratch(scratch_real, scratch_complex, scratch_fft)
                 .map_err(|x| PxdctError::FftError(x.to_string()))?;
 
-            dst.iter_mut()
-                .zip(scratch_complex.iter().skip(1).step_by(2))
-                .for_each(|(dst, src)| *dst = src.re * T::HALF);
+            for (d, c) in dst.iter_mut().zip(scratch_complex.iter()) {
+                *d = c.re * T::HALF;
+            }
         }
 
         Ok(())
@@ -195,7 +204,6 @@ where
 
     fn scratch_size(&self) -> usize {
         if self.execution_length == 1 {
-            // Trivial path doesn't read scratch; return 1 to keep allocators happy.
             return 0;
         }
         let fft_size = 4 * self.execution_length - 2;
@@ -206,15 +214,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::Dct7Fft;
+    use super::Dct6Fft;
     use crate::PxdctExecutor;
-    use crate::tests::naive_dct7;
+    use crate::tests::naive_dct6;
 
     fn run_case(n: usize, tol: f64) {
         let array: Vec<f64> = (1..=n).map(|x| x as f64).collect();
         let mut working = array.clone();
-        let dct = Dct7Fft::<f64>::new(n).unwrap();
-        let control = naive_dct7(&array);
+        let dct = Dct6Fft::<f64>::new(n).unwrap();
+        let control = naive_dct6(&array);
         dct.execute(&mut working).unwrap();
         for (i, (&x, &c)) in working.iter().zip(control.iter()).enumerate() {
             assert!(
@@ -225,31 +233,31 @@ mod tests {
     }
 
     #[test]
-    fn test_dct7_size1() {
+    fn test_dct6_size1() {
         run_case(1, 1e-12);
     }
 
     #[test]
-    fn test_dct7_size2() {
+    fn test_dct6_size2() {
         run_case(2, 1e-9);
     }
 
     #[test]
-    fn test_dct7_size7() {
+    fn test_dct6_size7() {
         run_case(7, 1e-9);
     }
 
     #[test]
-    fn test_dct7_size14() {
+    fn test_dct6_size14() {
         run_case(14, 1e-9);
     }
 
     #[test]
-    fn test_dct7_into_size7() {
+    fn test_dct6_into_size7() {
         let input: Vec<f64> = (1..=7).map(|x| x as f64).collect();
         let mut output = vec![0.0f64; 7];
-        let dct = Dct7Fft::<f64>::new(input.len()).unwrap();
-        let control = naive_dct7(&input);
+        let dct = Dct6Fft::<f64>::new(input.len()).unwrap();
+        let control = naive_dct6(&input);
         dct.execute_into(&input, &mut output).unwrap();
         for (i, (&x, &c)) in output.iter().zip(control.iter()).enumerate() {
             assert!((x - c).abs() < 1e-9, "index {i}: got {x}, expected {c}");
@@ -257,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dct7_all_sizes() {
+    fn test_dct6_all_sizes() {
         for n in 1..150 {
             run_case(n, 1e-7);
         }

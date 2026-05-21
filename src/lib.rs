@@ -59,6 +59,7 @@ mod two_dims;
 mod type1;
 mod type2;
 mod type4;
+mod type6;
 mod type7;
 mod util;
 
@@ -807,6 +808,50 @@ impl Pxdct {
         Ok(Arc::new(Dst4OverDct4::new(Pxdct::strategy_dct4(length)?)?))
     }
 
+    /// Creates a single-precision (f32) DCT-VI executor.
+    pub fn make_dct6_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type6::Dct6Fft;
+        Ok(Arc::new(Dct6Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DCT-VI executor.
+    pub fn make_dct6_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type6::Dct6Fft;
+        Ok(Arc::new(Dct6Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) DST-VI executor.
+    pub fn make_dst6_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type6::Dst6Fft;
+        Ok(Arc::new(Dst6Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DST-VI executor.
+    pub fn make_dst6_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type6::Dst6Fft;
+        Ok(Arc::new(Dst6Fft::new(length)?))
+    }
+
     /// Creates a single-precision (f32) DST-VII executor.
     pub fn make_dst7_f32(
         length: usize,
@@ -829,7 +874,7 @@ impl Pxdct {
         Ok(Arc::new(Dst7Fft::new(length)?))
     }
 
-    /// Creates a single-precision (f32) DST-VII executor.
+    /// Creates a single-precision (f32) DCT-VII executor.
     pub fn make_dct7_f32(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
@@ -840,7 +885,7 @@ impl Pxdct {
         Ok(Arc::new(Dct7Fft::new(length)?))
     }
 
-    /// Creates a double-precision (f64) DST-VII executor.
+    /// Creates a double-precision (f64) DCT-VII executor.
     pub fn make_dct7_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
@@ -1139,38 +1184,54 @@ mod tests {
         output
     }
 
-    pub(crate) fn naive_dst7(input: &[f64]) -> Vec<f64> {
+    pub(crate) fn naive_dst6(input: &[f64]) -> Vec<f64> {
         let n = input.len();
-        (0..n)
-            .map(|k| {
-                input
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &x)| {
-                        let angle = std::f64::consts::PI * (2 * i + 1) as f64 * (k + 1) as f64
-                            / (2 * n + 1) as f64;
-                        x * angle.sin()
-                    })
-                    .sum()
-            })
-            .collect()
+        let mut result = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut entry = 0.0;
+            for i in 0..n {
+                let sin_inner = (k as f64 + 1.0) * (2.0 * i as f64 + 1.0) * std::f64::consts::PI
+                    / (2.0 * n as f64 + 1.0);
+                entry += input[i] * sin_inner.sin();
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst7(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f64 + 0.5) * (input_index as f64 + 1.0) * std::f64::consts::PI
+                        / (input.len() as f64 + 0.5);
+                let twiddle = sin_inner.sin();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+        result
     }
 
     pub(crate) fn naive_dct7(input: &[f64]) -> Vec<f64> {
-        let n = input.len();
-        (0..n)
-            .map(|k| {
-                input
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &x)| {
-                        let angle = (k as f64 + 0.5) * (i as f64 + 1.0) * std::f64::consts::PI
-                            / (n as f64 + 0.5);
-                        x * angle.cos()
-                    })
-                    .sum()
-            })
-            .collect()
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == 0 { 0.5 } else { 1.0 };
+                let cos_inner =
+                    (output_index as f64 + 0.5) * (input_index as f64) * std::f64::consts::PI
+                        / (input.len() as f64 - 0.5);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle * multiplier;
+            }
+            result.push(entry);
+        }
+
+        result
     }
 
     #[test]
@@ -1816,6 +1877,111 @@ mod tests {
 
             let dct_forward = Pxdct::make_dst4_f64(array.len()).unwrap();
             let naive_ref = naive_dst4(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst6_all() {
+        for i in 2usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst6_f64(array.len()).unwrap();
+            let naive_ref = naive_dst6(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst6_all_into() {
+        for i in 2usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dst6_f64(array.len()).unwrap();
+            let naive_ref = naive_dst6(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    pub(crate) fn naive_dct6(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == input.len() - 1 {
+                    0.5
+                } else {
+                    1.0
+                };
+                let cos_inner =
+                    (output_index as f64) * (input_index as f64 + 0.5) * std::f64::consts::PI
+                        / (input.len() as f64 - 0.5);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle * multiplier;
+            }
+            result.push(entry);
+        }
+
+        result
+    }
+
+    #[test]
+    fn dct6_all() {
+        for i in 1usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct6_f64(array.len()).unwrap();
+            let naive_ref = naive_dct6(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct6_all_into() {
+        for i in 1usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct6_f64(array.len()).unwrap();
+            let naive_ref = naive_dct6(&array);
 
             dct_forward
                 .execute_into(&array, &mut working_array)
