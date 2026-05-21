@@ -57,6 +57,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "type6"
+path = "type6/type6.rs"
+test = false
+doc = false
+bench = false
+
 [features]
 default = []
 avx = ["pxdct/avx"]
