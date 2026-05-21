@@ -62,6 +62,7 @@ mod type4;
 mod type5;
 mod type6;
 mod type7;
+mod type8;
 mod util;
 
 use crate::dct3::SplitRadixDst3;
@@ -755,10 +756,7 @@ impl Pxdct {
             return T::dct4_mixed_radix2(length, Pxdct::dct2_strategy(half_length)?);
         }
 
-        T::dct4_fft_odd(
-            T::make_fft(length, FftDirection::Forward)
-                .map_err(|x| PxdctError::FftError(x.to_string()))?,
-        )
+        T::dct4_fft_odd(T::make_fft_r2c(length).map_err(|x| PxdctError::FftError(x.to_string()))?)
     }
 
     /// Creates a single-precision (f32) DCT-IV executor.
@@ -939,6 +937,50 @@ impl Pxdct {
         }
         use crate::type7::Dct7Fft;
         Ok(Arc::new(Dct7Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) DST-VIII executor.
+    pub fn make_dst8_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type8::Dst8Fft;
+        Ok(Arc::new(Dst8Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DST-VIII executor.
+    pub fn make_dst8_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type8::Dst8Fft;
+        Ok(Arc::new(Dst8Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) DST-VIII executor.
+    pub fn make_dct8_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type8::Dct8Fft;
+        Ok(Arc::new(Dct8Fft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) DCT-VIII executor.
+    pub fn make_dct8_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        use crate::type8::Dct8Fft;
+        Ok(Arc::new(Dct8Fft::new(length)?))
     }
 
     /// Creates 2D DCT executor.
@@ -2143,6 +2185,129 @@ mod tests {
 
             let dct_forward = Pxdct::make_dst5_f64(array.len()).unwrap();
             let naive_ref = naive_dst5(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    pub(crate) fn naive_dst8(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == input.len() - 1 {
+                    0.5
+                } else {
+                    1.0
+                };
+                let sin_inner =
+                    (output_index as f64 + 0.5) * (input_index as f64 + 0.5) * std::f64::consts::PI
+                        / (input.len() as f64 - 0.5);
+                let twiddle = sin_inner.sin();
+                entry += input[input_index] * twiddle * multiplier;
+            }
+            result.push(entry);
+        }
+
+        result
+    }
+
+    #[test]
+    fn dst8_all() {
+        for i in 1usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dst8_f64(array.len()).unwrap();
+            let naive_ref = naive_dst8(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dst8_all_into() {
+        for i in 1usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dst8_f64(array.len()).unwrap();
+            let naive_ref = naive_dst8(&array);
+
+            dct_forward
+                .execute_into(&array, &mut working_array)
+                .unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    pub(crate) fn naive_dct8(input: &[f64]) -> Vec<f64> {
+        let mut result = Vec::new();
+
+        for output_index in 0..input.len() {
+            let mut entry = 0.0;
+            for input_index in 0..input.len() {
+                let cos_inner =
+                    (output_index as f64 + 0.5) * (input_index as f64 + 0.5) * std::f64::consts::PI
+                        / (input.len() as f64 + 0.5);
+                let twiddle = cos_inner.cos();
+                entry += input[input_index] * twiddle;
+            }
+            result.push(entry);
+        }
+
+        result
+    }
+
+    #[test]
+    fn dct8_all() {
+        for i in 1usize..150 {
+            let mut array = vec![0.; i];
+            for i in 1..i + 1 {
+                array[i - 1] = i as f64;
+            }
+            let mut working_array = array.clone();
+            let dct_forward = Pxdct::make_dct8_f64(array.len()).unwrap();
+            let naive_ref = naive_dct8(&array);
+
+            dct_forward.execute(&mut working_array).unwrap();
+
+            working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
+                assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 0.01 when it shouldn't, value {x}, control {c} at {k} for size {i}");
+            });
+        }
+    }
+
+    #[test]
+    fn dct8_all_into() {
+        for i in 1usize..150 {
+            let mut array = vec![0f64; i];
+            for j in 1..i + 1 {
+                array[j - 1] = j as f64;
+            }
+            let mut working_array = vec![0f64; i];
+
+            let dct_forward = Pxdct::make_dct8_f64(array.len()).unwrap();
+            let naive_ref = naive_dct8(&array);
 
             dct_forward
                 .execute_into(&array, &mut working_array)

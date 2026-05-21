@@ -37,7 +37,7 @@ use crate::type4::{
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 use crate::util::has_valid_avx;
 use std::sync::{Arc, OnceLock};
-use zaft::FftExecutor;
+use zaft::{FftExecutor, R2CFftExecutor};
 
 pub(crate) trait Dct4Factory {
     fn dct4_radix2(
@@ -80,7 +80,7 @@ pub(crate) trait Dct4Factory {
         len: usize,
         half_dct4: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self>;
-    fn dct4_fft_odd(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self>;
+    fn dct4_fft_odd(fft: Arc<dyn R2CFftExecutor<Self> + Send + Sync>) -> Returning<Self>;
     fn dct4_fft_even(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self>;
     fn dct4_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
     fn dct4_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
@@ -322,7 +322,7 @@ impl Dct4Factory for f32 {
         }
     }
 
-    fn dct4_fft_odd(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
+    fn dct4_fft_odd(fft: Arc<dyn R2CFftExecutor<Self> + Send + Sync>) -> Returning<Self> {
         Ok(Arc::new(Dct4Fft::new(fft)))
     }
 
@@ -799,7 +799,7 @@ impl Dct4Factory for f64 {
         }
     }
 
-    fn dct4_fft_odd(fft: Arc<dyn FftExecutor<Self> + Send + Sync>) -> Returning<Self> {
+    fn dct4_fft_odd(fft: Arc<dyn R2CFftExecutor<Self> + Send + Sync>) -> Returning<Self> {
         Ok(Arc::new(Dct4Fft::new(fft)))
     }
 

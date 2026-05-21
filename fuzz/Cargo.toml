@@ -71,6 +71,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "type8"
+path = "type8/type8.rs"
+test = false
+doc = false
+bench = false
+
 [features]
 default = []
 avx = ["pxdct/avx"]
