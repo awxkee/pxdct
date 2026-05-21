@@ -31,25 +31,20 @@ use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;
 use num_traits::AsPrimitive;
 use std::sync::Arc;
-use zaft::{FftDirection, FftExecutor};
+use zaft::R2CFftExecutor;
 
-pub struct Dct4Fft<T> {
-    fft_executor: Arc<dyn FftExecutor<T> + Send + Sync>,
+pub(crate) struct Dct4Fft<T> {
+    fft_executor: Arc<dyn R2CFftExecutor<T> + Send + Sync>,
     fft_scratch_size: usize,
     execution_length: usize,
 }
 
 impl<T: DctSample> Dct4Fft<T> {
-    /// Creates a new DCT4 context that will process signals of length `inner_fft.len()`. `inner_fft.len()` must be odd.
-    pub fn new(fft_executor: Arc<dyn FftExecutor<T> + Send + Sync>) -> Self {
-        assert_eq!(
-            fft_executor.direction(),
-            FftDirection::Forward,
-            "Dct4Odd requires a forward FFT, but an inverse FFT was provided"
-        );
-
-        let len = fft_executor.length();
-        let fft_scratch_size = fft_executor.scratch_length();
+    /// Creates a new DCT4 context that will process signals of length `inner_fft.len()`.
+    /// `inner_fft.len()` must be odd.
+    pub fn new(fft_executor: Arc<dyn R2CFftExecutor<T> + Send + Sync>) -> Self {
+        let len = fft_executor.real_length();
+        let fft_scratch_size = fft_executor.complex_scratch_length();
 
         assert!(
             !len.is_multiple_of(2),
@@ -62,6 +57,79 @@ impl<T: DctSample> Dct4Fft<T> {
             fft_executor,
             fft_scratch_size,
         }
+    }
+
+    /// Fills `real_buf` (length N) with the permuted/signed real sequence,
+    /// runs the R2C FFT into `spectrum` (length N/2+1), then reconstructs
+    /// the full N-point complex spectrum in `scratch` via Hermitian symmetry.
+    fn run_r2c(
+        &self,
+        src: &[T],
+        real_buf: &mut [T],          // length N
+        spectrum: &mut [Complex<T>], // length N/2 + 1  (R2C output)
+        full: &mut [Complex<T>],     // length N        (reconstructed)
+        fft_scratch: &mut [Complex<T>],
+    ) -> Result<(), PxdctError> {
+        let len = self.execution_length;
+        let half_len = len / 2;
+
+        // ── same five-loop permutation as before, but into real_buf ──────────
+        let mut input_index = half_len;
+        let mut fft_index = 0usize;
+
+        while input_index < len {
+            unsafe { *real_buf.get_unchecked_mut(fft_index) = *src.get_unchecked(input_index) };
+            input_index += 4;
+            fft_index += 1;
+        }
+        input_index -= len;
+        while input_index < len {
+            unsafe {
+                *real_buf.get_unchecked_mut(fft_index) = -*src.get_unchecked(len - input_index - 1)
+            };
+            input_index += 4;
+            fft_index += 1;
+        }
+        input_index -= len;
+        while input_index < len {
+            unsafe { *real_buf.get_unchecked_mut(fft_index) = -*src.get_unchecked(input_index) };
+            input_index += 4;
+            fft_index += 1;
+        }
+        input_index -= len;
+        while input_index < len {
+            unsafe {
+                *real_buf.get_unchecked_mut(fft_index) = *src.get_unchecked(len - input_index - 1)
+            };
+            input_index += 4;
+            fft_index += 1;
+        }
+        input_index -= len;
+        while fft_index < len {
+            unsafe { *real_buf.get_unchecked_mut(fft_index) = *src.get_unchecked(input_index) };
+            input_index += 4;
+            fft_index += 1;
+        }
+
+        // ── R2C FFT: real_buf → spectrum[0..=N/2] ───────────────────────────
+        self.fft_executor
+            .execute_with_scratch(real_buf, spectrum, fft_scratch)
+            .map_err(|x| PxdctError::FftError(x.to_string()))?;
+
+        // ── Reconstruct full N-point spectrum via Hermitian symmetry ─────────
+        // spectrum[0] and (if N even) spectrum[N/2] are purely real.
+        // For k = 1 .. N/2:   full[k]   = spectrum[k]
+        //                      full[N-k] = conj(spectrum[k])
+        full[0] = spectrum[0];
+        for k in 1..=len / 2 {
+            let s = unsafe { *spectrum.get_unchecked(k) };
+            unsafe {
+                *full.get_unchecked_mut(k) = s;
+                *full.get_unchecked_mut(len - k) = s.conj();
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -83,120 +151,59 @@ where
         }
 
         let full_scratch = validate_scratch!(scratch, self.scratch_size());
-        let (unprepared_scratch, c1) = full_scratch.split_at_mut(self.execution_length * 2);
-        let scratch = force_cast_real_scratch_to_complex(unprepared_scratch, self.execution_length);
-        let fft_scratch = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
-
-        let len = self.length();
+        let len = self.execution_length;
         let half_len = len / 2;
+        let r2c_out_len = len / 2 + 1; // number of unique bins from R2C
+
+        // Layout (all T):
+        //   [0 .. len)          → real_buf  (R2C input)
+        //   [len .. len + 2*r2c_out_len) → spectrum (Complex<T>, r2c_out_len elems)
+        //   [len + 2*r2c_out_len .. len + 2*r2c_out_len + 2*len) → full spectrum (Complex<T>, len elems)
+        //   remainder           → fft_scratch
+        let (real_buf_slice, rest) = full_scratch.split_at_mut(len);
+        let (spectrum_slice, rest) = rest.split_at_mut(r2c_out_len * 2);
+        let (full_slice, fft_scratch_slice) = rest.split_at_mut(len * 2);
+
+        let spectrum = force_cast_real_scratch_to_complex(spectrum_slice, r2c_out_len);
+        let full = force_cast_real_scratch_to_complex(full_slice, len);
+        let fft_scratch =
+            force_cast_real_scratch_to_complex(fft_scratch_slice, self.fft_scratch_size);
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
-            let mut input_index = half_len;
-            let mut fft_index = 0;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: *chunk.get_unchecked(input_index),
-                        im: T::zero(),
-                    };
-                }
-                input_index += 4;
-                fft_index += 1;
-            }
+            self.run_r2c(chunk, real_buf_slice, spectrum, full, fft_scratch)?;
 
-            //subtract len to simulate modular arithmetic
-            input_index -= len;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: -*chunk.get_unchecked(len - input_index - 1),
-                        im: T::zero(),
-                    };
-                }
-
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            input_index -= len;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: -*chunk.get_unchecked(input_index),
-                        im: T::zero(),
-                    };
-                }
-
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            input_index -= len;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: *chunk.get_unchecked(len - input_index - 1),
-                        im: T::zero(),
-                    };
-                }
-
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            input_index -= len;
-            while fft_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: *chunk.get_unchecked(input_index),
-                        im: T::zero(),
-                    };
-                }
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            // run the fft
-            self.fft_executor
-                .execute_with_scratch(scratch, fft_scratch)
-                .map_err(|x| PxdctError::FftError(x.to_string()))?;
-
+            // ── post-process: identical to original, but reading from `full` ─
             let result_scale = T::SQRT_2 * T::HALF;
             let second_half_sign = if len % 4 == 1 { T::one() } else { -T::one() };
-
-            //post-process the results 4 at a time
             let mut output_sign = T::one();
 
             let (left, right) = chunk.split_at_mut(half_len);
 
-            for ((l_dst, r_dst), scratch) in left
+            for ((l_dst, r_dst), s) in left
                 .as_chunks_mut::<2>()
                 .0
                 .iter_mut()
                 .zip(right.as_rchunks_mut::<2>().1.iter_mut().rev())
-                .zip(scratch.as_chunks::<4>().0.iter())
+                .zip(full.as_chunks::<4>().0.iter())
             {
-                let fft_result = scratch[1] * (output_sign * result_scale);
-                let next_result = scratch[3] * (output_sign * result_scale);
+                let fft_result = s[1] * (output_sign * result_scale);
+                let next_result = s[3] * (output_sign * result_scale);
 
                 l_dst[0] = fft_result.re + fft_result.im;
                 l_dst[1] = -next_result.re + next_result.im;
-
                 r_dst[0] = (next_result.re + next_result.im) * second_half_sign;
                 r_dst[1] = (fft_result.re - fft_result.im) * second_half_sign;
 
                 output_sign = output_sign.neg();
             }
 
-            //we either have 1 or 3 elements left over that we couldn't get in the above loop, handle them here
             if len % 4 == 1 {
-                chunk[half_len] = scratch[0].re * output_sign * result_scale;
+                chunk[half_len] = full[0].re * output_sign * result_scale;
             } else {
-                let fft_result = scratch[len - 2] * (output_sign * result_scale);
-
+                let fft_result = full[len - 2] * (output_sign * result_scale);
                 chunk[half_len - 1] = fft_result.re + fft_result.im;
                 chunk[half_len + 1] = -fft_result.re + fft_result.im;
-                chunk[half_len] = -scratch[0].re * output_sign * result_scale;
+                chunk[half_len] = -full[0].re * output_sign * result_scale;
             }
         }
 
@@ -218,125 +225,59 @@ where
         validate_oof_sizes!(input, output, self.execution_length);
 
         let full_scratch = validate_scratch!(scratch, self.scratch_size());
-        let (unprepared_scratch, c1) = full_scratch.split_at_mut(self.execution_length * 2);
-        let scratch = force_cast_real_scratch_to_complex(unprepared_scratch, self.execution_length);
-        let fft_scratch = force_cast_real_scratch_to_complex(c1, self.fft_scratch_size);
-
-        let len = self.length();
+        let len = self.execution_length;
         let half_len = len / 2;
+        let r2c_out_len = len / 2 + 1;
+
+        let (real_buf_slice, rest) = full_scratch.split_at_mut(len);
+        let (spectrum_slice, rest) = rest.split_at_mut(r2c_out_len * 2);
+        let (full_slice, fft_scratch_slice) = rest.split_at_mut(len * 2);
+
+        let spectrum = force_cast_real_scratch_to_complex(spectrum_slice, r2c_out_len);
+        let full = force_cast_real_scratch_to_complex(full_slice, len);
+        let fft_scratch =
+            force_cast_real_scratch_to_complex(fft_scratch_slice, self.fft_scratch_size);
 
         for (src, dst) in input
             .chunks_exact(self.execution_length)
             .zip(output.chunks_exact_mut(self.execution_length))
         {
-            let mut input_index = half_len;
-            let mut fft_index = 0;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: *src.get_unchecked(input_index),
-                        im: T::zero(),
-                    };
-                }
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            //subtract len to simulate modular arithmetic
-            input_index -= len;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: -*src.get_unchecked(len - input_index - 1),
-                        im: T::zero(),
-                    };
-                }
-
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            input_index -= len;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: -*src.get_unchecked(input_index),
-                        im: T::zero(),
-                    };
-                }
-
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            input_index -= len;
-            while input_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: *src.get_unchecked(len - input_index - 1),
-                        im: T::zero(),
-                    };
-                }
-
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            input_index -= len;
-            while fft_index < len {
-                unsafe {
-                    *scratch.get_unchecked_mut(fft_index) = Complex {
-                        re: *src.get_unchecked(input_index),
-                        im: T::zero(),
-                    };
-                }
-                input_index += 4;
-                fft_index += 1;
-            }
-
-            // run the fft
-            self.fft_executor
-                .execute_with_scratch(scratch, fft_scratch)
-                .map_err(|x| PxdctError::FftError(x.to_string()))?;
+            self.run_r2c(src, real_buf_slice, spectrum, full, fft_scratch)?;
 
             let result_scale = T::SQRT_2 * T::HALF;
             let second_half_sign = if len % 4 == 1 { T::one() } else { -T::one() };
-
-            //post-process the results 4 at a time
             let mut output_sign = T::one();
 
             let (left, right) = dst.split_at_mut(half_len);
 
-            for ((l_dst, r_dst), scratch) in left
+            for ((l_dst, r_dst), s) in left
                 .as_chunks_mut::<2>()
                 .0
                 .iter_mut()
                 .zip(right.as_rchunks_mut::<2>().1.iter_mut().rev())
-                .zip(scratch.as_chunks::<4>().0.iter())
+                .zip(full.as_chunks::<4>().0.iter())
             {
-                let fft_result = scratch[1] * (output_sign * result_scale);
-                let next_result = scratch[3] * (output_sign * result_scale);
+                let fft_result = s[1] * (output_sign * result_scale);
+                let next_result = s[3] * (output_sign * result_scale);
 
                 l_dst[0] = fft_result.re + fft_result.im;
                 l_dst[1] = -next_result.re + next_result.im;
-
                 r_dst[0] = (next_result.re + next_result.im) * second_half_sign;
                 r_dst[1] = (fft_result.re - fft_result.im) * second_half_sign;
 
                 output_sign = output_sign.neg();
             }
 
-            //we either have 1 or 3 elements left over that we couldn't get in the above loop, handle them here
             if len % 4 == 1 {
-                dst[half_len] = scratch[0].re * output_sign * result_scale;
+                dst[half_len] = full[0].re * output_sign * result_scale;
             } else {
-                let fft_result = scratch[len - 2] * (output_sign * result_scale);
-
+                let fft_result = full[len - 2] * (output_sign * result_scale);
                 dst[half_len - 1] = fft_result.re + fft_result.im;
                 dst[half_len + 1] = -fft_result.re + fft_result.im;
-                dst[half_len] = -scratch[0].re * output_sign * result_scale;
+                dst[half_len] = -full[0].re * output_sign * result_scale;
             }
         }
+
         Ok(())
     }
 
@@ -347,7 +288,10 @@ where
 
     #[inline]
     fn scratch_size(&self) -> usize {
-        self.execution_length * 2 + self.fft_scratch_size * 2
+        let len = self.execution_length;
+        let r2c_out_len = len / 2 + 1;
+        // real_buf(N) + spectrum(r2c_out_len * 2 reals) + full(N * 2 reals) + fft_scratch
+        len + r2c_out_len * 2 + len * 2 + self.fft_scratch_size * 2
     }
 }
 
@@ -366,7 +310,7 @@ mod tests {
         }
         let reference_input = input.clone();
         let reference_input = naive_dct4(&reference_input);
-        let bf = Dct4Fft::new(Zaft::make_forward_fft_f64(15).unwrap());
+        let bf = Dct4Fft::new(Zaft::make_r2c_fft_f64(15).unwrap());
         bf.execute(&mut input).unwrap();
         input
             .iter()
@@ -390,7 +334,7 @@ mod tests {
         }
         let reference_input = input.clone();
         let reference_input = naive_dct4(&reference_input);
-        let bf = Dct4Fft::new(Zaft::make_forward_fft_f64(35).unwrap());
+        let bf = Dct4Fft::new(Zaft::make_r2c_fft_f64(35).unwrap());
         bf.execute(&mut input).unwrap();
         input
             .iter()
@@ -414,7 +358,7 @@ mod tests {
         }
         let reference_input = input.clone();
         let reference_input = naive_dct4(&reference_input);
-        let bf = Dct4Fft::new(Zaft::make_forward_fft_f64(17).unwrap());
+        let bf = Dct4Fft::new(Zaft::make_r2c_fft_f64(17).unwrap());
         bf.execute(&mut input).unwrap();
         input
             .iter()

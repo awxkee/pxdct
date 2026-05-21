@@ -756,10 +756,7 @@ impl Pxdct {
             return T::dct4_mixed_radix2(length, Pxdct::dct2_strategy(half_length)?);
         }
 
-        T::dct4_fft_odd(
-            T::make_fft(length, FftDirection::Forward)
-                .map_err(|x| PxdctError::FftError(x.to_string()))?,
-        )
+        T::dct4_fft_odd(T::make_fft_r2c(length).map_err(|x| PxdctError::FftError(x.to_string()))?)
     }
 
     /// Creates a single-precision (f32) DCT-IV executor.
