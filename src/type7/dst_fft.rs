@@ -86,22 +86,32 @@ where
             scratch_real[0] = T::zero();
 
             // Map odd-indexed sequence elements
-            for (i, &src) in chunk.iter().skip(1).step_by(2).enumerate() {
-                let l = i + 1;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
+            let odd_src = chunk.iter().skip(1).step_by(2);
+
+            let (front, back) = scratch_real[..fft_size].split_at_mut(fft_size / 2);
+            let front_iter = front.iter_mut().skip(1); // indices 1, 2, 3, ...
+            let back_iter = back.iter_mut().rev(); // indices fft_size-1, fft_size-2, ...
+
+            odd_src
+                .zip(front_iter)
+                .zip(back_iter)
+                .for_each(|((&s, lo), hi)| {
+                    *lo = s.neg();
+                    *hi = s;
+                });
 
             // Map even-indexed sequence elements
-            for (i, &src) in chunk.iter().step_by(2).enumerate() {
-                let l = n - i;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
+            let even_src = chunk.iter().step_by(2);
+
+            let (front, back) = scratch_real.split_at_mut(fft_size - n);
+
+            even_src
+                .zip(front[..=n].iter_mut().rev())
+                .zip(back[..n].iter_mut())
+                .for_each(|((&s, lo), hi)| {
+                    *lo = s.neg();
+                    *hi = s;
+                });
 
             self.fft_executor
                 .execute_with_scratch(scratch_real, scratch_complex, scratch_fft)
@@ -155,22 +165,32 @@ where
             scratch_real[0] = T::zero();
 
             // Map odd-indexed sequence elements
-            for (i, &src) in src.iter().skip(1).step_by(2).enumerate() {
-                let l = i + 1;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
+            let odd_src = src.iter().skip(1).step_by(2);
+
+            let (front, back) = scratch_real[..fft_size].split_at_mut(fft_size / 2);
+            let front_iter = front.iter_mut().skip(1); // indices 1, 2, 3, ...
+            let back_iter = back.iter_mut().rev(); // indices fft_size-1, fft_size-2, ...
+
+            odd_src
+                .zip(front_iter)
+                .zip(back_iter)
+                .for_each(|((&s, lo), hi)| {
+                    *lo = s.neg();
+                    *hi = s;
+                });
 
             // Map even-indexed sequence elements
-            for (i, &src) in src.iter().step_by(2).enumerate() {
-                let l = n - i;
-                unsafe {
-                    *scratch_real.get_unchecked_mut(l) = src.neg();
-                    *scratch_real.get_unchecked_mut(fft_size - l) = src;
-                }
-            }
+            let even_src = src.iter().step_by(2);
+
+            let (front, back) = scratch_real.split_at_mut(fft_size - n);
+
+            even_src
+                .zip(front[..=n].iter_mut().rev())
+                .zip(back[..n].iter_mut())
+                .for_each(|((&s, lo), hi)| {
+                    *lo = s.neg();
+                    *hi = s;
+                });
 
             self.fft_executor
                 .execute_with_scratch(scratch_real, scratch_complex, scratch_fft)
