@@ -5,8 +5,7 @@ Python via [maturin](https://github.com/PyO3/maturin) and
 [PyO3](https://pyo3.rs).
 
 `scipy.fft` covers DCT types I–IV only. `pxdct` adds types V–VIII for both
-cosine and sine families, MDCT/IMDCT, pre-planned reusable executors, built-in
-scaling variants, and a 2-D executor for image processing.
+cosine and sine families, MDCT/IMDCT, pre-planned reusable executors, and a 2-D executor for image processing.
 
 ## Install
 
