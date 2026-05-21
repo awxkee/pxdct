@@ -87,7 +87,7 @@ impl Dst2Factory for f32 {
     }
 
     fn dst2_fft(length: usize) -> Returning<Self> {
-        use crate::dst2::Dst2Fft;
+        use crate::type2::dst_fft::Dst2Fft;
         Ok(Arc::new(Dst2Fft::new(length)?))
     }
 
@@ -183,7 +183,7 @@ impl Dst2Factory for f64 {
     }
 
     fn dst2_fft(length: usize) -> Returning<Self> {
-        use crate::dst2::Dst2Fft;
+        use crate::type2::dst_fft::Dst2Fft;
         Ok(Arc::new(Dst2Fft::new(length)?))
     }
 

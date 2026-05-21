@@ -40,6 +40,7 @@ pub enum PxdctError {
     InvalidScratchSize(usize, usize),
     OutOfPlaceSizeDoesntMatch(usize, usize),
     MinimumPoints(usize, String),
+    OnlyEvenTransform(usize),
 }
 
 impl Error for PxdctError {}
@@ -68,6 +69,9 @@ impl Display for PxdctError {
             PxdctError::MinimumPoints(points, dct_type) => {
                 f.write_fmt(format_args!("{dct_type} requires at least {points} points"))
             }
+            PxdctError::OnlyEvenTransform(q) => f.write_fmt(format_args!(
+                "Transform function must have even length, but received {q}"
+            )),
         }
     }
 }

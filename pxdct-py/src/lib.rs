@@ -36,12 +36,24 @@ fn pxdct_err_to_py(e: PxdctError) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-// ─── transform kind enum (matches all 16 variants) ───────────────────────────
+// ─── transform kind ──────────────────────────────────────────────────────────
 
-/// String token → (family, number):
-///   "dct"  / "dst"   family
-///   type   1 … 8
-fn parse_kind(kind: &str) -> PyResult<(&'static str, u8)> {
+/// Canonical transform key returned by `parse_kind`.
+///
+/// DCT/DST types 1–8 → `"dct1"` … `"dst8"`.
+/// MDCT / IMDCT      → `"mdct"` / `"imdct"`.
+///
+/// MDCT and IMDCT have no numeric type suffix, so they are accepted as bare
+/// strings (case-insensitive).
+fn parse_kind(kind: &str) -> PyResult<&'static str> {
+    match kind.to_ascii_lowercase().as_str() {
+        // bare aliases accepted for MDCT / IMDCT
+        "mdct" => return Ok("mdct"),
+        "imdct" => return Ok("imdct"),
+        _ => {}
+    }
+
+    // DCT/DST 1–8
     let lower = kind.to_ascii_lowercase();
     let (family, num_str) = if let Some(s) = lower.strip_prefix("dct") {
         ("dct", s)
@@ -49,9 +61,11 @@ fn parse_kind(kind: &str) -> PyResult<(&'static str, u8)> {
         ("dst", s)
     } else {
         return Err(PyValueError::new_err(format!(
-            "Unknown transform kind '{kind}'. Expected e.g. 'dct2', 'dst4'."
+            "Unknown transform kind '{kind}'. \
+             Expected e.g. 'dct2', 'dst4', 'mdct', 'imdct'."
         )));
     };
+
     let num: u8 = num_str
         .parse()
         .map_err(|_| PyValueError::new_err(format!("Cannot parse type number from '{kind}'")))?;
@@ -60,10 +74,30 @@ fn parse_kind(kind: &str) -> PyResult<(&'static str, u8)> {
             "Type {num} out of range; supported types are 1–8"
         )));
     }
-    Ok((family, num))
+
+    // Return a 'static str so callers don't need to own a String.
+    Ok(match (family, num) {
+        ("dct", 1) => "dct1",
+        ("dct", 2) => "dct2",
+        ("dct", 3) => "dct3",
+        ("dct", 4) => "dct4",
+        ("dct", 5) => "dct5",
+        ("dct", 6) => "dct6",
+        ("dct", 7) => "dct7",
+        ("dct", 8) => "dct8",
+        ("dst", 1) => "dst1",
+        ("dst", 2) => "dst2",
+        ("dst", 3) => "dst3",
+        ("dst", 4) => "dst4",
+        ("dst", 5) => "dst5",
+        ("dst", 6) => "dst6",
+        ("dst", 7) => "dst7",
+        ("dst", 8) => "dst8",
+        _ => unreachable!(),
+    })
 }
 
-// ─── inner planner (type-erased, heap-allocated) ─────────────────────────────
+// ─── executor wrapper ────────────────────────────────────────────────────────
 
 enum Executor {
     F32(Arc<dyn PxdctExecutor<f32> + Send + Sync>),
@@ -71,60 +105,62 @@ enum Executor {
 }
 
 fn build_executor_f32(
-    family: &str,
-    ty: u8,
+    key: &str,
     length: usize,
 ) -> PyResult<Arc<dyn PxdctExecutor<f32> + Send + Sync>> {
-    match (family, ty) {
-        ("dct", 1) => Pxdct::make_dct1_f32(length),
-        ("dct", 2) => Pxdct::make_dct2_f32(length),
-        ("dct", 3) => Pxdct::make_dct3_f32(length),
-        ("dct", 4) => Pxdct::make_dct4_f32(length),
-        ("dct", 5) => Pxdct::make_dct5_f32(length),
-        ("dct", 6) => Pxdct::make_dct6_f32(length),
-        ("dct", 7) => Pxdct::make_dct7_f32(length),
-        ("dct", 8) => Pxdct::make_dct8_f32(length),
-        ("dst", 1) => Pxdct::make_dst1_f32(length),
-        ("dst", 2) => Pxdct::make_dst2_f32(length),
-        ("dst", 3) => Pxdct::make_dst3_f32(length),
-        ("dst", 4) => Pxdct::make_dst4_f32(length),
-        ("dst", 5) => Pxdct::make_dst5_f32(length),
-        ("dst", 6) => Pxdct::make_dst6_f32(length),
-        ("dst", 7) => Pxdct::make_dst7_f32(length),
-        ("dst", 8) => Pxdct::make_dst8_f32(length),
+    match key {
+        "dct1" => Pxdct::make_dct1_f32(length),
+        "dct2" => Pxdct::make_dct2_f32(length),
+        "dct3" => Pxdct::make_dct3_f32(length),
+        "dct4" => Pxdct::make_dct4_f32(length),
+        "dct5" => Pxdct::make_dct5_f32(length),
+        "dct6" => Pxdct::make_dct6_f32(length),
+        "dct7" => Pxdct::make_dct7_f32(length),
+        "dct8" => Pxdct::make_dct8_f32(length),
+        "dst1" => Pxdct::make_dst1_f32(length),
+        "dst2" => Pxdct::make_dst2_f32(length),
+        "dst3" => Pxdct::make_dst3_f32(length),
+        "dst4" => Pxdct::make_dst4_f32(length),
+        "dst5" => Pxdct::make_dst5_f32(length),
+        "dst6" => Pxdct::make_dst6_f32(length),
+        "dst7" => Pxdct::make_dst7_f32(length),
+        "dst8" => Pxdct::make_dst8_f32(length),
+        "mdct" => Pxdct::make_mdct_f32(length),
+        "imdct" => Pxdct::make_imdct_f32(length),
         _ => unreachable!(),
     }
     .map_err(pxdct_err_to_py)
 }
 
 fn build_executor_f64(
-    family: &str,
-    ty: u8,
+    key: &str,
     length: usize,
 ) -> PyResult<Arc<dyn PxdctExecutor<f64> + Send + Sync>> {
-    match (family, ty) {
-        ("dct", 1) => Pxdct::make_dct1_f64(length),
-        ("dct", 2) => Pxdct::make_dct2_f64(length),
-        ("dct", 3) => Pxdct::make_dct3_f64(length),
-        ("dct", 4) => Pxdct::make_dct4_f64(length),
-        ("dct", 5) => Pxdct::make_dct5_f64(length),
-        ("dct", 6) => Pxdct::make_dct6_f64(length),
-        ("dct", 7) => Pxdct::make_dct7_f64(length),
-        ("dct", 8) => Pxdct::make_dct8_f64(length),
-        ("dst", 1) => Pxdct::make_dst1_f64(length),
-        ("dst", 2) => Pxdct::make_dst2_f64(length),
-        ("dst", 3) => Pxdct::make_dst3_f64(length),
-        ("dst", 4) => Pxdct::make_dst4_f64(length),
-        ("dst", 5) => Pxdct::make_dst5_f64(length),
-        ("dst", 6) => Pxdct::make_dst6_f64(length),
-        ("dst", 7) => Pxdct::make_dst7_f64(length),
-        ("dst", 8) => Pxdct::make_dst8_f64(length),
+    match key {
+        "dct1" => Pxdct::make_dct1_f64(length),
+        "dct2" => Pxdct::make_dct2_f64(length),
+        "dct3" => Pxdct::make_dct3_f64(length),
+        "dct4" => Pxdct::make_dct4_f64(length),
+        "dct5" => Pxdct::make_dct5_f64(length),
+        "dct6" => Pxdct::make_dct6_f64(length),
+        "dct7" => Pxdct::make_dct7_f64(length),
+        "dct8" => Pxdct::make_dct8_f64(length),
+        "dst1" => Pxdct::make_dst1_f64(length),
+        "dst2" => Pxdct::make_dst2_f64(length),
+        "dst3" => Pxdct::make_dst3_f64(length),
+        "dst4" => Pxdct::make_dst4_f64(length),
+        "dst5" => Pxdct::make_dst5_f64(length),
+        "dst6" => Pxdct::make_dst6_f64(length),
+        "dst7" => Pxdct::make_dst7_f64(length),
+        "dst8" => Pxdct::make_dst8_f64(length),
+        "mdct" => Pxdct::make_mdct_f64(length),
+        "imdct" => Pxdct::make_imdct_f64(length),
         _ => unreachable!(),
     }
     .map_err(pxdct_err_to_py)
 }
 
-/// A pre-planned DCT/DST executor.
+/// A pre-planned DCT / DST / MDCT / IMDCT executor.
 ///
 /// Create once, call ``execute`` / ``execute_into`` many times.
 /// Thread-safe: the inner executor is ``Arc<… + Send + Sync>``.
@@ -132,7 +168,9 @@ fn build_executor_f64(
 /// Parameters
 /// ----------
 /// kind : str
-///     Transform family and type, e.g. ``"dct2"``, ``"dst4"``, ``"dct8"``.
+///     Transform family and type, e.g. ``"dct2"``, ``"dst4"``, ``"dct8"``,
+///     ``"mdct"``, ``"imdct"``.
+///     MDCT / IMDCT require an even *length*.
 /// length : int
 ///     Number of points.
 /// dtype : str, optional
@@ -150,10 +188,10 @@ impl DctPlan {
     #[new]
     #[pyo3(signature = (kind, length, dtype = "f64"))]
     fn new(kind: &str, length: usize, dtype: &str) -> PyResult<Self> {
-        let (family, ty) = parse_kind(kind)?;
+        let key = parse_kind(kind)?;
         let executor = match dtype {
-            "f32" | "float32" => Executor::F32(build_executor_f32(family, ty, length)?),
-            "f64" | "float64" => Executor::F64(build_executor_f64(family, ty, length)?),
+            "f32" | "float32" => Executor::F32(build_executor_f32(key, length)?),
+            "f64" | "float64" => Executor::F64(build_executor_f64(key, length)?),
             other => {
                 return Err(PyValueError::new_err(format!(
                     "Unknown dtype '{other}'. Use 'f32' or 'f64'."
@@ -174,7 +212,7 @@ impl DctPlan {
         self.length
     }
 
-    /// Transform kind string (e.g. ``"dct2"``).
+    /// Transform kind string (e.g. ``"dct2"`` or ``"mdct"``).
     #[getter]
     fn kind(&self) -> &str {
         &self.kind
@@ -211,18 +249,18 @@ impl DctPlan {
                     .cast::<PyArray1<f32>>()
                     .map_err(|_| PyValueError::new_err("Expected a 1-D float32 numpy array"))?;
                 self.check_len(arr.len())?;
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
             Executor::F64(exec) => {
                 let arr = data
                     .cast::<PyArray1<f64>>()
                     .map_err(|_| PyValueError::new_err("Expected a 1-D float64 numpy array"))?;
                 self.check_len(arr.len())?;
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
         }
     }
@@ -273,10 +311,9 @@ impl DctPlan {
                             PyValueError::new_err("Expected a 1-D float32 numpy array for output")
                         })?;
                         self.check_len(dst.len())?;
-                        let mut dst_s = unsafe { dst.as_slice_mut() }
+                        let dst_s = unsafe { dst.as_slice_mut() }
                             .map_err(|_| PyRuntimeError::new_err("Output must be C-contiguous"))?;
-                        exec.execute_into(src_s, &mut dst_s)
-                            .map_err(pxdct_err_to_py)?;
+                        exec.execute_into(src_s, dst_s).map_err(pxdct_err_to_py)?;
                         Ok(out.clone().into_any())
                     }
                     None => {
@@ -300,10 +337,9 @@ impl DctPlan {
                             PyValueError::new_err("Expected a 1-D float64 numpy array for output")
                         })?;
                         self.check_len(dst.len())?;
-                        let mut dst_s = unsafe { dst.as_slice_mut() }
+                        let dst_s = unsafe { dst.as_slice_mut() }
                             .map_err(|_| PyRuntimeError::new_err("Output must be C-contiguous"))?;
-                        exec.execute_into(src_s, &mut dst_s)
-                            .map_err(pxdct_err_to_py)?;
+                        exec.execute_into(src_s, dst_s).map_err(pxdct_err_to_py)?;
                         Ok(out.clone().into_any())
                     }
                     None => {
@@ -432,9 +468,9 @@ impl DctPlan2D {
                         arr.len()
                     )));
                 }
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
             Dct2DInner::F64(exec) => {
                 let arr = data
@@ -449,9 +485,9 @@ impl DctPlan2D {
                         arr.len()
                     )));
                 }
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
         }
     }
@@ -459,12 +495,12 @@ impl DctPlan2D {
 
 // ─── convenience one-shot functions ──────────────────────────────────────────
 
-/// One-shot DCT/DST.  Allocates a new output array.
+/// One-shot DCT / DST / MDCT / IMDCT.  Allocates a new output array.
 ///
 /// Parameters
 /// ----------
 /// data : array-like (converted to numpy f64)
-/// kind : str  — e.g. ``"dct2"``, ``"dst4"``
+/// kind : str  — e.g. ``"dct2"``, ``"dst4"``, ``"mdct"``, ``"imdct"``
 /// dtype : str — ``"f32"`` or ``"f64"`` (default ``"f64"``)
 ///
 /// Returns
@@ -478,7 +514,7 @@ fn dct<'py>(
     kind: &str,
     dtype: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let (family, ty) = parse_kind(kind)?;
+    let key = parse_kind(kind)?;
     match dtype {
         "f32" | "float32" => {
             let arr = data.call_method1("astype", ("float32",))?;
@@ -486,8 +522,7 @@ fn dct<'py>(
                 PyValueError::new_err("Could not interpret data as 1-D float32 array")
             })?;
             let n = arr.len();
-            let exec = build_executor_f32(family, ty, n)?;
-            // copy into owned Vec, transform, wrap back
+            let exec = build_executor_f32(key, n)?;
             let mut buf: Vec<f32> = unsafe { arr.as_slice()? }.to_vec();
             exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
             Ok(PyArray1::from_vec(py, buf).into_any())
@@ -498,7 +533,7 @@ fn dct<'py>(
                 PyValueError::new_err("Could not interpret data as 1-D float64 array")
             })?;
             let n = arr.len();
-            let exec = build_executor_f64(family, ty, n)?;
+            let exec = build_executor_f64(key, n)?;
             let mut buf: Vec<f64> = unsafe { arr.as_slice()? }.to_vec();
             exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
             Ok(PyArray1::from_vec(py, buf).into_any())
@@ -509,7 +544,7 @@ fn dct<'py>(
 
 // ─── module ──────────────────────────────────────────────────────────────────
 
-/// pxdct — fast DCT/DST types I–VIII for Python
+/// pxdct — fast DCT/DST types I–VIII, MDCT, and IMDCT for Python
 ///
 /// Quick start
 /// -----------
@@ -523,6 +558,12 @@ fn dct<'py>(
 /// >>> plan = pxdct.DctPlan('dct2', 256)
 /// >>> out  = np.empty(256)
 /// >>> plan.execute_into(x, out)
+///
+/// MDCT / IMDCT (length must be even):
+/// >>> mdct_plan  = pxdct.DctPlan('mdct',  256)
+/// >>> imdct_plan = pxdct.DctPlan('imdct', 256)
+/// >>> coeffs = mdct_plan(x)
+/// >>> x_back = imdct_plan(coeffs)
 ///
 /// 2-D (image processing):
 /// >>> wp = pxdct.DctPlan('dct2', 512)

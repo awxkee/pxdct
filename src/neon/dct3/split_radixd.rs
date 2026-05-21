@@ -230,8 +230,8 @@ impl PxdctExecutor<f64> for NeonSplitRadixDct3d {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct3::{Dct3Butterfly8, Dct3Butterfly16};
     use crate::tests::naive_dct3;
+    use crate::type3::{Dct3Butterfly8, Dct3Butterfly16};
     use rand::RngExt;
 
     #[test]

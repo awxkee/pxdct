@@ -28,10 +28,10 @@
  */
 use crate::avx::util::{define_avx_butterfly, fma};
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct3::{Dct3Butterfly4, Dct3Butterfly8};
 use crate::dst3_butterfly::Dst3Butterfly4;
 use crate::factory_dct3::Dct3Factory;
 use crate::twiddles::compute_twiddle;
+use crate::type3::{Dct3Butterfly4, Dct3Butterfly8};
 use crate::util::DctSample;
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

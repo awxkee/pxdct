@@ -27,9 +27,9 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
-use crate::dct3::{Dct3Butterfly2, Dct3Butterfly4, Dct3Butterfly8};
 use crate::mla::fmla;
 use crate::twiddles::compute_twiddle;
+use crate::type3::{Dct3Butterfly2, Dct3Butterfly4, Dct3Butterfly8};
 use crate::util::{DctSample, define_in_place_butterfly};
 use crate::{PxdctError, PxdctExecutor};
 use num_complex::Complex;

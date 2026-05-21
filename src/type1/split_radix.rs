@@ -199,10 +199,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::PxdctExecutor;
-    use crate::dct3::Dct3Butterfly4;
     use crate::tests::naive_dct1;
     use crate::type1::butterflies::Dct1Butterfly5;
     use crate::type1::split_radix::SplitRadixDct1;
+    use crate::type3::Dct3Butterfly4;
     use rand::RngExt;
     use std::sync::Arc;
 

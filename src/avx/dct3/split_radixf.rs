@@ -225,8 +225,8 @@ impl AvxSplitRadixDct3f {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct3::{Dct3Butterfly8, Dct3Butterfly16};
     use crate::tests::naive_dct3_f32;
+    use crate::type3::{Dct3Butterfly8, Dct3Butterfly16};
     use crate::util::has_valid_avx;
     use rand::RngExt;
 
