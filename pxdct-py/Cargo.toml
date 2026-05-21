@@ -23,8 +23,3 @@ default = ["avx", "neon"]
 avx = ["pxdct/avx"]
 neon = ["pxdct/neon"]
 fcma = ["pxdct/fcma"]
-
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1

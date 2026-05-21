@@ -27,7 +27,8 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::PxdctExecutor;
-use crate::dct3::{
+use crate::factory_dct2::Returning;
+use crate::type3::{
     Dct3Butterfly2, Dct3Butterfly3, Dct3Butterfly4, Dct3Butterfly5, Dct3Butterfly6, Dct3Butterfly7,
     Dct3Butterfly8, Dct3Butterfly9, Dct3Butterfly10, Dct3Butterfly11, Dct3Butterfly12,
     Dct3Butterfly13, Dct3Butterfly14, Dct3Butterfly15, Dct3Butterfly16, Dct3Butterfly18,
@@ -35,7 +36,6 @@ use crate::dct3::{
     Dct3Butterfly30, Dct3Butterfly32, Dct3Butterfly35, Dct3Butterfly36, Dct3Butterfly64, Dct3Fft,
     Dct3Identity,
 };
-use crate::factory_dct2::Returning;
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 use crate::util::has_valid_avx;
 use std::sync::{Arc, OnceLock};
@@ -102,7 +102,7 @@ impl Dct3Factory for f32 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct3::SplitRadixDct3;
+            use crate::type3::SplitRadixDct3;
             Ok(Arc::new(SplitRadixDct3::new(
                 length,
                 half_dct,
@@ -372,7 +372,7 @@ impl Dct3Factory for f64 {
         }
         #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
         {
-            use crate::dct3::SplitRadixDct3;
+            use crate::type3::SplitRadixDct3;
             Ok(Arc::new(SplitRadixDct3::new(
                 length,
                 half_dct,

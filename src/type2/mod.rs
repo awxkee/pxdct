@@ -29,8 +29,9 @@
 mod bf25;
 mod bf49;
 mod coprime;
-mod dct2fft;
+mod dct_fft;
 mod dst_butterflies;
+pub mod dst_fft;
 mod dst_radix3;
 mod mixed_radix11;
 mod mixed_radix13;
@@ -51,7 +52,7 @@ pub(crate) use bf25::{Dct2Butterfly25, Dct2Butterfly25Twiddles};
 pub(crate) use bf49::Dct2Butterfly49;
 #[allow(unused)]
 pub(crate) use coprime::{Dct2Coprime, Dct2OutputRemapper};
-pub(crate) use dct2fft::Dct2Fft;
+pub(crate) use dct_fft::Dct2Fft;
 pub(crate) use dst_butterflies::{
     Dst2Butterfly3, Dst2Butterfly5, Dst2Butterfly6, Dst2Butterfly7, Dst2Butterfly8, Dst2Butterfly9,
     Dst2Butterfly16,

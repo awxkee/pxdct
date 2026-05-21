@@ -35,17 +35,18 @@
 mod avx;
 mod bidirectional;
 mod butterflies;
-mod dct3;
-mod dst2;
 mod dst3;
 mod dst3_butterfly;
 mod factory_dct1;
 mod factory_dct2;
 mod factory_dct3;
 mod factory_dct4;
+mod factory_dct7;
 mod factory_dst2;
+mod factory_dst7;
 mod factory_scaled_dct2;
 mod identity;
+mod mdct;
 mod mla;
 #[cfg(all(target_arch = "aarch64", feature = "neon"))]
 mod neon;
@@ -58,6 +59,7 @@ mod twiddles;
 mod two_dims;
 mod type1;
 mod type2;
+mod type3;
 mod type4;
 mod type5;
 mod type6;
@@ -65,7 +67,6 @@ mod type7;
 mod type8;
 mod util;
 
-use crate::dct3::SplitRadixDst3;
 use crate::dst3::Dst3Fft;
 use crate::dst3_butterfly::{
     Dst3Butterfly2, Dst3Butterfly3, Dst3Butterfly4, Dst3Butterfly5, Dst3Butterfly8, Dst3Butterfly16,
@@ -74,7 +75,9 @@ use crate::factory_dct1::Dct1Factory;
 use crate::factory_dct2::Dct2Factory;
 use crate::factory_dct3::Dct3Factory;
 use crate::factory_dct4::Dct4Factory;
+use crate::factory_dct7::Dct7Factory;
 use crate::factory_dst2::Dst2Factory;
+use crate::factory_dst7::Dst7Factory;
 use crate::factory_scaled_dct2::ScaledDct2Factory;
 use crate::identity::DctIdentity;
 use crate::prime_factors::PrimeFactors;
@@ -82,6 +85,7 @@ use crate::scaling::ScalingInterceptor;
 use crate::transpose::TransposeFactory;
 use crate::two_dims::TwoDimensionalDct;
 use crate::type2::Dct2Fft;
+use crate::type3::SplitRadixDst3;
 use crate::util::DctSample;
 use num_traits::AsPrimitive;
 pub use pxdct_error::PxdctError;
@@ -895,48 +899,78 @@ impl Pxdct {
         Ok(Arc::new(Dst6Fft::new(length)?))
     }
 
+    fn dst7_strategy<T: Copy + Dst7Factory + DctSample>(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    where
+        f64: AsPrimitive<T>,
+    {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+
+        match length {
+            2 => return Ok(T::dst7_butterfly2()),
+            3 => return Ok(T::dst7_butterfly3()),
+            4 => return Ok(T::dst7_butterfly4()),
+            5 => return Ok(T::dst7_butterfly5()),
+            6 => return Ok(T::dst7_butterfly6()),
+            7 => return Ok(T::dst7_butterfly7()),
+            8 => return Ok(T::dst7_butterfly8()),
+            16 => return Ok(T::dst7_butterfly16()),
+            _ => {}
+        }
+
+        T::dst7_fft(length)
+    }
+
     /// Creates a single-precision (f32) DST-VII executor.
     pub fn make_dst7_f32(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
-        if length == 0 {
-            return Err(PxdctError::ZeroSizedDct);
-        }
-        use crate::type7::Dst7Fft;
-        Ok(Arc::new(Dst7Fft::new(length)?))
+        Pxdct::dst7_strategy(length)
     }
 
     /// Creates a double-precision (f64) DST-VII executor.
     pub fn make_dst7_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        Pxdct::dst7_strategy(length)
+    }
+
+    fn dct7_strategy<T: Copy + Dct7Factory + DctSample>(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    where
+        f64: AsPrimitive<T>,
+    {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
-        use crate::type7::Dst7Fft;
-        Ok(Arc::new(Dst7Fft::new(length)?))
+
+        match length {
+            2 => return Ok(T::dct7_butterfly2()),
+            3 => return Ok(T::dct7_butterfly3()),
+            4 => return Ok(T::dct7_butterfly4()),
+            8 => return Ok(T::dct7_butterfly8()),
+            _ => {}
+        }
+
+        T::dct7_fft(length)
     }
 
     /// Creates a single-precision (f32) DCT-VII executor.
     pub fn make_dct7_f32(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
-        if length == 0 {
-            return Err(PxdctError::ZeroSizedDct);
-        }
-        use crate::type7::Dct7Fft;
-        Ok(Arc::new(Dct7Fft::new(length)?))
+        Pxdct::dct7_strategy(length)
     }
 
     /// Creates a double-precision (f64) DCT-VII executor.
     pub fn make_dct7_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
-        if length == 0 {
-            return Err(PxdctError::ZeroSizedDct);
-        }
-        use crate::type7::Dct7Fft;
-        Ok(Arc::new(Dct7Fft::new(length)?))
+        Pxdct::dct7_strategy(length)
     }
 
     /// Creates a single-precision (f32) DST-VIII executor.
@@ -981,6 +1015,62 @@ impl Pxdct {
         }
         use crate::type8::Dct8Fft;
         Ok(Arc::new(Dct8Fft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) MDCT executor.
+    pub fn make_mdct_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        if !length.is_multiple_of(2) {
+            return Err(PxdctError::OnlyEvenTransform(length));
+        }
+        use crate::mdct::MdctFft;
+        Ok(Arc::new(MdctFft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) MDCT executor.
+    pub fn make_mdct_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        if !length.is_multiple_of(2) {
+            return Err(PxdctError::OnlyEvenTransform(length));
+        }
+        use crate::mdct::MdctFft;
+        Ok(Arc::new(MdctFft::new(length)?))
+    }
+
+    /// Creates a single-precision (f32) IMDCT executor.
+    pub fn make_imdct_f32(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        if !length.is_multiple_of(2) {
+            return Err(PxdctError::OnlyEvenTransform(length));
+        }
+        use crate::mdct::ImdctFft;
+        Ok(Arc::new(ImdctFft::new(length)?))
+    }
+
+    /// Creates a double-precision (f64) IMDCT executor.
+    pub fn make_imdct_f64(
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        if length == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+        if !length.is_multiple_of(2) {
+            return Err(PxdctError::OnlyEvenTransform(length));
+        }
+        use crate::mdct::ImdctFft;
+        Ok(Arc::new(ImdctFft::new(length)?))
     }
 
     /// Creates 2D DCT executor.

@@ -334,9 +334,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dct3::Dct3Butterfly8;
-    use crate::dct3::bf_f2::Dct3Butterfly16;
     use crate::tests::{naive_dct3, naive_dst3};
+    use crate::type3::Dct3Butterfly8;
+    use crate::type3::bf_f2::Dct3Butterfly16;
     use rand::RngExt;
 
     #[test]

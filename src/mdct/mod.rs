@@ -26,15 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-mod butterflies;
-mod butterflies_dct;
-mod dct_fft;
-mod dst_fft;
+mod imdct;
+mod mdct_fft;
 
-pub(crate) use butterflies::{
-    Dst7Butterfly2, Dst7Butterfly3, Dst7Butterfly4, Dst7Butterfly5, Dst7Butterfly6, Dst7Butterfly7,
-    Dst7Butterfly8, Dst7Butterfly16,
-};
-pub(crate) use butterflies_dct::{Dct7Butterfly2, Dct7Butterfly3, Dct7Butterfly4, Dct7Butterfly8};
-pub(crate) use dct_fft::Dct7Fft;
-pub(crate) use dst_fft::Dst7Fft;
+pub(crate) use imdct::ImdctFft;
+pub(crate) use mdct_fft::MdctFft;

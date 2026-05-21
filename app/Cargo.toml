@@ -13,7 +13,6 @@ primal-check = "0.3.4"
 regex = "1.12.2"
 rustdct = "0.7.1"
 zaft = { version = "0.3.8", features = ["fcma"] }
-ndarray = "0.17.2"
 
 [[bench]]
 name = "dct2"
@@ -25,4 +24,8 @@ harness = false
 
 [[bench]]
 name = "dct4"
+harness = false
+
+[[bench]]
+name = "type7"
 harness = false

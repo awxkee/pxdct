@@ -5,8 +5,8 @@ Python via [maturin](https://github.com/PyO3/maturin) and
 [PyO3](https://pyo3.rs).
 
 `scipy.fft` covers DCT types I–IV only. `pxdct` adds types V–VIII for both
-cosine and sine families, pre-planned reusable executors, built-in scaling
-variants, and a 2-D executor for image processing.
+cosine and sine families, MDCT/IMDCT, pre-planned reusable executors, built-in
+scaling variants, and a 2-D executor for image processing.
 
 ## Install
 
@@ -30,9 +30,9 @@ import pxdct
 x = np.random.randn(256)
 
 # one-shot
-y = pxdct.dct(x, type=2)     # DCT-II 
+y = pxdct.dct(x, type=2)     # DCT-II
 y = pxdct.dct(x, type=4)     # DCT-IV
-y = pxdct.dst(x, type=7)     # DST-VI
+y = pxdct.dst(x, type=7)     # DST-VII
 
 # reusable plan
 plan = pxdct.plan('dct2', 256)
@@ -43,6 +43,12 @@ for frame in audio_frames:
 
 # in-place variant
 plan.execute(out)   # overwrites out
+
+# MDCT / IMDCT (length must be even)
+mdct_plan  = pxdct.plan('mdct',  256)
+imdct_plan = pxdct.plan('imdct', 256)
+coeffs = mdct_plan(x)
+x_back = imdct_plan(coeffs)
 
 # 2-D
 p2 = pxdct.plan2d('dct2', 512)             # 512×512, same kind on both axes
@@ -58,7 +64,8 @@ p2.execute(img_flat)
 ### `pxdct.dst(x, type=2, *, kind=None, dtype='f64') → ndarray`
 
 One-shot transforms.  `type` selects DCT/DST type 1–8.  `kind` overrides
-`type` with an explicit string such as `"dct4"` or `"dst7"`.
+`type` with an explicit string such as `"dct4"`, `"dst7"`, `"mdct"`, or
+`"imdct"`.
 
 ### `pxdct.plan(kind, length, dtype='f64') → DctPlan`
 
@@ -96,6 +103,8 @@ Factory for :class:`DctPlan2D`.  `kind_height` and `height` default to
 | `dct4`        | DCT type IV                      | itself                              |
 | `dct5`–`dct8` | DCT types V–VIII                 | see literature                      |
 | `dst1`–`dst8` | DST types I–VIII                 | see literature                      |
+| `mdct`        | Modified DCT                     | `imdct`                             |
+| `imdct`       | Inverse MDCT                     | `mdct`                              |
 
 ## Scaling
 

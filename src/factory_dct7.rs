@@ -26,15 +26,49 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-mod butterflies;
-mod butterflies_dct;
-mod dct_fft;
-mod dst_fft;
 
-pub(crate) use butterflies::{
-    Dst7Butterfly2, Dst7Butterfly3, Dst7Butterfly4, Dst7Butterfly5, Dst7Butterfly6, Dst7Butterfly7,
-    Dst7Butterfly8, Dst7Butterfly16,
-};
-pub(crate) use butterflies_dct::{Dct7Butterfly2, Dct7Butterfly3, Dct7Butterfly4, Dct7Butterfly8};
-pub(crate) use dct_fft::Dct7Fft;
-pub(crate) use dst_fft::Dst7Fft;
+use crate::PxdctExecutor;
+use crate::factory_dct2::Returning;
+use std::sync::Arc;
+
+pub(crate) trait Dct7Factory {
+    fn dct7_fft(length: usize) -> Returning<Self>;
+    fn dct7_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn dct7_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn dct7_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn dct7_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+}
+
+macro_rules! define_factory {
+    ($for_type: ident) => {
+        impl Dct7Factory for $for_type {
+            fn dct7_fft(length: usize) -> Returning<Self> {
+                use crate::type7::Dct7Fft;
+                Ok(Arc::new(Dct7Fft::new(length)?))
+            }
+
+            fn dct7_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+                use crate::type7::Dct7Butterfly2;
+                Arc::new(Dct7Butterfly2::default())
+            }
+
+            fn dct7_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+                use crate::type7::Dct7Butterfly3;
+                Arc::new(Dct7Butterfly3::default())
+            }
+
+            fn dct7_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+                use crate::type7::Dct7Butterfly4;
+                Arc::new(Dct7Butterfly4::default())
+            }
+
+            fn dct7_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+                use crate::type7::Dct7Butterfly8;
+                Arc::new(Dct7Butterfly8::default())
+            }
+        }
+    };
+}
+
+define_factory!(f32);
+define_factory!(f64);
