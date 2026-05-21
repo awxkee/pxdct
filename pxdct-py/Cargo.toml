@@ -1,12 +1,7 @@
-[workspace]
-members = ["app", "pxdct-py"]
-exclude = ["fuzz"]
-
 [package]
-name = "pxdct"
-version = "0.3.3"
+name = "pxdct-py"
+version = "0.1.0"
 edition = "2024"
-description = "Discrete cosine transform"
 readme = "README.md"
 keywords = ["dct", "discrete", "fourier"]
 license = "BSD-3-Clause OR Apache-2.0"
@@ -19,17 +14,17 @@ exclude = ["*.jpg", "/assets", "*.png", "*.sh", "/assets/*"]
 rust-version = "1.89.0"
 
 [dependencies]
-num-traits = "0.2.19"
-num-complex = "0.4.6"
-pxfm = "0.1.25"
-zaft = "0.3"
-num-integer = "0.1.46"
-
-[dev-dependencies]
-rand = "0.10.1"
+pxdct = { path = "../" }
+pyo3 = { version = "0.28.2", features = ["extension-module"] }
+numpy = "0.28.0"
 
 [features]
 default = ["avx", "neon"]
-avx = ["zaft/avx"]
-neon = ["zaft/neon"]
-fcma = ["neon", "zaft/fcma"]
+avx = ["pxdct/avx"]
+neon = ["pxdct/neon"]
+fcma = ["pxdct/fcma"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
