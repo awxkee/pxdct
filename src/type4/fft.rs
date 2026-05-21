@@ -170,9 +170,11 @@ where
             let (left, right) = chunk.split_at_mut(half_len);
 
             for ((l_dst, r_dst), scratch) in left
-                .chunks_exact_mut(2)
-                .zip(right.rchunks_exact_mut(2))
-                .zip(scratch.chunks_exact(4))
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .zip(right.as_rchunks_mut::<2>().1.iter_mut().rev())
+                .zip(scratch.as_chunks::<4>().0.iter())
             {
                 let fft_result = scratch[1] * (output_sign * result_scale);
                 let next_result = scratch[3] * (output_sign * result_scale);
@@ -306,9 +308,11 @@ where
             let (left, right) = dst.split_at_mut(half_len);
 
             for ((l_dst, r_dst), scratch) in left
-                .chunks_exact_mut(2)
-                .zip(right.rchunks_exact_mut(2))
-                .zip(scratch.chunks_exact(4))
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .zip(right.as_rchunks_mut::<2>().1.iter_mut().rev())
+                .zip(scratch.as_chunks::<4>().0.iter())
             {
                 let fft_result = scratch[1] * (output_sign * result_scale);
                 let next_result = scratch[3] * (output_sign * result_scale);
