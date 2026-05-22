@@ -81,7 +81,7 @@ use crate::factory_dst7::Dst7Factory;
 use crate::factory_scaled_dct2::ScaledDct2Factory;
 use crate::identity::DctIdentity;
 use crate::prime_factors::PrimeFactors;
-use crate::scaling::ScalingInterceptor;
+use crate::scaling::wrap_with_scaling;
 use crate::transpose::TransposeFactory;
 use crate::two_dims::TwoDimensionalDct;
 use crate::type2::Dct2Fft;
@@ -89,6 +89,7 @@ use crate::type3::SplitRadixDst3;
 use crate::util::DctSample;
 use num_traits::AsPrimitive;
 pub use pxdct_error::PxdctError;
+pub use scaling::{Scaling, TransformKind};
 use std::sync::{Arc, OnceLock};
 pub use two_dims::MultidimensionalDctExecutor;
 use zaft::FftDirection;
@@ -348,9 +349,11 @@ impl Pxdct {
                 ),
             };
         }
-        Ok(Arc::new(ScalingInterceptor {
-            interceptor: Pxdct::dct2_strategy(length)?,
-        }))
+        wrap_with_scaling(
+            Pxdct::dct2_strategy(length)?,
+            TransformKind::Dct2,
+            Scaling::Scale,
+        )
     }
 
     /// Creates a single-precision (f32) DCT-II executor.
@@ -531,9 +534,11 @@ impl Pxdct {
     pub fn make_scaled_dct3_f32(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
-        Ok(Arc::new(ScalingInterceptor {
-            interceptor: Pxdct::dct3_strategy(length)?,
-        }))
+        wrap_with_scaling(
+            Pxdct::dct3_strategy(length)?,
+            TransformKind::Dct3,
+            Scaling::Scale,
+        )
     }
 
     /// Creates a double-precision (f64) DCT-III executor.
@@ -547,9 +552,11 @@ impl Pxdct {
     pub fn make_scaling_dct3_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
-        Ok(Arc::new(ScalingInterceptor {
-            interceptor: Pxdct::dct3_strategy(length)?,
-        }))
+        wrap_with_scaling(
+            Pxdct::dct3_strategy(length)?,
+            TransformKind::Dct3,
+            Scaling::Scale,
+        )
     }
 
     fn dst2_strategy<T: Copy + Dst2Factory + Dct2Factory + DctSample>(
@@ -787,9 +794,11 @@ impl Pxdct {
     pub fn make_scaled_dct4_f32(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
-        Ok(Arc::new(ScalingInterceptor {
-            interceptor: Pxdct::strategy_dct4(length)?,
-        }))
+        wrap_with_scaling(
+            Pxdct::strategy_dct4(length)?,
+            TransformKind::Dct4,
+            Scaling::Scale,
+        )
     }
 
     /// Creates a double-precision (f32) DCT-IV executor.
@@ -803,9 +812,11 @@ impl Pxdct {
     pub fn make_scaled_dct4_f64(
         length: usize,
     ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
-        Ok(Arc::new(ScalingInterceptor {
-            interceptor: Pxdct::strategy_dct4(length)?,
-        }))
+        wrap_with_scaling(
+            Pxdct::strategy_dct4(length)?,
+            TransformKind::Dct4,
+            Scaling::Scale,
+        )
     }
 
     /// Creates a single-precision (f32) DST-IV executor.
@@ -1128,6 +1139,76 @@ impl Pxdct {
             width_scratch_size,
             height_scratch_size,
         })
+    }
+
+    /// Creates a single-precision (f32) executor for any supported transform type
+    /// with the requested normalization.
+    pub fn make_f32(
+        kind: TransformKind,
+        length: usize,
+        scaling: Scaling,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        let inner = Self::make_raw_f32(kind, length)?;
+        wrap_with_scaling(inner, kind, scaling)
+    }
+
+    /// Creates a double-precision (f64) executor for any supported transform type
+    /// with the requested normalization.
+    pub fn make_f64(
+        kind: TransformKind,
+        length: usize,
+        scaling: Scaling,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        let inner = Self::make_raw_f64(kind, length)?;
+        wrap_with_scaling(inner, kind, scaling)
+    }
+
+    fn make_raw_f32(
+        kind: TransformKind,
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+        match kind {
+            TransformKind::Dct1 => Self::make_dct1_f32(length),
+            TransformKind::Dct2 => Self::make_dct2_f32(length),
+            TransformKind::Dct3 => Self::make_dct3_f32(length),
+            TransformKind::Dct4 => Self::make_dct4_f32(length),
+            TransformKind::Dct5 => Self::make_dct5_f32(length),
+            TransformKind::Dct6 => Self::make_dct6_f32(length),
+            TransformKind::Dct7 => Self::make_dct7_f32(length),
+            TransformKind::Dct8 => Self::make_dct8_f32(length),
+            TransformKind::Dst1 => Self::make_dst1_f32(length),
+            TransformKind::Dst2 => Self::make_dst2_f32(length),
+            TransformKind::Dst3 => Self::make_dst3_f32(length),
+            TransformKind::Dst4 => Self::make_dst4_f32(length),
+            TransformKind::Dst5 => Self::make_dst5_f32(length),
+            TransformKind::Dst6 => Self::make_dst6_f32(length),
+            TransformKind::Dst7 => Self::make_dst7_f32(length),
+            TransformKind::Dst8 => Self::make_dst8_f32(length),
+        }
+    }
+
+    fn make_raw_f64(
+        kind: TransformKind,
+        length: usize,
+    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+        match kind {
+            TransformKind::Dct1 => Self::make_dct1_f64(length),
+            TransformKind::Dct2 => Self::make_dct2_f64(length),
+            TransformKind::Dct3 => Self::make_dct3_f64(length),
+            TransformKind::Dct4 => Self::make_dct4_f64(length),
+            TransformKind::Dct5 => Self::make_dct5_f64(length),
+            TransformKind::Dct6 => Self::make_dct6_f64(length),
+            TransformKind::Dct7 => Self::make_dct7_f64(length),
+            TransformKind::Dct8 => Self::make_dct8_f64(length),
+            TransformKind::Dst1 => Self::make_dst1_f64(length),
+            TransformKind::Dst2 => Self::make_dst2_f64(length),
+            TransformKind::Dst3 => Self::make_dst3_f64(length),
+            TransformKind::Dst4 => Self::make_dst4_f64(length),
+            TransformKind::Dst5 => Self::make_dst5_f64(length),
+            TransformKind::Dst6 => Self::make_dst6_f64(length),
+            TransformKind::Dst7 => Self::make_dst7_f64(length),
+            TransformKind::Dst8 => Self::make_dst8_f64(length),
+        }
     }
 }
 

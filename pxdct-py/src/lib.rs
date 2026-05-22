@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use ::pxdct::{Pxdct, PxdctError, PxdctExecutor};
+use ::pxdct::{Pxdct, PxdctError, PxdctExecutor, Scaling, TransformKind};
 use numpy::{PyArray1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -79,7 +79,7 @@ fn parse_kind(kind: &str) -> PyResult<&'static str> {
     Ok(match (family, num) {
         ("dct", 1) => "dct1",
         ("dct", 2) => "dct2",
-        ("dct", 3) => "type3",
+        ("dct", 3) => "dct3",
         ("dct", 4) => "dct4",
         ("dct", 5) => "dct5",
         ("dct", 6) => "dct6",
@@ -93,71 +93,79 @@ fn parse_kind(kind: &str) -> PyResult<&'static str> {
         ("dst", 6) => "dst6",
         ("dst", 7) => "dst7",
         ("dst", 8) => "dst8",
-        _ => unreachable!(),
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "Type {num} out of range; supported types are 1–8"
+            )));
+        }
     })
 }
-
-// ─── executor wrapper ────────────────────────────────────────────────────────
 
 enum Executor {
     F32(Arc<dyn PxdctExecutor<f32> + Send + Sync>),
     F64(Arc<dyn PxdctExecutor<f64> + Send + Sync>),
 }
 
+fn parse_scaling(s: &str) -> PyResult<Scaling> {
+    match s.to_ascii_lowercase().as_str() {
+        "none" => Ok(Scaling::None),
+        "scale" => Ok(Scaling::Scale),
+        "ortho" => Ok(Scaling::Ortho),
+        other => Err(PyValueError::new_err(format!(
+            "Unknown scaling '{other}'. Use 'none', 'scale', or 'ortho'."
+        ))),
+    }
+}
+
+fn parse_transform_kind(key: &str) -> TransformKind {
+    match key {
+        "dct1" => TransformKind::Dct1,
+        "dct2" => TransformKind::Dct2,
+        "dct3" => TransformKind::Dct3,
+        "dct4" => TransformKind::Dct4,
+        "dct5" => TransformKind::Dct5,
+        "dct6" => TransformKind::Dct6,
+        "dct7" => TransformKind::Dct7,
+        "dct8" => TransformKind::Dct8,
+        "dst1" => TransformKind::Dst1,
+        "dst2" => TransformKind::Dst2,
+        "dst3" => TransformKind::Dst3,
+        "dst4" => TransformKind::Dst4,
+        "dst5" => TransformKind::Dst5,
+        "dst6" => TransformKind::Dst6,
+        "dst7" => TransformKind::Dst7,
+        "dst8" => TransformKind::Dst8,
+        _ => unreachable!("parse_kind already validated the key"),
+    }
+}
+
+// ─── executor builder (replaces build_executor_f32 / build_executor_f64) ─────
+
 fn build_executor_f32(
     key: &str,
     length: usize,
+    scaling: Scaling,
 ) -> PyResult<Arc<dyn PxdctExecutor<f32> + Send + Sync>> {
+    // MDCT / IMDCT don't participate in the scaling system.
     match key {
-        "dct1" => Pxdct::make_dct1_f32(length),
-        "dct2" => Pxdct::make_dct2_f32(length),
-        "type3" => Pxdct::make_dct3_f32(length),
-        "dct4" => Pxdct::make_dct4_f32(length),
-        "dct5" => Pxdct::make_dct5_f32(length),
-        "dct6" => Pxdct::make_dct6_f32(length),
-        "dct7" => Pxdct::make_dct7_f32(length),
-        "dct8" => Pxdct::make_dct8_f32(length),
-        "dst1" => Pxdct::make_dst1_f32(length),
-        "dst2" => Pxdct::make_dst2_f32(length),
-        "dst3" => Pxdct::make_dst3_f32(length),
-        "dst4" => Pxdct::make_dst4_f32(length),
-        "dst5" => Pxdct::make_dst5_f32(length),
-        "dst6" => Pxdct::make_dst6_f32(length),
-        "dst7" => Pxdct::make_dst7_f32(length),
-        "dst8" => Pxdct::make_dst8_f32(length),
-        "mdct" => Pxdct::make_mdct_f32(length),
-        "imdct" => Pxdct::make_imdct_f32(length),
-        _ => unreachable!(),
+        "mdct" => return Pxdct::make_mdct_f32(length).map_err(pxdct_err_to_py),
+        "imdct" => return Pxdct::make_imdct_f32(length).map_err(pxdct_err_to_py),
+        _ => {}
     }
-    .map_err(pxdct_err_to_py)
+    Pxdct::make_f32(parse_transform_kind(key), length, scaling).map_err(pxdct_err_to_py)
 }
 
 fn build_executor_f64(
     key: &str,
     length: usize,
+    scaling: Scaling,
 ) -> PyResult<Arc<dyn PxdctExecutor<f64> + Send + Sync>> {
     match key {
-        "dct1" => Pxdct::make_dct1_f64(length),
-        "dct2" => Pxdct::make_dct2_f64(length),
-        "type3" => Pxdct::make_dct3_f64(length),
-        "dct4" => Pxdct::make_dct4_f64(length),
-        "dct5" => Pxdct::make_dct5_f64(length),
-        "dct6" => Pxdct::make_dct6_f64(length),
-        "dct7" => Pxdct::make_dct7_f64(length),
-        "dct8" => Pxdct::make_dct8_f64(length),
-        "dst1" => Pxdct::make_dst1_f64(length),
-        "dst2" => Pxdct::make_dst2_f64(length),
-        "dst3" => Pxdct::make_dst3_f64(length),
-        "dst4" => Pxdct::make_dst4_f64(length),
-        "dst5" => Pxdct::make_dst5_f64(length),
-        "dst6" => Pxdct::make_dst6_f64(length),
-        "dst7" => Pxdct::make_dst7_f64(length),
-        "dst8" => Pxdct::make_dst8_f64(length),
-        "mdct" => Pxdct::make_mdct_f64(length),
-        "imdct" => Pxdct::make_imdct_f64(length),
-        _ => unreachable!(),
+        "mdct" => return Pxdct::make_mdct_f64(length).map_err(pxdct_err_to_py),
+        "imdct" => return Pxdct::make_imdct_f64(length).map_err(pxdct_err_to_py),
+        _ => {}
     }
-    .map_err(pxdct_err_to_py)
+    Pxdct::make_f64(parse_transform_kind(key), length, scaling).map_err(pxdct_err_to_py)
 }
 
 /// A pre-planned DCT / DST / MDCT / IMDCT executor.
@@ -175,23 +183,50 @@ fn build_executor_f64(
 ///     Number of points.
 /// dtype : str, optional
 ///     ``"f32"`` or ``"f64"`` (default ``"f64"``).
+/// A pre-planned DCT / DST / MDCT / IMDCT executor.
+///
+/// Create once, call ``execute`` / ``execute_into`` many times.
+/// Thread-safe: the inner executor is ``Arc<… + Send + Sync>``.
+///
+/// Parameters
+/// ----------
+/// kind : str
+///     Transform family and type, e.g. ``"dct2"``, ``"dst4"``, ``"dct8"``,
+///     ``"mdct"``, ``"imdct"``.
+///     MDCT / IMDCT require an even *length* and ignore *scaling*.
+/// length : int
+///     Number of points.
+/// dtype : str, optional
+///     ``"f32"`` or ``"f64"`` (default ``"f64"``).
+/// scaling : str, optional
+///     Normalization applied after the raw transform:
+///
+///     * ``"none"``  – un-normalized textbook output (default).
+///     * ``"scale"`` – multiply every element by ``sqrt(2 / length)``.
+///     * ``"ortho"`` – per-type orthonormal scaling; a forward/inverse pair
+///       at the same length round-trips to the identity.
+///
+///     Ignored for ``"mdct"`` and ``"imdct"``.
 #[pyclass(name = "DctPlan")]
 struct DctPlan {
     executor: Executor,
     kind: String,
     length: usize,
     dtype: String,
+    scaling: String,
 }
 
 #[pymethods]
 impl DctPlan {
     #[new]
-    #[pyo3(signature = (kind, length, dtype = "f64"))]
-    fn new(kind: &str, length: usize, dtype: &str) -> PyResult<Self> {
+    #[pyo3(signature = (kind, length, dtype = "f64", scaling = "none"))]
+    fn new(kind: &str, length: usize, dtype: &str, scaling: &str) -> PyResult<Self> {
         let key = parse_kind(kind)?;
+        let sc = parse_scaling(scaling)?;
+
         let executor = match dtype {
-            "f32" | "float32" => Executor::F32(build_executor_f32(key, length)?),
-            "f64" | "float64" => Executor::F64(build_executor_f64(key, length)?),
+            "f32" | "float32" => Executor::F32(build_executor_f32(key, length, sc)?),
+            "f64" | "float64" => Executor::F64(build_executor_f64(key, length, sc)?),
             other => {
                 return Err(PyValueError::new_err(format!(
                     "Unknown dtype '{other}'. Use 'f32' or 'f64'."
@@ -203,6 +238,7 @@ impl DctPlan {
             kind: kind.to_string(),
             length,
             dtype: dtype.to_string(),
+            scaling: scaling.to_string(),
         })
     }
 
@@ -224,10 +260,17 @@ impl DctPlan {
         &self.dtype
     }
 
+    /// Normalization mode this plan was built with (``"none"``, ``"scale"``,
+    /// or ``"ortho"``).
+    #[getter]
+    fn scaling(&self) -> &str {
+        &self.scaling
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "DctPlan(kind='{}', length={}, dtype='{}')",
-            self.kind, self.length, self.dtype
+            "DctPlan(kind='{}', length={}, dtype='{}', scaling='{}')",
+            self.kind, self.length, self.dtype, self.scaling
         )
     }
 
@@ -255,18 +298,18 @@ impl DctPlan {
                     .cast::<PyArray1<f32>>()
                     .map_err(|_| PyValueError::new_err("Expected a 1-D float32 numpy array"))?;
                 self.check_len(arr.len())?;
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
             Executor::F64(exec) => {
                 let arr = data
                     .cast::<PyArray1<f64>>()
                     .map_err(|_| PyValueError::new_err("Expected a 1-D float64 numpy array"))?;
                 self.check_len(arr.len())?;
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
         }
     }
@@ -330,10 +373,9 @@ impl DctPlan {
                                 dst.len()
                             )));
                         }
-                        let mut dst_s = unsafe { dst.as_slice_mut() }
+                        let dst_s = unsafe { dst.as_slice_mut() }
                             .map_err(|_| PyRuntimeError::new_err("Output must be C-contiguous"))?;
-                        exec.execute_into(src_s, &mut dst_s)
-                            .map_err(pxdct_err_to_py)?;
+                        exec.execute_into(src_s, dst_s).map_err(pxdct_err_to_py)?;
                         Ok(out.clone().into_any())
                     }
                     None => {
@@ -368,10 +410,9 @@ impl DctPlan {
                                 dst.len()
                             )));
                         }
-                        let mut dst_s = unsafe { dst.as_slice_mut() }
+                        let dst_s = unsafe { dst.as_slice_mut() }
                             .map_err(|_| PyRuntimeError::new_err("Output must be C-contiguous"))?;
-                        exec.execute_into(src_s, &mut dst_s)
-                            .map_err(pxdct_err_to_py)?;
+                        exec.execute_into(src_s, dst_s).map_err(pxdct_err_to_py)?;
                         Ok(out.clone().into_any())
                     }
                     None => {
@@ -522,9 +563,9 @@ impl DctPlan2D {
                         arr.len()
                     )));
                 }
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
             Dct2DInner::F64(exec) => {
                 let arr = data
@@ -539,42 +580,42 @@ impl DctPlan2D {
                         arr.len()
                     )));
                 }
-                let mut buf = unsafe { arr.as_slice_mut() }
+                let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)
+                exec.execute(buf).map_err(pxdct_err_to_py)
             }
         }
     }
 }
-
-// ─── convenience one-shot functions ──────────────────────────────────────────
-
 /// One-shot DCT / DST / MDCT / IMDCT.  Allocates a new output array.
 ///
 /// Parameters
 /// ----------
 /// data : array-like (converted to numpy f64)
-/// kind : str  — e.g. ``"dct2"``, ``"dst4"``, ``"mdct"``, ``"imdct"``
-/// dtype : str — ``"f32"`` or ``"f64"`` (default ``"f64"``)
+/// kind : str
+///     Transform type, e.g. ``"dct2"``, ``"dst4"``, ``"mdct"``, ``"imdct"``
+///     (default ``"dct2"``).
+/// dtype : str
+///     ``"f32"`` or ``"f64"`` (default ``"f64"``).
+/// scaling : str
+///     ``"none"``, ``"scale"``, or ``"ortho"`` (default ``"none"``).
+///     Ignored for ``"mdct"`` and ``"imdct"``.
 ///
 /// Returns
 /// -------
-/// numpy.ndarray  (copy, same dtype)
+/// numpy.ndarray  (copy, same dtype as requested)
 #[pyfunction]
-#[pyo3(signature = (data, kind = "dct2", dtype = "f64"))]
+#[pyo3(signature = (data, kind = "dct2", dtype = "f64", scaling = "none"))]
 fn dct<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
     kind: &str,
     dtype: &str,
+    scaling: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
     let key = parse_kind(kind)?;
+    let sc = parse_scaling(scaling)?;
 
-    // MDCT/IMDCT are inherently out-of-place: input and output lengths differ.
-    // For MDCT:  plan(n), input = 2n, output = n.
-    // For IMDCT: plan(n), input = n,  output = 2n.
-    // The plan length is inferred from the *input* array: n = len for IMDCT,
-    // n = len/2 for MDCT.
     let is_mdct = key == "mdct";
     let is_imdct = key == "imdct";
 
@@ -591,21 +632,19 @@ fn dct<'py>(
                 if in_len % 2 != 0 {
                     return Err(PyValueError::new_err("MDCT input length must be even"));
                 }
-                let n = in_len / 2;
-                let exec = build_executor_f32(key, n)?;
-                let mut buf_out = vec![0f32; n];
+                let exec = build_executor_f32(key, in_len / 2, Scaling::None)?;
+                let mut buf_out = vec![0f32; in_len / 2];
                 exec.execute_into(&buf_in, &mut buf_out)
                     .map_err(pxdct_err_to_py)?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else if is_imdct {
-                let n = in_len;
-                let exec = build_executor_f32(key, n)?;
-                let mut buf_out = vec![0f32; n * 2];
+                let exec = build_executor_f32(key, in_len, Scaling::None)?;
+                let mut buf_out = vec![0f32; in_len * 2];
                 exec.execute_into(&buf_in, &mut buf_out)
                     .map_err(pxdct_err_to_py)?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else {
-                let exec = build_executor_f32(key, in_len)?;
+                let exec = build_executor_f32(key, in_len, sc)?;
                 let mut buf = buf_in;
                 exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
                 Ok(PyArray1::from_vec(py, buf).into_any())
@@ -623,21 +662,19 @@ fn dct<'py>(
                 if in_len % 2 != 0 {
                     return Err(PyValueError::new_err("MDCT input length must be even"));
                 }
-                let n = in_len / 2;
-                let exec = build_executor_f64(key, n)?;
-                let mut buf_out = vec![0f64; n];
+                let exec = build_executor_f64(key, in_len / 2, Scaling::None)?;
+                let mut buf_out = vec![0f64; in_len / 2];
                 exec.execute_into(&buf_in, &mut buf_out)
                     .map_err(pxdct_err_to_py)?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else if is_imdct {
-                let n = in_len;
-                let exec = build_executor_f64(key, n)?;
-                let mut buf_out = vec![0f64; n * 2];
+                let exec = build_executor_f64(key, in_len, Scaling::None)?;
+                let mut buf_out = vec![0f64; in_len * 2];
                 exec.execute_into(&buf_in, &mut buf_out)
                     .map_err(pxdct_err_to_py)?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else {
-                let exec = build_executor_f64(key, in_len)?;
+                let exec = build_executor_f64(key, in_len, sc)?;
                 let mut buf = buf_in;
                 exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
                 Ok(PyArray1::from_vec(py, buf).into_any())
