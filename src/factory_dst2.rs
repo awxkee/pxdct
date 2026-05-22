@@ -165,10 +165,11 @@ impl Dst2Factory for f64 {
         {
             if length >= 16 {
                 use crate::neon::NeonSplitRadixDst2d;
-                return Ok(
-                    Arc::new(NeonSplitRadixDst2d::new(length, half_dct, quarter_dct)?)
-                        as Arc<SpectralExecutor<f64>>,
-                );
+                return Ok(Arc::new(NeonSplitRadixDst2d::new(
+                    length,
+                    half_dct,
+                    quarter_dct,
+                )?));
             }
         }
         use crate::type2::SplitRadixDst2;
