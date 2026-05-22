@@ -1567,8 +1567,8 @@ mod tests {
             let mut working_array = array.clone();
             let mut transient = vec![0f32; i];
 
-            let dct_forward = Pxdct::make_dct2_f32(array.len()).unwrap();
-            let dct_inverse = Pxdct::make_dct3_f32(array.len()).unwrap();
+            let dct_forward = Pxdct::make_dst2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dst3_f32(array.len()).unwrap();
 
             dct_forward
                 .execute_into(&working_array, &mut transient)

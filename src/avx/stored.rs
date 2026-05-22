@@ -49,7 +49,7 @@ impl AvxStoreD {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    pub(crate) fn to_array(&self) -> [f64; 4] {
+    pub(crate) fn to_array(self) -> [f64; 4] {
         let mut data = AvxAlignedF64([0.; 4]);
         unsafe {
             _mm256_store_pd(data.0.as_mut_ptr(), self.v);

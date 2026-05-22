@@ -66,7 +66,7 @@ impl AvxStoreF {
         AvxStoreF::raw(_mm256_setzero_ps())
     }
 
-    pub(crate) fn to_array(&self) -> [f32; 8] {
+    pub(crate) fn to_array(self) -> [f32; 8] {
         let mut data = AvxAlignedF32([0.; 8]);
         unsafe {
             _mm256_store_ps(data.0.as_mut_ptr(), self.v);

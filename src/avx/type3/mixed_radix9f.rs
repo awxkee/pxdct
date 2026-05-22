@@ -577,10 +577,14 @@ mod tests {
     use super::*;
     use crate::tests::naive_dct3_f32;
     use crate::type3::Dct3Butterfly9;
+    use crate::util::has_valid_avx;
     use rand::RngExt;
 
     #[test]
     fn test_neon_dct3_radix9() {
+        if !has_valid_avx() {
+            return;
+        }
         const N: usize = 9 * 9;
         let mut input = vec![0.0_f32; N];
         for z in input.iter_mut() {
