@@ -28,6 +28,9 @@
  */
 mod imdct_fft;
 mod mdct_fft;
+mod windowed_mdct;
 
 pub(crate) use imdct_fft::ImdctFft;
 pub(crate) use mdct_fft::MdctFft;
+pub(crate) use windowed_mdct::{ImdctOverlapAdd, MdctOverlapAdd};
+pub use windowed_mdct::{MdctChoiceWindow, MdctWindow, TransformOverlapAdd};

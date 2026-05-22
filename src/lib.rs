@@ -80,6 +80,8 @@ use crate::factory_dst2::Dst2Factory;
 use crate::factory_dst7::Dst7Factory;
 use crate::factory_scaled_dct2::ScaledDct2Factory;
 use crate::identity::DctIdentity;
+use crate::mdct::{ImdctOverlapAdd, MdctOverlapAdd};
+pub use crate::mdct::{MdctChoiceWindow, MdctWindow, TransformOverlapAdd};
 use crate::prime_factors::PrimeFactors;
 use crate::scaling::wrap_with_scaling;
 use crate::transpose::TransposeFactory;
@@ -1208,6 +1210,50 @@ impl Pxdct {
             TransformKind::Dst6 => Self::make_dst6_f64(length),
             TransformKind::Dst7 => Self::make_dst7_f64(length),
             TransformKind::Dst8 => Self::make_dst8_f64(length),
+        }
+    }
+
+    /// Creates a single-precision (f32) streaming windowed MDCT with 50% overlap-add.
+    pub fn make_mdct_overlap_add_f32(
+        n: usize,
+        window: MdctChoiceWindow<f32>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f32>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(MdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(MdctOverlapAdd::new_with_window(n, w)?)),
+        }
+    }
+
+    /// Creates a double-precision (f64) streaming windowed MDCT with 50% overlap-add.
+    pub fn make_mdct_overlap_add_f64(
+        n: usize,
+        window: MdctChoiceWindow<f64>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f64>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(MdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(MdctOverlapAdd::new_with_window(n, w)?)),
+        }
+    }
+
+    /// Creates a single-precision (f32) streaming windowed IMDCT with 50% overlap-add.
+    pub fn make_imdct_overlap_add_f32(
+        n: usize,
+        window: MdctChoiceWindow<f32>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f32>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(ImdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(ImdctOverlapAdd::new_with_window(n, w)?)),
+        }
+    }
+
+    /// Creates a double-precision (f64) streaming windowed IMDCT with 50% overlap-add.
+    pub fn make_imdct_overlap_add_f64(
+        n: usize,
+        window: MdctChoiceWindow<f64>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f64>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(ImdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(ImdctOverlapAdd::new_with_window(n, w)?)),
         }
     }
 }
