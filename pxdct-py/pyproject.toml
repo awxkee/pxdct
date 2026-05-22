@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pxdct"
-version = "0.1.0"
+version = "0.3.3"
 description = "Fast DCT/DST types I–VIII"
 readme = "README.md"
 license = { text = "BSD-3-Clause" }
