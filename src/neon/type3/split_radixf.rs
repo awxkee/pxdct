@@ -1,5 +1,5 @@
 /*
- * // Copyright (c) Radzivon Bartoshyk 2/2026. All rights reserved.
+ * // Copyright (c) Radzivon Bartoshyk 5/2026. All rights reserved.
  * //
  * // Redistribution and use in source and binary forms, with or without modification,
  * // are permitted provided that the following conditions are met:
@@ -28,7 +28,7 @@
  */
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::mla::fmla;
-use crate::neon::dct2::dct2_split_radix_rotation_twiddles_neon;
+use crate::neon::type2::dct2_split_radix_rotation_twiddles_neon;
 use crate::neon::util::NeonStoreF;
 use crate::util::{DctConstants, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};

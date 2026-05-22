@@ -97,7 +97,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - run: cargo install cargo-fuzz
       - run: cargo fuzz run dct --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
-      - run: cargo fuzz run dct4 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
+      - run: cargo fuzz run type4 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct2_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct4_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run type1 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
@@ -117,7 +117,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - run: cargo install cargo-fuzz
       - run: cargo fuzz run dct --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
-      - run: cargo fuzz run dct4 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
+      - run: cargo fuzz run type4 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct2_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run dct4_f64 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12
       - run: cargo fuzz run type1 --no-default-features --features "${{ matrix.feature }}" -- -max_total_time=12

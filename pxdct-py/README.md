@@ -12,7 +12,7 @@ orthonormal scaling.
 ## Install
 
 ```bash
-pip install pxdct          # pre-built wheel from PyPI
+pip install pxdct
 ```
 
 Build from source (requires a Rust toolchain):
@@ -114,9 +114,9 @@ axes.
 | Kind          | Full name                        | Inverse of             |
 |---------------|----------------------------------|------------------------|
 | `dct1`        | DCT type I                       | itself (up to scaling) |
-| `dct2`        | DCT type II (the "standard" DCT) | `dct3`                 |
-| `dct3`        | DCT type III (inverse DCT)       | `dct2`                 |
-| `dct4`        | DCT type IV                      | itself                 |
+| `type2`        | DCT type II (the "standard" DCT) | `dct3`                 |
+| `dct3`        | DCT type III (inverse DCT)       | `type2`                 |
+| `type4`        | DCT type IV                      | itself                 |
 | `dct5`–`dct8` | DCT types V–VIII                 | see literature         |
 | `dst1`–`dst8` | DST types I–VIII                 | see literature         |
 | `mdct`        | Modified DCT                     | `imdct`                |

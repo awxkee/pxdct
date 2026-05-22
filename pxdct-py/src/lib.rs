@@ -62,7 +62,7 @@ fn parse_kind(kind: &str) -> PyResult<&'static str> {
     } else {
         return Err(PyValueError::new_err(format!(
             "Unknown transform kind '{kind}'. \
-             Expected e.g. 'dct2', 'dst4', 'mdct', 'imdct'."
+             Expected e.g. 'type2', 'dst4', 'mdct', 'imdct'."
         )));
     };
 
@@ -78,9 +78,9 @@ fn parse_kind(kind: &str) -> PyResult<&'static str> {
     // Return a 'static str so callers don't need to own a String.
     Ok(match (family, num) {
         ("dct", 1) => "dct1",
-        ("dct", 2) => "dct2",
+        ("dct", 2) => "type2",
         ("dct", 3) => "dct3",
-        ("dct", 4) => "dct4",
+        ("dct", 4) => "type4",
         ("dct", 5) => "dct5",
         ("dct", 6) => "dct6",
         ("dct", 7) => "dct7",
@@ -120,9 +120,9 @@ fn parse_scaling(s: &str) -> PyResult<Scaling> {
 fn parse_transform_kind(key: &str) -> TransformKind {
     match key {
         "dct1" => TransformKind::Dct1,
-        "dct2" => TransformKind::Dct2,
+        "type2" => TransformKind::Dct2,
         "dct3" => TransformKind::Dct3,
-        "dct4" => TransformKind::Dct4,
+        "type4" => TransformKind::Dct4,
         "dct5" => TransformKind::Dct5,
         "dct6" => TransformKind::Dct6,
         "dct7" => TransformKind::Dct7,
@@ -176,7 +176,7 @@ fn build_executor_f64(
 /// Parameters
 /// ----------
 /// kind : str
-///     Transform family and type, e.g. ``"dct2"``, ``"dst4"``, ``"dct8"``,
+///     Transform family and type, e.g. ``"type2"``, ``"dst4"``, ``"dct8"``,
 ///     ``"mdct"``, ``"imdct"``.
 ///     MDCT / IMDCT require an even *length*.
 /// length : int
@@ -191,7 +191,7 @@ fn build_executor_f64(
 /// Parameters
 /// ----------
 /// kind : str
-///     Transform family and type, e.g. ``"dct2"``, ``"dst4"``, ``"dct8"``,
+///     Transform family and type, e.g. ``"type2"``, ``"dst4"``, ``"dct8"``,
 ///     ``"mdct"``, ``"imdct"``.
 ///     MDCT / IMDCT require an even *length* and ignore *scaling*.
 /// length : int
@@ -248,7 +248,7 @@ impl DctPlan {
         self.length
     }
 
-    /// Transform kind string (e.g. ``"dct2"`` or ``"mdct"``).
+    /// Transform kind string (e.g. ``"type2"`` or ``"mdct"``).
     #[getter]
     fn kind(&self) -> &str {
         &self.kind
@@ -593,8 +593,8 @@ impl DctPlan2D {
 /// ----------
 /// data : array-like (converted to numpy f64)
 /// kind : str
-///     Transform type, e.g. ``"dct2"``, ``"dst4"``, ``"mdct"``, ``"imdct"``
-///     (default ``"dct2"``).
+///     Transform type, e.g. ``"type2"``, ``"dst4"``, ``"mdct"``, ``"imdct"``
+///     (default ``"type2"``).
 /// dtype : str
 ///     ``"f32"`` or ``"f64"`` (default ``"f64"``).
 /// scaling : str
@@ -605,7 +605,7 @@ impl DctPlan2D {
 /// -------
 /// numpy.ndarray  (copy, same dtype as requested)
 #[pyfunction]
-#[pyo3(signature = (data, kind = "dct2", dtype = "f64", scaling = "none"))]
+#[pyo3(signature = (data, kind = "type2", dtype = "f64", scaling = "none"))]
 fn dct<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
@@ -694,10 +694,10 @@ fn dct<'py>(
 /// >>> x = np.random.randn(256)
 ///
 /// One-shot (convenient, builds the plan on every call):
-/// >>> y = pxdct.dct(x, kind='dct2')
+/// >>> y = pxdct.dct(x, kind='type2')
 ///
 /// Reusable plan (build once, call many times — prefer this in loops):
-/// >>> plan = pxdct.DctPlan('dct2', 256)
+/// >>> plan = pxdct.DctPlan('type2', 256)
 /// >>> out  = np.empty(256)
 /// >>> plan.execute_into(x, out)
 ///
@@ -708,8 +708,8 @@ fn dct<'py>(
 /// >>> x_back = imdct_plan(coeffs)
 ///
 /// 2-D (image processing):
-/// >>> wp = pxdct.DctPlan('dct2', 512)
-/// >>> hp = pxdct.DctPlan('dct2', 512)
+/// >>> wp = pxdct.DctPlan('type2', 512)
+/// >>> hp = pxdct.DctPlan('type2', 512)
 /// >>> plan2d = pxdct.DctPlan2D(wp, hp)
 /// >>> img_flat = img.ravel().astype('float64')
 /// >>> plan2d.execute(img_flat)

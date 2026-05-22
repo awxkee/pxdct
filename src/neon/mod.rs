@@ -28,8 +28,6 @@
  */
 #![allow(clippy::too_many_arguments)]
 mod block_transpose;
-mod dct2;
-mod dct4;
 #[cfg(feature = "fcma")]
 mod fcma_mul_f32;
 mod mul_f32;
@@ -37,20 +35,25 @@ mod mul_f32;
 mod pfa_dct2_remap;
 mod store_d;
 mod transpose;
+mod type2;
 mod type3;
+mod type4;
 mod util;
 
-pub(crate) use dct2::bf_radix3::{
-    NeonDct2Butterfly27f, NeonDct2Butterfly81f, NeonDct2Butterfly243f,
-};
 #[cfg(feature = "fcma")]
 pub(crate) use fcma_mul_f32::FcmaDctSpectrumMulF32;
 pub(crate) use mul_f32::DctSpectrumMulF32;
+pub(crate) use type2::bf_radix3::{
+    NeonDct2Butterfly27f, NeonDct2Butterfly81f, NeonDct2Butterfly243f,
+};
 
 pub(crate) use block_transpose::{
     NeonTransposeNx5F32, NeonTransposeNx6F32, NeonTransposeNx7F32, NeonTransposeNx11F32,
 };
-pub(crate) use dct2::{
+#[cfg(target_pointer_width = "64")]
+pub(crate) use pfa_dct2_remap::NeonPfaDct2Remapper;
+pub(crate) use transpose::NeonTranspose4x4;
+pub(crate) use type2::{
     NeonDct2Butterfly25f, NeonDct2Butterfly32d, NeonDct2Butterfly32f, NeonDct2Butterfly36d,
     NeonDct2Butterfly36f, NeonDct2Butterfly49f, NeonDct2Butterfly64d, NeonDct2Butterfly64f,
     NeonDct2Butterfly128d, NeonDct2Butterfly128f, NeonDct2Butterfly216d, NeonDct2Butterfly216f,
@@ -63,18 +66,15 @@ pub(crate) use dct2::{
     ScaledNeonDct2Butterfly128f, ScaledNeonDct2Butterfly256f, ScaledNeonDct2Butterfly512f,
     ScaledNeonSplitRadixDct2d, ScaledNeonSplitRadixDct2f,
 };
-pub(crate) use dct4::{
+pub(crate) use type3::{
+    NeonDct3MixedRadix3d, NeonDct3MixedRadix3f, NeonDct3MixedRadix5d, NeonDct3MixedRadix5f,
+    NeonDct3MixedRadix7d, NeonDct3MixedRadix7f, NeonDct3MixedRadix9d, NeonDct3MixedRadix9f,
+};
+pub(crate) use type3::{NeonSplitRadixDct3d, NeonSplitRadixDct3f};
+pub(crate) use type4::{
     NeonDct4Butterfly27f, NeonDct4MixedRadix2f, NeonDct4MixedRadix3d, NeonDct4MixedRadix3f,
     NeonDct4MixedRadix5d, NeonDct4MixedRadix5f, NeonDct4MixedRadix7d, NeonDct4MixedRadix7f,
     NeonDct4MixedRadix9d, NeonDct4MixedRadix9f, NeonDct4MixedRadix11d, NeonDct4MixedRadix11f,
     NeonDct4MixedRadix13d, NeonDct4MixedRadix13f, NeonDct4MixedRadix17d, NeonDct4MixedRadix17f,
     NeonDct4MixedRadix19d, NeonDct4MixedRadix19f, NeonDct4Radix2f,
 };
-#[cfg(target_pointer_width = "64")]
-pub(crate) use pfa_dct2_remap::NeonPfaDct2Remapper;
-pub(crate) use transpose::NeonTranspose4x4;
-pub(crate) use type3::{
-    NeonDct3MixedRadix3d, NeonDct3MixedRadix3f, NeonDct3MixedRadix5d, NeonDct3MixedRadix5f,
-    NeonDct3MixedRadix7d, NeonDct3MixedRadix7f, NeonDct3MixedRadix9d, NeonDct3MixedRadix9f,
-};
-pub(crate) use type3::{NeonSplitRadixDct3d, NeonSplitRadixDct3f};
