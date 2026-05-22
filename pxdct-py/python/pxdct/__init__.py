@@ -131,11 +131,28 @@ def plan2d(kind_width, width, kind_height=None, height=None, dtype="f64", scalin
     -------
     DctPlan2D
 
+    Notes
+    -----
+    **Output layout:** for performance the final transpose is omitted.
+    Input is W×H row-major; output is H×W row-major (transposed).
+    To restore W×H order in NumPy: ``arr.reshape(width, height).T.copy()``.
+
+    For a lossless round-trip, construct the inverse plan with axes swapped::
+
+        fwd = pxdct.plan2d('dct2', width, height=height)
+        inv = pxdct.plan2d('dct3', height, height=width)  # note: axes swapped
+        inv.execute(fwd_output)  # recovers original W×H layout
+
     Examples
     --------
     >>> p = pxdct.plan2d('dct2', 512)              # 512×512
     >>> p = pxdct.plan2d('dct2', 640, height=480)  # rectangular
     >>> p = pxdct.plan2d('dct2', 8, scaling='ortho')  # ortho
+    >>>
+    >>> # output is H×W — reshape to recover 2-D array in original orientation
+    >>> img_flat = img.ravel().astype('float64')   # W×H row-major
+    >>> p.execute(img_flat)                        # now H×W row-major
+    >>> coeffs_2d = img_flat.reshape(height, width)  # correct view of output
     """
     from .pxdct import DctPlan, DctPlan2D
     kh = kind_height if kind_height is not None else kind_width
