@@ -80,6 +80,8 @@ use crate::factory_dst2::Dst2Factory;
 use crate::factory_dst7::Dst7Factory;
 use crate::factory_scaled_dct2::ScaledDct2Factory;
 use crate::identity::DctIdentity;
+use crate::mdct::{ImdctOverlapAdd, MdctOverlapAdd};
+pub use crate::mdct::{MdctChoiceWindow, MdctWindow, TransformOverlapAdd};
 use crate::prime_factors::PrimeFactors;
 use crate::scaling::wrap_with_scaling;
 use crate::transpose::TransposeFactory;
@@ -93,6 +95,8 @@ pub use scaling::{Scaling, TransformKind};
 use std::sync::{Arc, OnceLock};
 pub use two_dims::MultidimensionalDctExecutor;
 use zaft::FftDirection;
+
+pub type SpectralExecutor<T> = Arc<dyn PxdctExecutor<T> + Send + Sync>;
 
 /// The main entry point for creating DCT (Discrete Cosine Transform) executors.
 ///
@@ -252,7 +256,7 @@ macro_rules! generate_dst3_butterflies {
 impl Pxdct {
     fn dct2_strategy<T: DctSample + Dct2Factory + Send + Sync>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    ) -> Result<SpectralExecutor<T>, PxdctError>
     where
         f64: AsPrimitive<T>,
     {
@@ -316,12 +320,12 @@ impl Pxdct {
             return T::dct2_relatively_prime(Pxdct::dct2_strategy(29)?, Pxdct::dct2_strategy(11)?);
         }
 
-        Dct2Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<T> + Send + Sync>)
+        Dct2Fft::new(length).map(|x| Arc::new(x) as SpectralExecutor<T>)
     }
 
     fn strategy_scaled_dct2<T: DctSample + ScaledDct2Factory + Dct2Factory>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    ) -> Result<SpectralExecutor<T>, PxdctError>
     where
         f64: AsPrimitive<T>,
     {
@@ -357,9 +361,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DCT-II executor.
-    pub fn make_dct2_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct2_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::dct2_strategy(length)
     }
 
@@ -369,16 +371,12 @@ impl Pxdct {
     /// Scaling routine is completely incorporated only in power of 2 executors.
     /// For anything else if absolute performance is preferred consider to
     /// incorporate scaling factor into your processing routine.
-    pub fn make_scaled_dct2_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_scaled_dct2_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::strategy_scaled_dct2(length)
     }
 
     /// Creates a double-precision (f64) DCT-II executor.
-    pub fn make_dct2_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct2_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::dct2_strategy(length)
     }
 
@@ -388,15 +386,13 @@ impl Pxdct {
     /// Scaling routine is completely incorporated only in power of 2 executors.
     /// For anything else if absolute performance is preferred consider to
     /// incorporate scaling factor into your processing routine.
-    pub fn make_scaled_dct2_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_scaled_dct2_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::strategy_scaled_dct2(length)
     }
 
     fn dct3_strategy<T: Copy + Dct3Factory>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError> {
+    ) -> Result<SpectralExecutor<T>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -458,7 +454,7 @@ impl Pxdct {
 
     fn dct1_strategy<T: Copy + Dct1Factory + Dct3Factory>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError> {
+    ) -> Result<SpectralExecutor<T>, PxdctError> {
         if length < 2 {
             return Err(PxdctError::MinimumPoints(2, "DCT-I".to_string()));
         }
@@ -490,39 +486,29 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DCT-I executor.
-    pub fn make_dct1_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct1_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::dct1_strategy(length)
     }
 
     /// Creates a single-precision (f64) DCT-I executor.
-    pub fn make_dct1_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct1_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::dct1_strategy(length)
     }
 
     /// Creates a single-precision (f32) DST-I executor.
-    pub fn make_dst1_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst1_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         use crate::type1::Dst1Fft;
         Ok(Arc::new(Dst1Fft::new(length)?))
     }
 
     /// Creates a single-precision (f64) DST-I executor.
-    pub fn make_dst1_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst1_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         use crate::type1::Dst1Fft;
         Ok(Arc::new(Dst1Fft::new(length)?))
     }
 
     /// Creates a single-precision (f32) DCT-III executor.
-    pub fn make_dct3_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct3_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::dct3_strategy(length)
     }
 
@@ -531,9 +517,7 @@ impl Pxdct {
     /// Scaling routine is completely incorporated only in power of 2 executors.
     /// For anything else if absolute performance is preferred consider to
     /// incorporate scaling factor into your processing routine.
-    pub fn make_scaled_dct3_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_scaled_dct3_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         wrap_with_scaling(
             Pxdct::dct3_strategy(length)?,
             TransformKind::Dct3,
@@ -542,16 +526,12 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DCT-III executor.
-    pub fn make_dct3_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct3_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::dct3_strategy(length)
     }
 
     /// Creates a double-precision (f64) DCT-III executor.
-    pub fn make_scaling_dct3_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_scaling_dct3_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         wrap_with_scaling(
             Pxdct::dct3_strategy(length)?,
             TransformKind::Dct3,
@@ -561,7 +541,7 @@ impl Pxdct {
 
     fn dst2_strategy<T: Copy + Dst2Factory + Dct2Factory + DctSample>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    ) -> Result<SpectralExecutor<T>, PxdctError>
     where
         f64: AsPrimitive<T>,
     {
@@ -600,23 +580,17 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DST-II executor.
-    pub fn make_dst2_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst2_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::dst2_strategy(length)
     }
 
     /// Creates a double-precision (f64) DST-II executor.
-    pub fn make_dst2_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst2_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::dst2_strategy(length)
     }
 
     /// Creates a single-precision (f32) DST-III executor.
-    pub fn make_dst3_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst3_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -631,13 +605,11 @@ impl Pxdct {
             )?));
         }
 
-        Dst3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f32> + Send + Sync>)
+        Dst3Fft::new(length).map(|x| Arc::new(x) as SpectralExecutor<f32>)
     }
 
     /// Creates a double-precision (f64) DST-III executor.
-    pub fn make_dst3_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst3_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -652,12 +624,12 @@ impl Pxdct {
             )?));
         }
 
-        Dst3Fft::new(length).map(|x| Arc::new(x) as Arc<dyn PxdctExecutor<f64> + Send + Sync>)
+        Dst3Fft::new(length).map(|x| Arc::new(x) as SpectralExecutor<f64>)
     }
 
     fn strategy_dct4<T: DctSample + Dct4Factory + Dct2Factory>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    ) -> Result<SpectralExecutor<T>, PxdctError>
     where
         f64: AsPrimitive<T>,
     {
@@ -784,16 +756,12 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DCT-IV executor.
-    pub fn make_dct4_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct4_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::strategy_dct4(length)
     }
 
     /// Creates a scaled single-precision (f32) DCT-IV executor.
-    pub fn make_scaled_dct4_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_scaled_dct4_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         wrap_with_scaling(
             Pxdct::strategy_dct4(length)?,
             TransformKind::Dct4,
@@ -802,16 +770,12 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f32) DCT-IV executor.
-    pub fn make_dct4_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct4_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::strategy_dct4(length)
     }
 
     /// Creates a scaled single-precision (f32) DCT-IV executor.
-    pub fn make_scaled_dct4_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_scaled_dct4_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         wrap_with_scaling(
             Pxdct::strategy_dct4(length)?,
             TransformKind::Dct4,
@@ -820,25 +784,19 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DST-IV executor.
-    pub fn make_dst4_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst4_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         use crate::type4::Dst4OverDct4;
         Ok(Arc::new(Dst4OverDct4::new(Pxdct::strategy_dct4(length)?)?))
     }
 
     /// Creates a double-precision (f64) DST-IV executor.
-    pub fn make_dst4_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst4_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         use crate::type4::Dst4OverDct4;
         Ok(Arc::new(Dst4OverDct4::new(Pxdct::strategy_dct4(length)?)?))
     }
 
     /// Creates a single-precision (f32) DCT-V executor.
-    pub fn make_dct5_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct5_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -847,9 +805,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DCT-V executor.
-    pub fn make_dct5_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct5_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -858,9 +814,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DST-V executor.
-    pub fn make_dst5_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst5_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -869,9 +823,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DST-V executor.
-    pub fn make_dst5_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst5_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -880,9 +832,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DCT-VI executor.
-    pub fn make_dct6_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct6_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -891,9 +841,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DCT-VI executor.
-    pub fn make_dct6_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct6_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -902,9 +850,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DST-VI executor.
-    pub fn make_dst6_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst6_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -913,9 +859,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DST-VI executor.
-    pub fn make_dst6_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst6_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -925,7 +869,7 @@ impl Pxdct {
 
     fn dst7_strategy<T: Copy + Dst7Factory + DctSample>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    ) -> Result<SpectralExecutor<T>, PxdctError>
     where
         f64: AsPrimitive<T>,
     {
@@ -949,22 +893,18 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DST-VII executor.
-    pub fn make_dst7_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst7_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::dst7_strategy(length)
     }
 
     /// Creates a double-precision (f64) DST-VII executor.
-    pub fn make_dst7_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst7_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::dst7_strategy(length)
     }
 
     fn dct7_strategy<T: Copy + Dct7Factory + DctSample>(
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+    ) -> Result<SpectralExecutor<T>, PxdctError>
     where
         f64: AsPrimitive<T>,
     {
@@ -984,23 +924,17 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DCT-VII executor.
-    pub fn make_dct7_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct7_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         Pxdct::dct7_strategy(length)
     }
 
     /// Creates a double-precision (f64) DCT-VII executor.
-    pub fn make_dct7_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct7_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         Pxdct::dct7_strategy(length)
     }
 
     /// Creates a single-precision (f32) DST-VIII executor.
-    pub fn make_dst8_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dst8_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1009,9 +943,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DST-VIII executor.
-    pub fn make_dst8_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dst8_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1020,9 +952,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) DST-VIII executor.
-    pub fn make_dct8_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_dct8_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1031,9 +961,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) DCT-VIII executor.
-    pub fn make_dct8_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_dct8_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1042,9 +970,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) MDCT executor.
-    pub fn make_mdct_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_mdct_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1056,9 +982,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) MDCT executor.
-    pub fn make_mdct_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_mdct_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1070,9 +994,7 @@ impl Pxdct {
     }
 
     /// Creates a single-precision (f32) IMDCT executor.
-    pub fn make_imdct_f32(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    pub fn make_imdct_f32(length: usize) -> Result<SpectralExecutor<f32>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1084,9 +1006,7 @@ impl Pxdct {
     }
 
     /// Creates a double-precision (f64) IMDCT executor.
-    pub fn make_imdct_f64(
-        length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    pub fn make_imdct_f64(length: usize) -> Result<SpectralExecutor<f64>, PxdctError> {
         if length == 0 {
             return Err(PxdctError::ZeroSizedDct);
         }
@@ -1101,8 +1021,8 @@ impl Pxdct {
     ///
     /// For matrix WxH to get an inverse use H as width and W as height.
     pub fn make_2d_dct_f32(
-        width_dct: Arc<dyn PxdctExecutor<f32> + Send + Sync>,
-        height_dct: Arc<dyn PxdctExecutor<f32> + Send + Sync>,
+        width_dct: SpectralExecutor<f32>,
+        height_dct: SpectralExecutor<f32>,
     ) -> Arc<dyn MultidimensionalDctExecutor<f32> + Send + Sync> {
         let width = width_dct.length();
         let height = height_dct.length();
@@ -1123,8 +1043,8 @@ impl Pxdct {
     ///
     /// For matrix WxH to get an inverse use H as width and W as height.
     pub fn make_2d_dct_f64(
-        width_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
-        height_dct: Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+        width_dct: SpectralExecutor<f64>,
+        height_dct: SpectralExecutor<f64>,
     ) -> Arc<dyn MultidimensionalDctExecutor<f64> + Send + Sync> {
         let width = width_dct.length();
         let height = height_dct.length();
@@ -1147,7 +1067,7 @@ impl Pxdct {
         kind: TransformKind,
         length: usize,
         scaling: Scaling,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<SpectralExecutor<f32>, PxdctError> {
         let inner = Self::make_raw_f32(kind, length)?;
         wrap_with_scaling(inner, kind, scaling)
     }
@@ -1158,7 +1078,7 @@ impl Pxdct {
         kind: TransformKind,
         length: usize,
         scaling: Scaling,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<SpectralExecutor<f64>, PxdctError> {
         let inner = Self::make_raw_f64(kind, length)?;
         wrap_with_scaling(inner, kind, scaling)
     }
@@ -1166,7 +1086,7 @@ impl Pxdct {
     fn make_raw_f32(
         kind: TransformKind,
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f32> + Send + Sync>, PxdctError> {
+    ) -> Result<SpectralExecutor<f32>, PxdctError> {
         match kind {
             TransformKind::Dct1 => Self::make_dct1_f32(length),
             TransformKind::Dct2 => Self::make_dct2_f32(length),
@@ -1190,7 +1110,7 @@ impl Pxdct {
     fn make_raw_f64(
         kind: TransformKind,
         length: usize,
-    ) -> Result<Arc<dyn PxdctExecutor<f64> + Send + Sync>, PxdctError> {
+    ) -> Result<SpectralExecutor<f64>, PxdctError> {
         match kind {
             TransformKind::Dct1 => Self::make_dct1_f64(length),
             TransformKind::Dct2 => Self::make_dct2_f64(length),
@@ -1208,6 +1128,50 @@ impl Pxdct {
             TransformKind::Dst6 => Self::make_dst6_f64(length),
             TransformKind::Dst7 => Self::make_dst7_f64(length),
             TransformKind::Dst8 => Self::make_dst8_f64(length),
+        }
+    }
+
+    /// Creates a single-precision (f32) streaming windowed MDCT with 50% overlap-add.
+    pub fn make_mdct_overlap_add_f32(
+        n: usize,
+        window: MdctChoiceWindow<f32>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f32>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(MdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(MdctOverlapAdd::new_with_window(n, w)?)),
+        }
+    }
+
+    /// Creates a double-precision (f64) streaming windowed MDCT with 50% overlap-add.
+    pub fn make_mdct_overlap_add_f64(
+        n: usize,
+        window: MdctChoiceWindow<f64>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f64>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(MdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(MdctOverlapAdd::new_with_window(n, w)?)),
+        }
+    }
+
+    /// Creates a single-precision (f32) streaming windowed IMDCT with 50% overlap-add.
+    pub fn make_imdct_overlap_add_f32(
+        n: usize,
+        window: MdctChoiceWindow<f32>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f32>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(ImdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(ImdctOverlapAdd::new_with_window(n, w)?)),
+        }
+    }
+
+    /// Creates a double-precision (f64) streaming windowed IMDCT with 50% overlap-add.
+    pub fn make_imdct_overlap_add_f64(
+        n: usize,
+        window: MdctChoiceWindow<f64>,
+    ) -> Result<Box<dyn TransformOverlapAdd<f64>>, PxdctError> {
+        match window {
+            MdctChoiceWindow::BuiltIn(w) => Ok(Box::new(ImdctOverlapAdd::new(n, w)?)),
+            MdctChoiceWindow::External(w) => Ok(Box::new(ImdctOverlapAdd::new_with_window(n, w)?)),
         }
     }
 }

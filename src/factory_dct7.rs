@@ -27,16 +27,16 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-use crate::PxdctExecutor;
+use crate::SpectralExecutor;
 use crate::factory_dct2::Returning;
 use std::sync::Arc;
 
 pub(crate) trait Dct7Factory {
     fn dct7_fft(length: usize) -> Returning<Self>;
-    fn dct7_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dct7_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dct7_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dct7_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn dct7_butterfly2() -> SpectralExecutor<Self>;
+    fn dct7_butterfly3() -> SpectralExecutor<Self>;
+    fn dct7_butterfly4() -> SpectralExecutor<Self>;
+    fn dct7_butterfly8() -> SpectralExecutor<Self>;
 }
 
 macro_rules! define_factory {
@@ -47,22 +47,22 @@ macro_rules! define_factory {
                 Ok(Arc::new(Dct7Fft::new(length)?))
             }
 
-            fn dct7_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dct7_butterfly2() -> SpectralExecutor<Self> {
                 use crate::type7::Dct7Butterfly2;
                 Arc::new(Dct7Butterfly2::default())
             }
 
-            fn dct7_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dct7_butterfly3() -> SpectralExecutor<Self> {
                 use crate::type7::Dct7Butterfly3;
                 Arc::new(Dct7Butterfly3::default())
             }
 
-            fn dct7_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dct7_butterfly4() -> SpectralExecutor<Self> {
                 use crate::type7::Dct7Butterfly4;
                 Arc::new(Dct7Butterfly4::default())
             }
 
-            fn dct7_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dct7_butterfly8() -> SpectralExecutor<Self> {
                 use crate::type7::Dct7Butterfly8;
                 Arc::new(Dct7Butterfly8::default())
             }

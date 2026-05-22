@@ -26,32 +26,32 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::PxdctExecutor;
 use crate::factory_dct2::Returning;
+use crate::{PxdctExecutor, SpectralExecutor};
 use std::sync::{Arc, OnceLock};
 
 pub(crate) trait ScaledDct2Factory {
     fn scaled_split_radix(
         length: usize,
-        half_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-        quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+        half_dct: SpectralExecutor<Self>,
+        quarter_dct: SpectralExecutor<Self>,
     ) -> Returning<Self>;
-    fn scaled_dct2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly32() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly64() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly128() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly256() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn scaled_dct2_butterfly512() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn scaled_dct2_butterfly2() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly4() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly8() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly16() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly32() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly64() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly128() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly256() -> SpectralExecutor<Self>;
+    fn scaled_dct2_butterfly512() -> SpectralExecutor<Self>;
 }
 
 impl ScaledDct2Factory for f32 {
     fn scaled_split_radix(
         length: usize,
-        half_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-        quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+        half_dct: SpectralExecutor<Self>,
+        quarter_dct: SpectralExecutor<Self>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "aarch64", feature = "neon"))]
         {
@@ -72,7 +72,7 @@ impl ScaledDct2Factory for f32 {
         }
     }
 
-    fn scaled_dct2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly2() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::power2_butterflies::Dct2Butterfly2;
@@ -81,7 +81,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly4() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly4;
@@ -90,7 +90,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly8() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly8;
@@ -99,7 +99,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly16() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly16;
@@ -108,7 +108,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly32() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly32() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
@@ -127,7 +127,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly64() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly64() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
@@ -146,7 +146,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly128() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly128() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
@@ -165,7 +165,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly256() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly256() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
@@ -184,7 +184,7 @@ impl ScaledDct2Factory for f32 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly512() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly512() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f32> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
@@ -207,8 +207,8 @@ impl ScaledDct2Factory for f32 {
 impl ScaledDct2Factory for f64 {
     fn scaled_split_radix(
         length: usize,
-        half_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-        quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+        half_dct: SpectralExecutor<Self>,
+        quarter_dct: SpectralExecutor<Self>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "aarch64", feature = "neon"))]
         {
@@ -229,7 +229,7 @@ impl ScaledDct2Factory for f64 {
         }
     }
 
-    fn scaled_dct2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly2() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::power2_butterflies::Dct2Butterfly2;
@@ -238,7 +238,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly4() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly4;
@@ -247,7 +247,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly8() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly8;
@@ -256,7 +256,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly16() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly16;
@@ -265,7 +265,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly32() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly32() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly32;
@@ -274,7 +274,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly64() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly64() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly64;
@@ -283,7 +283,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly128() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly128() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly128;
@@ -292,7 +292,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly256() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly256() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly256;
@@ -301,7 +301,7 @@ impl ScaledDct2Factory for f64 {
         .clone()
     }
 
-    fn scaled_dct2_butterfly512() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn scaled_dct2_butterfly512() -> SpectralExecutor<Self> {
         static Q: OnceLock<Arc<dyn PxdctExecutor<f64> + Send + Sync>> = OnceLock::new();
         Q.get_or_init(|| {
             use crate::type2::ScaledDct2Butterfly512;
