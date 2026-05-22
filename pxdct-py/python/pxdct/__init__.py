@@ -4,7 +4,7 @@ from .pxdct import __doc__
 import numpy as np
 
 
-def dct(x, type=2, *, kind=None, dtype="f64"):
+def dct(x, type=2, *, kind=None, dtype="f64", scaling="none"):
     """Compute a Discrete Cosine Transform.
 
     Parameters
@@ -17,6 +17,13 @@ def dct(x, type=2, *, kind=None, dtype="f64"):
         Explicit specifier e.g. ``"dct4"``. Overrides *type*.
     dtype : ``"f32"`` or ``"f64"``
         Floating-point precision. Default ``"f64"``.
+    scaling : ``"none"``, ``"scale"``, or ``"ortho"``
+        Normalization applied after the raw transform:
+
+        * ``"none"``  – un-normalized textbook output (default).
+        * ``"scale"`` – multiply every element by ``sqrt(2 / length)``.
+        * ``"ortho"`` – per-type orthonormal scaling; a forward/inverse pair
+          at the same length round-trips to the identity.
 
     Returns
     -------
@@ -28,13 +35,15 @@ def dct(x, type=2, *, kind=None, dtype="f64"):
     >>> import numpy as np, pxdct
     >>> pxdct.dct(np.ones(4), type=2)
     array([4., 0., 0., 0.])
+    >>> pxdct.dct(np.ones(4), type=2, scaling='ortho')
+    array([2., 0., 0., 0.])
     """
     from .pxdct import dct as _dct
     k = kind if kind is not None else f"dct{type}"
-    return _dct(np.asarray(x), kind=k, dtype=dtype)
+    return _dct(np.asarray(x), kind=k, dtype=dtype, scaling=scaling)
 
 
-def dst(x, type=2, *, kind=None, dtype="f64"):
+def dst(x, type=2, *, kind=None, dtype="f64", scaling="none"):
     """Compute a Discrete Sine Transform.
 
     Parameters
@@ -47,6 +56,9 @@ def dst(x, type=2, *, kind=None, dtype="f64"):
         Explicit specifier e.g. ``"dst7"``. Overrides *type*.
     dtype : ``"f32"`` or ``"f64"``
         Floating-point precision. Default ``"f64"``.
+    scaling : ``"none"``, ``"scale"``, or ``"ortho"``
+        Normalization applied after the raw transform. See :func:`dct`
+        for details. Default ``"none"``.
 
     Returns
     -------
@@ -55,10 +67,10 @@ def dst(x, type=2, *, kind=None, dtype="f64"):
     """
     from .pxdct import dct as _dct
     k = kind if kind is not None else f"dst{type}"
-    return _dct(np.asarray(x), kind=k, dtype=dtype)
+    return _dct(np.asarray(x), kind=k, dtype=dtype, scaling=scaling)
 
 
-def plan(kind, length, dtype="f64"):
+def plan(kind, length, dtype="f64", scaling="none"):
     """Create a reusable :class:`DctPlan`.
 
     Prefer this over the one-shot :func:`dct` / :func:`dst` when calling
@@ -72,6 +84,9 @@ def plan(kind, length, dtype="f64"):
         Number of points.
     dtype : ``"f32"`` or ``"f64"``
         Floating-point precision. Default ``"f64"``.
+    scaling : ``"none"``, ``"scale"``, or ``"ortho"``
+        Normalization applied after the raw transform. See :func:`dct`
+        for details. Default ``"none"``.
 
     Returns
     -------
@@ -80,14 +95,19 @@ def plan(kind, length, dtype="f64"):
     Examples
     --------
     >>> p = pxdct.plan('dct2', 1024)
-    >>> p(signal)                     # allocates output
-    >>> p(signal, out)                # fills pre-allocated buffer
+    >>> p(signal)                          # allocates output
+    >>> p(signal, out)                     # fills pre-allocated buffer
+    >>> # ortho-normalised round-trip
+    >>> fwd = pxdct.plan('dct2', 1024, scaling='ortho')
+    >>> inv = pxdct.plan('dct3', 1024, scaling='ortho')
+    >>> np.allclose(inv(fwd(signal)), signal)
+    True
     """
     from .pxdct import DctPlan
-    return DctPlan(kind, length, dtype)
+    return DctPlan(kind, length, dtype, scaling)
 
 
-def plan2d(kind_width, width, kind_height=None, height=None, dtype="f64"):
+def plan2d(kind_width, width, kind_height=None, height=None, dtype="f64", scaling="none"):
     """Create a reusable :class:`DctPlan2D`.
 
     Parameters
@@ -103,6 +123,9 @@ def plan2d(kind_width, width, kind_height=None, height=None, dtype="f64"):
         Number of rows. Defaults to *width* (square).
     dtype : ``"f32"`` or ``"f64"``
         Floating-point precision. Default ``"f64"``.
+    scaling : ``"none"``, ``"scale"``, or ``"ortho"``
+        Normalization applied to both dimensions. See :func:`dct`
+        for details. Default ``"none"``.
 
     Returns
     -------
@@ -110,12 +133,13 @@ def plan2d(kind_width, width, kind_height=None, height=None, dtype="f64"):
 
     Examples
     --------
-    >>> p = pxdct.plan2d('dct2', 512)            # 512×512
-    >>> p = pxdct.plan2d('dct2', 640, height=480) # rectangular
+    >>> p = pxdct.plan2d('dct2', 512)              # 512×512
+    >>> p = pxdct.plan2d('dct2', 640, height=480)  # rectangular
+    >>> p = pxdct.plan2d('dct2', 8, scaling='ortho')  # ortho
     """
     from .pxdct import DctPlan, DctPlan2D
     kh = kind_height if kind_height is not None else kind_width
     h  = height      if height      is not None else width
-    wp = DctPlan(kind_width, width, dtype)
-    hp = DctPlan(kh, h, dtype)
+    wp = DctPlan(kind_width, width,  dtype, scaling)
+    hp = DctPlan(kh,         h,      dtype, scaling)
     return DctPlan2D(wp, hp)
