@@ -167,7 +167,7 @@ impl Dst2Factory for f64 {
                 use crate::neon::NeonSplitRadixDst2d;
                 return Ok(
                     Arc::new(NeonSplitRadixDst2d::new(length, half_dct, quarter_dct)?)
-                        as SpectralExecutor<f64>,
+                        as Arc<SpectralExecutor<f64>>,
                 );
             }
         }
