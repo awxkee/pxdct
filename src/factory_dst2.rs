@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::PxdctExecutor;
+use crate::SpectralExecutor;
 use crate::factory_dct2::Returning;
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]
 use crate::util::has_valid_avx;
@@ -35,28 +35,27 @@ use std::sync::Arc;
 pub(crate) trait Dst2Factory {
     fn dst2_split_radix(
         length: usize,
-        half_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-        quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+        half_dct: SpectralExecutor<Self>,
+        quarter_dct: SpectralExecutor<Self>,
     ) -> Returning<Self>;
     fn dst2_fft(length: usize) -> Returning<Self>;
-    fn dst2_mixed_radix3(dst2_third: Arc<dyn PxdctExecutor<Self> + Send + Sync>)
-    -> Returning<Self>;
-    fn dst2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly9() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn dst2_mixed_radix3(dst2_third: SpectralExecutor<Self>) -> Returning<Self>;
+    fn dst2_butterfly2() -> SpectralExecutor<Self>;
+    fn dst2_butterfly3() -> SpectralExecutor<Self>;
+    fn dst2_butterfly4() -> SpectralExecutor<Self>;
+    fn dst2_butterfly5() -> SpectralExecutor<Self>;
+    fn dst2_butterfly6() -> SpectralExecutor<Self>;
+    fn dst2_butterfly7() -> SpectralExecutor<Self>;
+    fn dst2_butterfly8() -> SpectralExecutor<Self>;
+    fn dst2_butterfly9() -> SpectralExecutor<Self>;
+    fn dst2_butterfly16() -> SpectralExecutor<Self>;
 }
 
 impl Dst2Factory for f32 {
     fn dst2_split_radix(
         length: usize,
-        half_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-        quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+        half_dct: SpectralExecutor<Self>,
+        quarter_dct: SpectralExecutor<Self>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
         if has_valid_avx() && length >= 16 {
@@ -91,24 +90,22 @@ impl Dst2Factory for f32 {
         Ok(Arc::new(Dst2Fft::new(length)?))
     }
 
-    fn dst2_mixed_radix3(
-        dst2_third: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-    ) -> Returning<Self> {
+    fn dst2_mixed_radix3(dst2_third: SpectralExecutor<Self>) -> Returning<Self> {
         use crate::type2::Dst2Radix3;
         Ok(Arc::new(Dst2Radix3::new(dst2_third)?))
     }
 
-    fn dst2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly2() -> SpectralExecutor<Self> {
         use crate::type2::power2_butterflies::Dst2Butterfly2;
         Arc::new(Dst2Butterfly2::default())
     }
 
-    fn dst2_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly3() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly3;
         Arc::new(Dst2Butterfly3::default())
     }
 
-    fn dst2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly4() -> SpectralExecutor<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
         if has_valid_avx() {
             use crate::avx::AvxDst2Butterfly4;
@@ -118,32 +115,32 @@ impl Dst2Factory for f32 {
         Arc::new(Dst2Butterfly4::default())
     }
 
-    fn dst2_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly5() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly5;
         Arc::new(Dst2Butterfly5::default())
     }
 
-    fn dst2_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly6() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly6;
         Arc::new(Dst2Butterfly6::default())
     }
 
-    fn dst2_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly7() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly7;
         Arc::new(Dst2Butterfly7::default())
     }
 
-    fn dst2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly8() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly8;
         Arc::new(Dst2Butterfly8::default())
     }
 
-    fn dst2_butterfly9() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly9() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly9;
         Arc::new(Dst2Butterfly9::default())
     }
 
-    fn dst2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly16() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly16;
         Arc::new(Dst2Butterfly16::default())
     }
@@ -152,8 +149,8 @@ impl Dst2Factory for f32 {
 impl Dst2Factory for f64 {
     fn dst2_split_radix(
         length: usize,
-        half_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-        quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+        half_dct: SpectralExecutor<Self>,
+        quarter_dct: SpectralExecutor<Self>,
     ) -> Returning<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
         if has_valid_avx() && length > 16 {
@@ -170,7 +167,7 @@ impl Dst2Factory for f64 {
                 use crate::neon::NeonSplitRadixDst2d;
                 return Ok(
                     Arc::new(NeonSplitRadixDst2d::new(length, half_dct, quarter_dct)?)
-                        as Arc<dyn PxdctExecutor<f64> + Send + Sync>,
+                        as SpectralExecutor<f64>,
                 );
             }
         }
@@ -187,24 +184,22 @@ impl Dst2Factory for f64 {
         Ok(Arc::new(Dst2Fft::new(length)?))
     }
 
-    fn dst2_mixed_radix3(
-        dst2_third: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
-    ) -> Returning<Self> {
+    fn dst2_mixed_radix3(dst2_third: SpectralExecutor<Self>) -> Returning<Self> {
         use crate::type2::Dst2Radix3;
         Ok(Arc::new(Dst2Radix3::new(dst2_third)?))
     }
 
-    fn dst2_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly2() -> SpectralExecutor<Self> {
         use crate::type2::power2_butterflies::Dst2Butterfly2;
         Arc::new(Dst2Butterfly2::default())
     }
 
-    fn dst2_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly3() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly3;
         Arc::new(Dst2Butterfly3::default())
     }
 
-    fn dst2_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly4() -> SpectralExecutor<Self> {
         #[cfg(all(target_arch = "x86_64", feature = "avx"))]
         if has_valid_avx() {
             use crate::avx::AvxDst2Butterfly4;
@@ -214,32 +209,32 @@ impl Dst2Factory for f64 {
         Arc::new(Dst2Butterfly4::default())
     }
 
-    fn dst2_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly5() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly5;
         Arc::new(Dst2Butterfly5::default())
     }
 
-    fn dst2_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly6() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly6;
         Arc::new(Dst2Butterfly6::default())
     }
 
-    fn dst2_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly7() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly7;
         Arc::new(Dst2Butterfly7::default())
     }
 
-    fn dst2_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly8() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly8;
         Arc::new(Dst2Butterfly8::default())
     }
 
-    fn dst2_butterfly9() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly9() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly9;
         Arc::new(Dst2Butterfly9::default())
     }
 
-    fn dst2_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+    fn dst2_butterfly16() -> SpectralExecutor<Self> {
         use crate::type2::Dst2Butterfly16;
         Arc::new(Dst2Butterfly16::default())
     }

@@ -27,32 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-//! Windowed MDCT/IMDCT with 50% overlap-add.
-//!
-//! The bare [`MdctFft`]/[`ImdctFft`] executors implement the raw transform.
-//! Real audio codecs (MP3, AAC, Vorbis, Opus) wrap them in three additional
-//! pieces of machinery:
-//!
-//! 1. A **window function** applied to the 2N-sample input block before the
-//!    forward MDCT, and again to the 2N-sample output block after the inverse
-//!    MDCT. The window must satisfy the Princen-Bradley condition
-//!    `w[n]^2 + w[n + N]^2 == 1` so the round-trip is perfectly invertible.
-//! 2. A **50% hop** between consecutive blocks: each new block overlaps the
-//!    previous by N samples.
-//! 3. **Overlap-add** on synthesis: the second half of block `k-1` and the
-//!    first half of block `k` are summed to produce the final N output
-//!    samples per hop, which is what cancels the TDAC aliasing.
-//!
-//! This module provides:
-//!
-//! * [`MdctWindow`] — Princen-Bradley-compliant window generators.
-//! * [`WindowedMdct`] — single-block windowed forward MDCT, implements
-//!   [`PxdctExecutor`] for batched / scratch-aware processing.
-//! * [`WindowedImdct`] — single-block windowed inverse MDCT, implements
-//!   [`PxdctExecutor`].
-//! * [`MdctOverlapAdd`] — streaming processor with internal overlap buffer.
-//! * [`ImdctOverlapAdd`] — streaming synthesis with internal overlap buffer.
-
+/// Windowed MDCT/IMDCT with 50% overlap-add.
 use crate::mdct::{ImdctFft, MdctFft};
 use crate::twiddles::FftTrigonometry;
 use crate::util::{DctSample, try_vec, validate_scratch};
@@ -357,7 +332,7 @@ where
             self.imdct
                 .execute_into_with_scratch(src, dst, inner_scratch)?;
             for (slot, w) in dst.iter_mut().zip(self.window.iter()) {
-                *slot = *slot * *w;
+                *slot *= *w;
             }
         }
         Ok(())

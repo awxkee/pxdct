@@ -26,20 +26,20 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::PxdctExecutor;
+use crate::SpectralExecutor;
 use crate::factory_dct2::Returning;
 use std::sync::Arc;
 
 pub(crate) trait Dst7Factory {
     fn dst7_fft(length: usize) -> Returning<Self>;
-    fn dst7_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
-    fn dst7_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
+    fn dst7_butterfly2() -> SpectralExecutor<Self>;
+    fn dst7_butterfly3() -> SpectralExecutor<Self>;
+    fn dst7_butterfly4() -> SpectralExecutor<Self>;
+    fn dst7_butterfly5() -> SpectralExecutor<Self>;
+    fn dst7_butterfly6() -> SpectralExecutor<Self>;
+    fn dst7_butterfly7() -> SpectralExecutor<Self>;
+    fn dst7_butterfly8() -> SpectralExecutor<Self>;
+    fn dst7_butterfly16() -> SpectralExecutor<Self>;
 }
 
 macro_rules! define_factory {
@@ -50,42 +50,42 @@ macro_rules! define_factory {
                 Ok(Arc::new(Dst7Fft::new(length)?))
             }
 
-            fn dst7_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly2() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly2;
                 Arc::new(Dst7Butterfly2::default())
             }
 
-            fn dst7_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly3() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly3;
                 Arc::new(Dst7Butterfly3::default())
             }
 
-            fn dst7_butterfly4() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly4() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly4;
                 Arc::new(Dst7Butterfly4::default())
             }
 
-            fn dst7_butterfly5() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly5() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly5;
                 Arc::new(Dst7Butterfly5::default())
             }
 
-            fn dst7_butterfly6() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly6() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly6;
                 Arc::new(Dst7Butterfly6::default())
             }
 
-            fn dst7_butterfly7() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly7() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly7;
                 Arc::new(Dst7Butterfly7::default())
             }
 
-            fn dst7_butterfly8() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly8() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly8;
                 Arc::new(Dst7Butterfly8::default())
             }
 
-            fn dst7_butterfly16() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
+            fn dst7_butterfly16() -> SpectralExecutor<Self> {
                 use crate::type7::Dst7Butterfly16;
                 Arc::new(Dst7Butterfly16::default())
             }

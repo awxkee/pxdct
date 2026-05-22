@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::util::{DctSample, try_vec};
-use crate::{PxdctError, PxdctExecutor};
+use crate::{PxdctError, PxdctExecutor, SpectralExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
 
@@ -368,7 +368,7 @@ where
 /// Generic post-processing wrapper that applies a [`ScalingPlan`] to an
 /// inner executor's output.
 pub(crate) struct ScalingInterceptor<T> {
-    pub(crate) interceptor: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    pub(crate) interceptor: SpectralExecutor<T>,
     plan: ScalingPlan<T>,
 }
 
@@ -519,10 +519,10 @@ where
 /// [`Scaling`] mode for its [`TransformKind`]. Returns the original
 /// executor untouched when `Scaling::None` is requested.
 pub(crate) fn wrap_with_scaling<T: DctSample>(
-    inner: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    inner: SpectralExecutor<T>,
     kind: TransformKind,
     scaling: Scaling,
-) -> Result<Arc<dyn PxdctExecutor<T> + Send + Sync>, PxdctError>
+) -> Result<SpectralExecutor<T>, PxdctError>
 where
     f64: AsPrimitive<T>,
 {
