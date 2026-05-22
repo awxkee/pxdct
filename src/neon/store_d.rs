@@ -153,6 +153,13 @@ impl NeonStoreD {
             NeonStoreD::raw(unsafe { vzip2q_f64(self.v, other.v) }),
         ]
     }
+
+    #[inline(always)]
+    pub(crate) fn to_array(self) -> [f64; 2] {
+        let mut q = [0.0; 2];
+        unsafe { vst1q_f64(q.as_mut_ptr(), self.v) }
+        q
+    }
 }
 
 impl Add<NeonStoreD> for NeonStoreD {

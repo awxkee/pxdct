@@ -1,5 +1,5 @@
 /*
- * // Copyright (c) Radzivon Bartoshyk 2/2026. All rights reserved.
+ * // Copyright (c) Radzivon Bartoshyk 5/2026. All rights reserved.
  * //
  * // Redistribution and use in source and binary forms, with or without modification,
  * // are permitted provided that the following conditions are met:
@@ -26,10 +26,24 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-mod bf2n;
+mod mixed_radix3d;
+mod mixed_radix3f;
+mod mixed_radix5d;
+mod mixed_radix5f;
+mod mixed_radix7d;
+mod mixed_radix7f;
+mod mixed_radix9d;
+mod mixed_radix9f;
 mod split_radixd;
 mod split_radixf;
 
-pub(crate) use bf2n::{AvxDct3Butterfly16, AvxDct3Butterfly32, AvxDct3Butterfly64};
-pub(crate) use split_radixd::AvxSplitRadixDct3d;
-pub(crate) use split_radixf::AvxSplitRadixDct3f;
+pub(crate) use mixed_radix3d::NeonDct3MixedRadix3d;
+pub(crate) use mixed_radix3f::NeonDct3MixedRadix3f;
+pub(crate) use mixed_radix5d::NeonDct3MixedRadix5d;
+pub(crate) use mixed_radix5f::NeonDct3MixedRadix5f;
+pub(crate) use mixed_radix7d::NeonDct3MixedRadix7d;
+pub(crate) use mixed_radix7f::NeonDct3MixedRadix7f;
+pub(crate) use mixed_radix9d::NeonDct3MixedRadix9d;
+pub(crate) use mixed_radix9f::NeonDct3MixedRadix9f;
+pub(crate) use split_radixd::NeonSplitRadixDct3d;
+pub(crate) use split_radixf::NeonSplitRadixDct3f;

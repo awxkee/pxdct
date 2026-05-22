@@ -47,6 +47,14 @@ pub(crate) trait Dct3Factory {
         quarter_dct: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
     ) -> Returning<Self>;
     fn dct3_fft(length: usize) -> Returning<Self>;
+    fn dct3_mixed_radix3(inner_dct3: Arc<dyn PxdctExecutor<Self> + Send + Sync>)
+    -> Returning<Self>;
+    fn dct3_mixed_radix5(inner_dct5: Arc<dyn PxdctExecutor<Self> + Send + Sync>)
+    -> Returning<Self>;
+    fn dct3_mixed_radix7(inner_dct7: Arc<dyn PxdctExecutor<Self> + Send + Sync>)
+    -> Returning<Self>;
+    fn dct3_mixed_radix9(inner_dct9: Arc<dyn PxdctExecutor<Self> + Send + Sync>)
+    -> Returning<Self>;
     fn dct3_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
     fn dct3_butterfly2() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
     fn dct3_butterfly3() -> Arc<dyn PxdctExecutor<Self> + Send + Sync>;
@@ -113,6 +121,122 @@ impl Dct3Factory for f32 {
 
     fn dct3_fft(length: usize) -> Returning<Self> {
         Ok(Arc::new(Dct3Fft::new(length)?))
+    }
+
+    fn dct3_mixed_radix3(
+        inner_dct3: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix3f;
+            Ok(Arc::new(NeonDct3MixedRadix3f::new(
+                inner_dct3.length() * 3,
+                inner_dct3,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix3f;
+            return Ok(Arc::new(AvxDct3MixedRadix3f::new(
+                inner_dct3.length() * 3,
+                inner_dct3,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix3;
+            Ok(Arc::new(Dct3MixedRadix3::new(
+                inner_dct3.length() * 3,
+                inner_dct3,
+            )?))
+        }
+    }
+
+    fn dct3_mixed_radix5(
+        inner_dct5: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix5f;
+            Ok(Arc::new(NeonDct3MixedRadix5f::new(
+                inner_dct5.length() * 5,
+                inner_dct5,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix5f;
+            return Ok(Arc::new(AvxDct3MixedRadix5f::new(
+                inner_dct5.length() * 5,
+                inner_dct5,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix5;
+            Ok(Arc::new(Dct3MixedRadix5::new(
+                inner_dct5.length() * 5,
+                inner_dct5,
+            )?))
+        }
+    }
+
+    fn dct3_mixed_radix7(
+        inner_dct7: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix7f;
+            Ok(Arc::new(NeonDct3MixedRadix7f::new(
+                inner_dct7.length() * 7,
+                inner_dct7,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix7f;
+            return Ok(Arc::new(AvxDct3MixedRadix7f::new(
+                inner_dct7.length() * 7,
+                inner_dct7,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix7;
+            Ok(Arc::new(Dct3MixedRadix7::new(
+                inner_dct7.length() * 7,
+                inner_dct7,
+            )?))
+        }
+    }
+
+    fn dct3_mixed_radix9(
+        inner_dct9: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix9f;
+            Ok(Arc::new(NeonDct3MixedRadix9f::new(
+                inner_dct9.length() * 9,
+                inner_dct9,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix9f;
+            return Ok(Arc::new(AvxDct3MixedRadix9f::new(
+                inner_dct9.length() * 9,
+                inner_dct9,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix9;
+            Ok(Arc::new(Dct3MixedRadix9::new(
+                inner_dct9.length() * 9,
+                inner_dct9,
+            )?))
+        }
     }
 
     fn dct3_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {
@@ -383,6 +507,122 @@ impl Dct3Factory for f64 {
 
     fn dct3_fft(length: usize) -> Returning<Self> {
         Ok(Arc::new(Dct3Fft::new(length)?))
+    }
+
+    fn dct3_mixed_radix3(
+        inner_dct3: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix3d;
+            Ok(Arc::new(NeonDct3MixedRadix3d::new(
+                inner_dct3.length() * 3,
+                inner_dct3,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix3d;
+            return Ok(Arc::new(AvxDct3MixedRadix3d::new(
+                inner_dct3.length() * 3,
+                inner_dct3,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix3;
+            Ok(Arc::new(Dct3MixedRadix3::new(
+                inner_dct3.length() * 3,
+                inner_dct3,
+            )?))
+        }
+    }
+
+    fn dct3_mixed_radix5(
+        inner_dct5: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix5d;
+            Ok(Arc::new(NeonDct3MixedRadix5d::new(
+                inner_dct5.length() * 5,
+                inner_dct5,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix5d;
+            return Ok(Arc::new(AvxDct3MixedRadix5d::new(
+                inner_dct5.length() * 5,
+                inner_dct5,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix5;
+            Ok(Arc::new(Dct3MixedRadix5::new(
+                inner_dct5.length() * 5,
+                inner_dct5,
+            )?))
+        }
+    }
+
+    fn dct3_mixed_radix7(
+        inner_dct7: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix7d;
+            Ok(Arc::new(NeonDct3MixedRadix7d::new(
+                inner_dct7.length() * 7,
+                inner_dct7,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix7d;
+            return Ok(Arc::new(AvxDct3MixedRadix7d::new(
+                inner_dct7.length() * 7,
+                inner_dct7,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix7;
+            Ok(Arc::new(Dct3MixedRadix7::new(
+                inner_dct7.length() * 7,
+                inner_dct7,
+            )?))
+        }
+    }
+
+    fn dct3_mixed_radix9(
+        inner_dct9: Arc<dyn PxdctExecutor<Self> + Send + Sync>,
+    ) -> Returning<Self> {
+        #[cfg(all(target_arch = "aarch64", feature = "neon"))]
+        {
+            use crate::neon::NeonDct3MixedRadix9d;
+            Ok(Arc::new(NeonDct3MixedRadix9d::new(
+                inner_dct9.length() * 9,
+                inner_dct9,
+            )?))
+        }
+        #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+        if has_valid_avx() {
+            use crate::avx::AvxDct3MixedRadix9d;
+            return Ok(Arc::new(AvxDct3MixedRadix9d::new(
+                inner_dct9.length() * 9,
+                inner_dct9,
+            )?));
+        }
+        #[cfg(not(all(target_arch = "aarch64", feature = "neon")))]
+        {
+            use crate::type3::Dct3MixedRadix9;
+            Ok(Arc::new(Dct3MixedRadix9::new(
+                inner_dct9.length() * 9,
+                inner_dct9,
+            )?))
+        }
     }
 
     fn dct3_identity() -> Arc<dyn PxdctExecutor<Self> + Send + Sync> {

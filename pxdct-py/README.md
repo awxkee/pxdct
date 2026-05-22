@@ -97,8 +97,8 @@ Factory for :class:`DctPlan2D`.  `kind_height` and `height` default to
 | Kind          | Full name                        | Inverse of                          |
 |---------------|----------------------------------|-------------------------------------|
 | `dct1`        | DCT type I                       | itself (self-inverse up to scaling) |
-| `dct2`        | DCT type II (the "standard" DCT) | `dct3`                              |
-| `dct3`        | DCT type III (inverse DCT)       | `dct2`                              |
+| `dct2`        | DCT type II (the "standard" DCT) | `type3`                              |
+| `type3`        | DCT type III (inverse DCT)       | `dct2`                              |
 | `dct4`        | DCT type IV                      | itself                              |
 | `dct5`–`dct8` | DCT types V–VIII                 | see literature                      |
 | `dst1`–`dst8` | DST types I–VIII                 | see literature                      |
