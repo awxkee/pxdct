@@ -27,73 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * // Copyright (c) Radzivon Bartoshyk 5/2026. All rights reserved.
- * //
- * // Redistribution and use in source and binary forms, with or without modification,
- * // are permitted provided that the following conditions are met:
- * //
- * // 1.  Redistributions of source code must retain the above copyright notice, this
- * // list of conditions and the following disclaimer.
- * //
- * // 2.  Redistributions in binary form must reproduce the above copyright notice,
- * // this list of conditions and the following disclaimer in the documentation
- * // and/or other materials provided with the distribution.
- * //
- * // 3.  Neither the name of the copyright holder nor the names of its
- * // contributors may be used to endorse or promote products derived from
- * // this software without specific prior written permission.
- * //
- * // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * // IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * // DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * // FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * // DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * // SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-//! DST-VIII via real FFT.
-//!
-//! Reference definition (matches `reference_dst8`):
-//!     X_k = sum_{n=0..N-1} c_n * x_n * sin( (k+1/2)*(n+1/2)*pi / (N - 1/2) )
-//! with c_n = 1 for n < N-1 and c_{N-1} = 1/2, for k = 0..N-1.
-//!
-//! Derivation. Rewrite the argument:
-//!     (k+1/2)(n+1/2) * pi / (N - 1/2)
-//!         = pi * (2k+1)(2n+1) / (2(2N-1))
-//!         = 2*pi * (2k+1)(2n+1) / L,    with L = 8N - 4.
-//! So X_k = Im sum_n c_n x_n exp(2*pi*i * (2k+1) * (2n+1) / L), i.e. the
-//! imaginary part of a length-L DFT bin at frequency 2k+1 with input c_n*x_n
-//! placed at index 2n+1.
-//!
-//! Note L = 8N-4 here, not 4N-2: the cosine variants (DCT-V/VI/VII) need only
-//! one fractional shift absorbed by the FFT, but DST-VIII has half-shifts on
-//! both indices AND uses the imaginary part, so the embedding needs four times
-//! the smallest "natural" length 2N-1.
-//!
-//! Build a length-L real, odd-symmetric sequence y:
-//!     y_0           = 0
-//!     y_{2n+1}      = c_n * x_n        for n = 0 .. N-1    (indices 1, 3, ..., 2N-1)
-//!     all other low-half indices = 0
-//!     y_{L - m}     = -y_m             for m = 1 .. L/2-1  (odd mirror)
-//!
-//! All non-source low-half indices (even indices 2, 4, ..., L/2-2, and odd
-//! indices 2N+1, 2N+3, ..., L/2-1) are zero, so the odd mirror only needs to
-//! propagate values from the populated odd indices 1..2N-1.
-//!
-//! The forward FFT (negative exponent convention used by zaft/FFTW/RustFFT)
-//! turns the odd-symmetric real signal into purely imaginary spectrum, with
-//! Y_{2k+1} = -2i * sum_n c_n x_n sin(2*pi*(2k+1)(2n+1)/L) = -2i * X_k.
-//! Therefore X_k = -Im(Y_{2k+1}) / 2.
-//!
-//! The R2C output has L/2 + 1 = 4N - 1 bins (indices 0..4N-2), and the largest
-//! bin we read is 2(N-1)+1 = 2N-1, well below Nyquist — no folding.
-//!
-//! N == 1 is trivial: X_0 = 0.5 * x_0 (single sine term equals 1 there).
+// DST-VIII via real FFT.
 
 use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};

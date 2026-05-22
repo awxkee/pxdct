@@ -27,60 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * // Copyright (c) Radzivon Bartoshyk 5/2026. All rights reserved.
- * //
- * // Redistribution and use in source and binary forms, with or without modification,
- * // are permitted provided that the following conditions are met:
- * //
- * // 1.  Redistributions of source code must retain the above copyright notice, this
- * // list of conditions and the following disclaimer.
- * //
- * // 2.  Redistributions in binary form must reproduce the above copyright notice,
- * // this list of conditions and the following disclaimer in the documentation
- * // and/or other materials provided with the distribution.
- * //
- * // 3.  Neither the name of the copyright holder nor the names of its
- * // contributors may be used to endorse or promote products derived from
- * // this software without specific prior written permission.
- * //
- * // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * // IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * // DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * // FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * // DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * // SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-//! DST-V via real FFT.
-//!
-//! Reference definition (matches `naive_dst5`):
-//!     X_k = sum_{n=0..N-1} x_n * sin( (k + 1) * (n + 1) * pi / (N + 1/2) )
-//! for k = 0..N-1. No half-weights anywhere.
-//!
-//! Derivation. Rewrite the argument:
-//!     (k + 1) * (n + 1) * pi / (N + 1/2) = 2*pi * (k + 1) * (n + 1) / M,
-//!     M = 2N + 1.
-//! So X_k = Im sum_n x_n exp(2*pi*i * (k+1) * (n+1) / M), i.e. the imaginary
-//! part of a length-M DFT bin at frequency k+1 with input x_n placed at index n+1.
-//!
-//! Build a length-M real, odd-symmetric (antisymmetric) sequence y:
-//!     y_0           = 0
-//!     y_{n + 1}     =  x_n          for n = 0 .. N-1   (indices 1..N)
-//!     y_{M - (n+1)} = -x_n          for n = 0 .. N-1   (indices N+1..M-1)
-//!
-//! The FFT convention used (matching FFTW / RustFFT / zaft) is the negative
-//! exponential Y_k = sum y_m exp(-2*pi*i k m / M), so an antisymmetric real
-//! signal yields purely imaginary Y_k with
-//!     Y_{k+1} = -2i * sum_n x_n sin(2*pi*(k+1)*(n+1)/M) = -2i * X_k.
-//! Therefore X_k = -Im(Y_{k+1}) / 2.
-//!
-//! The R2C output has M/2 + 1 = N + 1 bins (indices 0..N), so bins 1..N cover
-//! exactly the k = 0..N-1 range — no folding needed.
+// DST-V via real FFT.
 
 use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};

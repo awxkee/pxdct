@@ -27,28 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-//! DCT-V via real FFT.
-//!
-//! Reference definition (matches `naive_dct5`):
-//!     X_k = sum_{n=0..N-1} c_n * x_n * cos( k * n * pi / (N - 1/2) )
-//! with c_0 = 1/2 and c_n = 1 otherwise, for k = 0..N-1.
-//!
-//! Derivation. Rewrite the argument:
-//!     k * n * pi / (N - 1/2) = 2*pi * k * n / M,    M = 2N - 1.
-//! So X_k = Re sum_n c_n x_n exp(2*pi*i * k * n / M), the real part of a
-//! length-M DFT bin at frequency k.
-//!
-//! Build a length-M real, even-symmetric sequence y:
-//!     y_0       = x_0                  (full weight at center)
-//!     y_n       = x_n      for n = 1 .. N-1
-//!     y_{M - n} = x_n      for n = 1 .. N-1   (mirror; index 0 is its own mirror)
-//!
-//! Then Y_k = x_0 + 2 * sum_{n=1..N-1} x_n cos(2*pi*k*n/M) = 2 * X_k,
-//! since the naive formula has x_0 with weight c_0 = 1/2, so the contribution
-//! x_0 from index 0 equals 2 * (x_0 / 2). Therefore X_k = Re(Y_k) / 2 for
-//! k = 0..N-1, read straight from the first N R2C bins (complex_len = N exactly).
-//!
-//! N == 1 is trivial: X_0 = 0.5 * x_0.
+// DCT-V via real FFT
 
 use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};

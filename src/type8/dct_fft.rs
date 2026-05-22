@@ -27,56 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/*
- * // Copyright (c) Radzivon Bartoshyk 5/2026. All rights reserved.
- * //
- * // Redistribution and use in source and binary forms, with or without modification,
- * // are permitted provided that the following conditions are met:
- * //
- * // 1.  Redistributions of source code must retain the above copyright notice, this
- * // list of conditions and the following disclaimer.
- * //
- * // 2.  Redistributions in binary form must reproduce the above copyright notice,
- * // this list of conditions and the following disclaimer in the documentation
- * // and/or other materials provided with the distribution.
- * //
- * // 3.  Neither the name of the copyright holder nor the names of its
- * // contributors may be used to endorse or promote products derived from
- * // this software without specific prior written permission.
- * //
- * // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * // IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * // DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * // FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * // DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * // SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-//! DCT-VIII via real FFT.
-//!
-//! Reference definition (matches `reference_dct8`):
-//!     X_k = sum_{n=0..N-1} x_n * cos( (k+1/2)*(n+1/2)*pi / (N + 1/2) )
-//! for k = 0..N-1. No weights — every sample full weight.
-//!
-//! Derivation. Rewrite the argument:
-//!     (k+1/2)(n+1/2) * pi / (N + 1/2)
-//!         = pi * (2k+1)(2n+1) / (2(2N+1))
-//!         = 2*pi * (2k+1)(2n+1) / L,    with L = 8N + 4.
-//! So X_k = Re sum_n x_n exp(2*pi*i * (2k+1)(2n+1) / L), the real part of a
-//! length-L DFT bin at frequency 2k+1 with x_n placed at index 2n+1.
-//! Build a length-L real, even-symmetric sequence y:
-//!     y_0           = 0
-//!     y_{2n+1}      = x_n            for n = 0 .. N-1    (indices 1, 3, ..., 2N-1)
-//!     all other low-half indices = 0
-//!     y_{L - m}     = y_m            for m = 1 .. L/2-1  (even mirror)
-//!
-//! Each x_n contributes through its pair (y_{2n+1}, y_{L-(2n+1)}), giving
-//!     Y_{2k+1} = 2 * sum_n x_n cos(2*pi*(2k+1)(2n+1)/L) = 2 * X_k,
-//! so X_k = Re(Y_{2k+1}) / 2.
+// DCT-VIII via real FFT.
 
 use crate::util::{DctSample, force_cast_real_scratch_to_complex, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};

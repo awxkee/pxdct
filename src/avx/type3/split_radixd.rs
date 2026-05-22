@@ -26,8 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::dct2::dct2_split_radix_rotation_twiddles_avx;
 use crate::avx::stored::AvxStoreD;
+use crate::avx::type2::dct2_split_radix_rotation_twiddles_avx;
 use crate::avx::util::{boring_avx_split_radix, fma};
 use crate::bidirectional::BidirectionalStore;
 use crate::util::{DctConstants, try_vec, validate_scratch};

@@ -26,8 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::dct2::{dct2_radix_n_cos_twiddles_avx_f, dct2_radix_n_rotation_twiddles_avx_f};
 use crate::avx::storef::AvxStoreF;
+use crate::avx::type2::{dct2_radix_n_cos_twiddles_avx_f, dct2_radix_n_rotation_twiddles_avx_f};
 use crate::avx::util::{define_avx_butterfly, fma};
 use crate::bidirectional::{BidirectionalStore, InPlaceStore};
 use crate::factory_dct2::Dct2Factory;
