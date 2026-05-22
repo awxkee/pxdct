@@ -23,13 +23,15 @@ Hardware acceleration is applied automatically:
 
 ## Supported Transforms
 
-| Transform         | Description           |
-|-------------------|-----------------------|
-| DCT-I / DST-I     | Type 1                |
-| DCT-II / DST-II   | The classic DCT / DST |
-| DCT-III / DST-III | Inverse of type II    |
-| DCT-IV            | Used in MDCT          |
-| DCT-VII / DST-VII | Type 7                |
+| Transform           | Description               |
+|---------------------|---------------------------|
+| DCT-I / DST-I       | Type 1                    |
+| DCT-II / DST-II     | The classic DCT / DST     |
+| DCT-III / DST-III   | Inverse of type II        |
+| DCT-IV              | Used in MDCT              |
+| MDCT/IMDCT          | Modified cosine transform |
+| DCT-VII / DST-VII   | Type 7                    |
+| DCT-VIII / DST-VIII | Type 8                    |
 
 Both `f32` and `f64` precision are supported.
 
