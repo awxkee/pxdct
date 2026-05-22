@@ -461,19 +461,21 @@ impl DctPlan {
     }
 }
 
-// ─── 2-D planner ─────────────────────────────────────────────────────────────
-
 /// A pre-planned 2-D DCT executor.
 ///
-/// Applies the 1-D transform independently along rows then columns
-/// (or the reverse for the inverse).
+/// Applies the 1-D transform row-wise (width) then column-wise (height)
+/// with an intermediate transpose. For performance, the final transpose
+/// is omitted, so the output layout differs from the input:
 ///
-/// Parameters
-/// ----------
-/// width_plan : DctPlan
-///     Plan for the horizontal (column) dimension.
-/// height_plan : DctPlan
-///     Plan for the vertical (row) dimension.
+/// * **Input:**  row-major, W×H (width columns, height rows)
+/// * **Output:** row-major, H×W (height columns, width rows) — transposed
+///
+/// For a lossless round-trip, construct the inverse plan with width and
+/// height swapped: ``DctPlan2D(height_plan, width_plan)``.
+///
+/// Do **not** pass the output to code that assumes W×H layout without
+/// first transposing it manually (e.g. ``arr.reshape(height, width).T``
+/// in NumPy).
 #[pyclass(name = "DctPlan2D")]
 struct DctPlan2D {
     width: usize,

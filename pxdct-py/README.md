@@ -104,19 +104,25 @@ axes.
 
 ### `class DctPlan2D`
 
-| Method / attribute            | Description                                                             |
-|-------------------------------|-------------------------------------------------------------------------|
-| `execute(data)`               | In-place transform on a flat row-major array of length `width × height` |
-| `.width`, `.height`, `.dtype` | Read-only attributes                                                    |
+| Method / attribute            | Description                                                                                                                             |
+|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `execute(data)`               | In-place transform on a flat row-major array of length `width × height`. **Output is in transposed H×W order** — see layout note below. |
+| `.width`, `.height`, `.dtype` | Read-only attributes                                                                                                                    |
+
+> **Layout contract:** For performance, `DctPlan2D` omits the final
+> transpose. Input is W×H row-major; output is H×W row-major (transposed).
+> To restore W×H order: `arr.reshape(width, height).T`.
+> For a round-trip, build the inverse plan with axes swapped:
+> `plan2d(inv_kind, height, width)`.
 
 ## Supported transforms
 
 | Kind          | Full name                        | Inverse of             |
 |---------------|----------------------------------|------------------------|
 | `dct1`        | DCT type I                       | itself (up to scaling) |
-| `type2`        | DCT type II (the "standard" DCT) | `dct3`                 |
-| `dct3`        | DCT type III (inverse DCT)       | `type2`                 |
-| `type4`        | DCT type IV                      | itself                 |
+| `type2`       | DCT type II (the "standard" DCT) | `dct3`                 |
+| `dct3`        | DCT type III (inverse DCT)       | `type2`                |
+| `type4`       | DCT type IV                      | itself                 |
 | `dct5`–`dct8` | DCT types V–VIII                 | see literature         |
 | `dst1`–`dst8` | DST types I–VIII                 | see literature         |
 | `mdct`        | Modified DCT                     | `imdct`                |

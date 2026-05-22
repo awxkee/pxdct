@@ -1019,7 +1019,20 @@ impl Pxdct {
 
     /// Creates 2D DCT executor.
     ///
-    /// For matrix WxH to get an inverse use H as width and W as height.
+    /// Applies the DCT row-wise (width) then column-wise (height) with an intermediate
+    /// transpose. For performance, the final output is left in **transposed (H×W) order**
+    /// rather than the original W×H layout — the second transpose is intentionally omitted.
+    ///
+    /// # Layout contract
+    /// - **Input:** row-major, W×H (width columns, height rows)
+    /// - **Output:** row-major, H×W (height columns, width rows) — i.e. transposed
+    ///
+    /// This is consistent with the inverse: to round-trip, construct the IDCT executor
+    /// with `width` and `height` swapped (`make_2d_idct_f32(height_dct, width_dct)`),
+    /// which will naturally expect H×W input and produce W×H output.
+    ///
+    /// Do **not** mix the output of this executor with code that assumes W×H coefficient
+    /// layout without a manual transpose.
     pub fn make_2d_dct_f32(
         width_dct: SpectralExecutor<f32>,
         height_dct: SpectralExecutor<f32>,
@@ -1041,7 +1054,20 @@ impl Pxdct {
 
     /// Creates 2D DCT executor.
     ///
-    /// For matrix WxH to get an inverse use H as width and W as height.
+    /// Applies the DCT row-wise (width) then column-wise (height) with an intermediate
+    /// transpose. For performance, the final output is left in **transposed (H×W) order**
+    /// rather than the original W×H layout — the second transpose is intentionally omitted.
+    ///
+    /// # Layout contract
+    /// - **Input:** row-major, W×H (width columns, height rows)
+    /// - **Output:** row-major, H×W (height columns, width rows) — i.e. transposed
+    ///
+    /// This is consistent with the inverse: to round-trip, construct the IDCT executor
+    /// with `width` and `height` swapped (`make_2d_idct_f32(height_dct, width_dct)`),
+    /// which will naturally expect H×W input and produce W×H output.
+    ///
+    /// Do **not** mix the output of this executor with code that assumes W×H coefficient
+    /// layout without a manual transpose.
     pub fn make_2d_dct_f64(
         width_dct: SpectralExecutor<f64>,
         height_dct: SpectralExecutor<f64>,
@@ -2467,10 +2493,6 @@ mod tests {
             });
         }
     }
-
-    // -----------------------------------------------------------------------
-    // f32 naive-reference helpers (mirrors the f64 versions above)
-    // -----------------------------------------------------------------------
 
     pub(crate) fn naive_dst2_f32(input: &[f32]) -> Vec<f32> {
         let mut result = Vec::new();
