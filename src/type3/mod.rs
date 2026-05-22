@@ -30,6 +30,10 @@ mod bf_f2;
 mod butterflies;
 pub mod fft;
 mod identity;
+mod mixed_radix3;
+mod mixed_radix5;
+mod mixed_radix7;
+mod mixed_radix9;
 mod prime_butterflies;
 mod split_radix;
 
@@ -44,6 +48,14 @@ pub(crate) use butterflies::{
 };
 pub(crate) use fft::Dct3Fft;
 pub(crate) use identity::Dct3Identity;
+#[allow(unused_imports)]
+pub(crate) use mixed_radix3::{Dct3MixedRadix3, radixq_dct3_n_rotation_twiddle};
+#[allow(unused_imports)]
+pub(crate) use mixed_radix5::{Dct3MixedRadix5, Dct3MixedRadix5Sample};
+#[allow(unused_imports)]
+pub(crate) use mixed_radix7::{Dct3MixedRadix7, Dct3MixedRadix7Sample};
+#[allow(unused_imports)]
+pub(crate) use mixed_radix9::{Dct3MixedRadix9, Dct3MixedRadix9Sample};
 pub(crate) use prime_butterflies::{
     Dct3Butterfly3, Dct3Butterfly5, Dct3Butterfly7, Dct3Butterfly11, Dct3Butterfly13,
 };

@@ -29,7 +29,6 @@
 #![allow(clippy::too_many_arguments)]
 mod block_transpose;
 mod dct2;
-mod dct3;
 mod dct4;
 #[cfg(feature = "fcma")]
 mod fcma_mul_f32;
@@ -38,6 +37,7 @@ mod mul_f32;
 mod pfa_dct2_remap;
 mod store_d;
 mod transpose;
+mod type3;
 mod util;
 
 pub(crate) use dct2::bf_radix3::{
@@ -63,7 +63,6 @@ pub(crate) use dct2::{
     ScaledNeonDct2Butterfly128f, ScaledNeonDct2Butterfly256f, ScaledNeonDct2Butterfly512f,
     ScaledNeonSplitRadixDct2d, ScaledNeonSplitRadixDct2f,
 };
-pub(crate) use dct3::{NeonSplitRadixDct3d, NeonSplitRadixDct3f};
 pub(crate) use dct4::{
     NeonDct4Butterfly27f, NeonDct4MixedRadix2f, NeonDct4MixedRadix3d, NeonDct4MixedRadix3f,
     NeonDct4MixedRadix5d, NeonDct4MixedRadix5f, NeonDct4MixedRadix7d, NeonDct4MixedRadix7f,
@@ -74,3 +73,8 @@ pub(crate) use dct4::{
 #[cfg(target_pointer_width = "64")]
 pub(crate) use pfa_dct2_remap::NeonPfaDct2Remapper;
 pub(crate) use transpose::NeonTranspose4x4;
+pub(crate) use type3::{
+    NeonDct3MixedRadix3d, NeonDct3MixedRadix3f, NeonDct3MixedRadix5d, NeonDct3MixedRadix5f,
+    NeonDct3MixedRadix7d, NeonDct3MixedRadix7f, NeonDct3MixedRadix9d, NeonDct3MixedRadix9f,
+};
+pub(crate) use type3::{NeonSplitRadixDct3d, NeonSplitRadixDct3f};

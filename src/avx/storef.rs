@@ -56,11 +56,28 @@ pub(crate) struct AvxStoreF {
     pub(crate) v: __m256,
 }
 
+#[repr(C, align(32))]
+pub(crate) struct AvxAlignedF32(pub(crate) [f32; 8]);
+
 impl AvxStoreF {
     #[inline]
     #[target_feature(enable = "avx2")]
     pub(crate) fn zero() -> AvxStoreF {
         AvxStoreF::raw(_mm256_setzero_ps())
+    }
+
+    pub(crate) fn to_array(self) -> [f32; 8] {
+        let mut data = AvxAlignedF32([0.; 8]);
+        unsafe {
+            _mm256_store_ps(data.0.as_mut_ptr(), self.v);
+        }
+        data.0
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn dup(v: f32) -> Self {
+        AvxStoreF::raw(_mm256_set1_ps(v))
     }
 
     #[inline]
@@ -142,6 +159,11 @@ impl AvxStoreF {
     #[inline]
     #[target_feature(enable = "avx2")]
     pub(crate) fn load(ptr: &[f32]) -> Self {
+        debug_assert!(
+            ptr.len() >= 8,
+            "Array length must not be less than 8, but got {}",
+            ptr.len()
+        );
         AvxStoreF::raw(unsafe { _mm256_loadu_ps(ptr.as_ptr()) })
     }
 

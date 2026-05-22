@@ -37,11 +37,30 @@ pub(crate) struct AvxStoreD {
     pub(crate) v: __m256d,
 }
 
+#[repr(C, align(32))]
+pub(crate) struct AvxAlignedF64(pub(crate) [f64; 4]);
+
 impl AvxStoreD {
     #[inline]
     #[target_feature(enable = "avx2")]
     pub(crate) fn set_values(p0: f64, p1: f64, p2: f64, p3: f64) -> AvxStoreD {
         AvxStoreD::raw(_mm256_setr_pd(p0, p1, p2, p3))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn to_array(self) -> [f64; 4] {
+        let mut data = AvxAlignedF64([0.; 4]);
+        unsafe {
+            _mm256_store_pd(data.0.as_mut_ptr(), self.v);
+        }
+        data.0
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn dup(v: f64) -> AvxStoreD {
+        AvxStoreD::raw(_mm256_set1_pd(v))
     }
 
     #[inline]

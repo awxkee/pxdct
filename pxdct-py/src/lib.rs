@@ -79,7 +79,7 @@ fn parse_kind(kind: &str) -> PyResult<&'static str> {
     Ok(match (family, num) {
         ("dct", 1) => "dct1",
         ("dct", 2) => "dct2",
-        ("dct", 3) => "dct3",
+        ("dct", 3) => "type3",
         ("dct", 4) => "dct4",
         ("dct", 5) => "dct5",
         ("dct", 6) => "dct6",
@@ -111,7 +111,7 @@ fn build_executor_f32(
     match key {
         "dct1" => Pxdct::make_dct1_f32(length),
         "dct2" => Pxdct::make_dct2_f32(length),
-        "dct3" => Pxdct::make_dct3_f32(length),
+        "type3" => Pxdct::make_dct3_f32(length),
         "dct4" => Pxdct::make_dct4_f32(length),
         "dct5" => Pxdct::make_dct5_f32(length),
         "dct6" => Pxdct::make_dct6_f32(length),
@@ -139,7 +139,7 @@ fn build_executor_f64(
     match key {
         "dct1" => Pxdct::make_dct1_f64(length),
         "dct2" => Pxdct::make_dct2_f64(length),
-        "dct3" => Pxdct::make_dct3_f64(length),
+        "type3" => Pxdct::make_dct3_f64(length),
         "dct4" => Pxdct::make_dct4_f64(length),
         "dct5" => Pxdct::make_dct5_f64(length),
         "dct6" => Pxdct::make_dct6_f64(length),

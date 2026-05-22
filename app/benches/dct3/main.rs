@@ -40,6 +40,20 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .measurement_time(Duration::from_millis(400))
         .warm_up_time(Duration::from_millis(400));
 
+    check_power_group(c, 49, "49".to_string());
+    check_power_group(c, 343, "343".to_string());
+    check_power_group(c, 2401, "2401".to_string());
+
+    check_power_group(c, 27, "27".to_string());
+    check_power_group(c, 81, "81".to_string());
+    check_power_group(c, 243, "243".to_string());
+    check_power_group(c, 729, "729".to_string());
+
+    check_power_group(c, 5, "5".to_string());
+    check_power_group(c, 25, "25".to_string());
+    check_power_group(c, 125, "125".to_string());
+    check_power_group(c, 625, "625".to_string());
+
     check_power_group(c, 8, "8".to_string());
     check_power_group(c, 16, "16".to_string());
     check_power_group(c, 32, "32".to_string());

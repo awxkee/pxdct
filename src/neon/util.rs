@@ -345,6 +345,15 @@ impl NeonStoreF {
     pub(crate) fn reverse2(self) -> Self {
         unsafe { NeonStoreF::raw(vrev64q_f32(self.v)) }
     }
+
+    #[inline(always)]
+    pub(crate) fn to_array(self) -> [f32; 4] {
+        let mut q = [0.; 4];
+        unsafe {
+            vst1q_f32(q.as_mut_ptr(), self.v);
+        }
+        q
+    }
 }
 
 macro_rules! boring_neon_mixed_radix {

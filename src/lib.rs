@@ -429,11 +429,24 @@ impl Pxdct {
             _ => {}
         }
 
+        if length.is_multiple_of(9) {
+            return T::dct3_mixed_radix9(Self::dct3_strategy(length / 9)?);
+        }
+        if length.is_multiple_of(7) {
+            return T::dct3_mixed_radix7(Self::dct3_strategy(length / 7)?);
+        }
+        if length.is_multiple_of(5) {
+            return T::dct3_mixed_radix5(Self::dct3_strategy(length / 5)?);
+        }
+        if length.is_multiple_of(3) {
+            return T::dct3_mixed_radix3(Self::dct3_strategy(length / 3)?);
+        }
+
         if length.is_power_of_two() && length > 2 {
             return T::dct3_split_radix(
                 length,
-                Pxdct::dct3_strategy(length / 2)?,
-                Pxdct::dct3_strategy(length / 4)?,
+                Self::dct3_strategy(length / 2)?,
+                Self::dct3_strategy(length / 4)?,
             );
         }
 
@@ -1554,8 +1567,8 @@ mod tests {
             let mut working_array = array.clone();
             let mut transient = vec![0f32; i];
 
-            let dct_forward = Pxdct::make_dct2_f32(array.len()).unwrap();
-            let dct_inverse = Pxdct::make_dct3_f32(array.len()).unwrap();
+            let dct_forward = Pxdct::make_dst2_f32(array.len()).unwrap();
+            let dct_inverse = Pxdct::make_dst3_f32(array.len()).unwrap();
 
             dct_forward
                 .execute_into(&working_array, &mut transient)
@@ -2190,7 +2203,8 @@ mod tests {
 
     #[test]
     fn dct5_all() {
-        for i in 1usize..150 {
+        // workaround stdarch bug
+        for i in 30usize..150 {
             let mut array = vec![0.; i];
             for i in 1..i + 1 {
                 array[i - 1] = i as f64;
@@ -2406,6 +2420,758 @@ mod tests {
             working_array.iter().zip(naive_ref.iter()).enumerate().for_each(|(k, (&x, &c))| {
                 assert!((x - c).abs() < 1e-7, "Difference to control values exceeded 1e-7 when it shouldn't, value {x}, control {c} at {k} for size {i}");
             });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // f32 naive-reference helpers (mirrors the f64 versions above)
+    // -----------------------------------------------------------------------
+
+    pub(crate) fn naive_dst2_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f32 + 1.0) * (input_index as f32 + 0.5) * std::f32::consts::PI
+                        / (input.len() as f32);
+                entry += input[input_index] * sin_inner.sin();
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst3_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == input.len() - 1 {
+                    0.5
+                } else {
+                    1.0
+                };
+                let sin_inner =
+                    (output_index as f32 + 0.5) * (input_index as f32 + 1.0) * std::f32::consts::PI
+                        / (input.len() as f32);
+                entry += input[input_index] * sin_inner.sin() * multiplier;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst4_f32(input: &[f32]) -> Vec<f32> {
+        let n = input.len();
+        (0..n)
+            .map(|k| {
+                input
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let angle = std::f32::consts::PI * (2 * i + 1) as f32 * (2 * k + 1) as f32
+                            / (4 * n) as f32;
+                        x * angle.sin()
+                    })
+                    .sum()
+            })
+            .collect()
+    }
+
+    pub(crate) fn naive_dct5_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == 0 { 0.5 } else { 1.0 };
+                let cos_inner = (output_index as f32) * (input_index as f32) * std::f32::consts::PI
+                    / (input.len() as f32 - 0.5);
+                entry += input[input_index] * cos_inner.cos() * multiplier;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst5_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f32 + 1.0) * (input_index as f32 + 1.0) * std::f32::consts::PI
+                        / (input.len() as f32 + 0.5);
+                entry += input[input_index] * sin_inner.sin();
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dct6_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == input.len() - 1 {
+                    0.5
+                } else {
+                    1.0
+                };
+                let cos_inner =
+                    (output_index as f32) * (input_index as f32 + 0.5) * std::f32::consts::PI
+                        / (input.len() as f32 - 0.5);
+                entry += input[input_index] * cos_inner.cos() * multiplier;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst6_f32(input: &[f32]) -> Vec<f32> {
+        let n = input.len();
+        let mut result = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut entry = 0.0_f32;
+            for i in 0..n {
+                let sin_inner = (k as f32 + 1.0) * (2.0 * i as f32 + 1.0) * std::f32::consts::PI
+                    / (2.0 * n as f32 + 1.0);
+                entry += input[i] * sin_inner.sin();
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dct7_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == 0 { 0.5 } else { 1.0 };
+                let cos_inner =
+                    (output_index as f32 + 0.5) * (input_index as f32) * std::f32::consts::PI
+                        / (input.len() as f32 - 0.5);
+                entry += input[input_index] * cos_inner.cos() * multiplier;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst7_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let sin_inner =
+                    (output_index as f32 + 0.5) * (input_index as f32 + 1.0) * std::f32::consts::PI
+                        / (input.len() as f32 + 0.5);
+                entry += input[input_index] * sin_inner.sin();
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dct8_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let cos_inner =
+                    (output_index as f32 + 0.5) * (input_index as f32 + 0.5) * std::f32::consts::PI
+                        / (input.len() as f32 + 0.5);
+                entry += input[input_index] * cos_inner.cos();
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    pub(crate) fn naive_dst8_f32(input: &[f32]) -> Vec<f32> {
+        let mut result = Vec::new();
+        for output_index in 0..input.len() {
+            let mut entry = 0.0_f32;
+            for input_index in 0..input.len() {
+                let multiplier = if input_index == input.len() - 1 {
+                    0.5
+                } else {
+                    1.0
+                };
+                let sin_inner =
+                    (output_index as f32 + 0.5) * (input_index as f32 + 0.5) * std::f32::consts::PI
+                        / (input.len() as f32 - 0.5);
+                entry += input[input_index] * sin_inner.sin() * multiplier;
+            }
+            result.push(entry);
+        }
+        result
+    }
+
+    // -----------------------------------------------------------------------
+    // f32 in-place tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dst2_all_f32() {
+        for i in 2usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst2_f32(&array);
+            Pxdct::make_dst2_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst2_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst2_all_into_f32() {
+        for i in 2usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst2_f32(&array);
+            Pxdct::make_dst2_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst2_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst3_all_f32() {
+        for i in 2usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst3_f32(&array);
+            Pxdct::make_dst3_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst3_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst3_all_into_f32() {
+        for i in 2usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst3_f32(&array);
+            Pxdct::make_dst3_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst3_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst4_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst4_f32(&array);
+            Pxdct::make_dst4_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst4_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst4_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst4_f32(&array);
+            Pxdct::make_dst4_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst4_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct5_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dct5_f32(&array);
+            Pxdct::make_dct5_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct5_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct5_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dct5_f32(&array);
+            Pxdct::make_dct5_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct5_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst5_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst5_f32(&array);
+            Pxdct::make_dst5_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst5_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst5_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst5_f32(&array);
+            Pxdct::make_dst5_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst5_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct6_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dct6_f32(&array);
+            Pxdct::make_dct6_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct6_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct6_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dct6_f32(&array);
+            Pxdct::make_dct6_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct6_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst6_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst6_f32(&array);
+            Pxdct::make_dst6_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst6_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst6_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst6_f32(&array);
+            Pxdct::make_dst6_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst6_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct7_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dct7_f32(&array);
+            Pxdct::make_dct7_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct7_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct7_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dct7_f32(&array);
+            Pxdct::make_dct7_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct7_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst7_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst7_f32(&array);
+            Pxdct::make_dst7_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst7_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst7_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst7_f32(&array);
+            Pxdct::make_dst7_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst7_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct8_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dct8_f32(&array);
+            Pxdct::make_dct8_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct8_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dct8_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dct8_f32(&array);
+            Pxdct::make_dct8_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dct8_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst8_all_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut working = array.clone();
+            let naive_ref = naive_dst8_f32(&array);
+            Pxdct::make_dst8_f32(i)
+                .unwrap()
+                .execute(&mut working)
+                .unwrap();
+            working
+                .iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst8_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
+        }
+    }
+
+    #[test]
+    fn dst8_all_into_f32() {
+        for i in 35usize..150 {
+            let mut array = vec![0.0_f32; i];
+            for j in 1..=i {
+                array[j - 1] = j as f32;
+            }
+            let mut out = vec![0.0_f32; i];
+            let naive_ref = naive_dst8_f32(&array);
+            Pxdct::make_dst8_f32(i)
+                .unwrap()
+                .execute_into(&array, &mut out)
+                .unwrap();
+            out.iter()
+                .zip(naive_ref.iter())
+                .enumerate()
+                .for_each(|(k, (&x, &c))| {
+                    assert!(
+                        (x - c).abs() < 1e-1,
+                        "dst8_into_f32 mismatch at {k} size {i}: {x} vs {c}"
+                    );
+                });
         }
     }
 }

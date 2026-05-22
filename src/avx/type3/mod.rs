@@ -26,8 +26,26 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+mod bf2n;
+mod mixed_radix3d;
+mod mixed_radix3f;
+mod mixed_radix5d;
+mod mixed_radix5f;
+mod mixed_radix7d;
+mod mixed_radix7f;
+mod mixed_radix9d;
+mod mixed_radix9f;
 mod split_radixd;
 mod split_radixf;
 
-pub(crate) use split_radixd::NeonSplitRadixDct3d;
-pub(crate) use split_radixf::NeonSplitRadixDct3f;
+pub(crate) use bf2n::{AvxDct3Butterfly16, AvxDct3Butterfly32, AvxDct3Butterfly64};
+pub(crate) use mixed_radix3d::AvxDct3MixedRadix3d;
+pub(crate) use mixed_radix3f::AvxDct3MixedRadix3f;
+pub(crate) use mixed_radix5d::AvxDct3MixedRadix5d;
+pub(crate) use mixed_radix5f::AvxDct3MixedRadix5f;
+pub(crate) use mixed_radix7d::AvxDct3MixedRadix7d;
+pub(crate) use mixed_radix7f::AvxDct3MixedRadix7f;
+pub(crate) use mixed_radix9d::AvxDct3MixedRadix9d;
+pub(crate) use mixed_radix9f::AvxDct3MixedRadix9f;
+pub(crate) use split_radixd::AvxSplitRadixDct3d;
+pub(crate) use split_radixf::AvxSplitRadixDct3f;
