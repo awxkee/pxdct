@@ -51,6 +51,10 @@ pub(crate) trait Dct3Factory {
     fn dct3_mixed_radix5(inner_dct5: SpectralExecutor<Self>) -> Returning<Self>;
     fn dct3_mixed_radix7(inner_dct7: SpectralExecutor<Self>) -> Returning<Self>;
     fn dct3_mixed_radix9(inner_dct9: SpectralExecutor<Self>) -> Returning<Self>;
+    fn dct3_relatively_prime(
+        width_dct: SpectralExecutor<Self>,
+        height_dct: SpectralExecutor<Self>,
+    ) -> Returning<Self>;
     fn dct3_identity() -> SpectralExecutor<Self>;
     fn dct3_butterfly2() -> SpectralExecutor<Self>;
     fn dct3_butterfly3() -> SpectralExecutor<Self>;
@@ -225,6 +229,14 @@ impl Dct3Factory for f32 {
                 inner_dct9,
             )?))
         }
+    }
+
+    fn dct3_relatively_prime(
+        width_dct: SpectralExecutor<Self>,
+        height_dct: SpectralExecutor<Self>,
+    ) -> Returning<Self> {
+        use crate::type3::Dct3Coprime;
+        Ok(Arc::new(Dct3Coprime::new(width_dct, height_dct)?))
     }
 
     fn dct3_identity() -> SpectralExecutor<Self> {
@@ -603,6 +615,14 @@ impl Dct3Factory for f64 {
                 inner_dct9,
             )?))
         }
+    }
+
+    fn dct3_relatively_prime(
+        width_dct: SpectralExecutor<Self>,
+        height_dct: SpectralExecutor<Self>,
+    ) -> Returning<Self> {
+        use crate::type3::Dct3Coprime;
+        Ok(Arc::new(Dct3Coprime::new(width_dct, height_dct)?))
     }
 
     fn dct3_identity() -> SpectralExecutor<Self> {
