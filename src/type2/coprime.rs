@@ -28,7 +28,7 @@
  */
 use crate::transpose::Transposition;
 use crate::util::{DctSample, try_vec, validate_scratch};
-use crate::{PxdctError, PxdctExecutor};
+use crate::{PxdctError, PxdctExecutor, SpectralExecutor};
 use num_traits::AsPrimitive;
 use std::sync::Arc;
 
@@ -194,18 +194,20 @@ impl Dct2PfaIndexer {
         gains: &mut [isize],
         modulations: &mut [isize],
     ) {
+        let n = indices.len();
+        // indices is a permutation of 0..N, so use a flat array as the reverse map
+        let mut reverse = vec![0isize; n];
+        for (pos, &val) in indices.iter().enumerate() {
+            // val is always non-negative here (output scatter indices)
+            reverse[val as usize] = pos as isize;
+        }
+
         for gain in gains.iter_mut() {
-            let q = indices
-                .iter()
-                .position(|&x| x == gain.abs())
-                .expect("PFA Algorithm doesn't converge") as isize;
+            let q = reverse[gain.unsigned_abs()];
             *gain = if gain.is_negative() { -q } else { q };
         }
         for modulation in modulations.iter_mut() {
-            let q = indices
-                .iter()
-                .position(|&x| x == modulation.abs())
-                .expect("PFA Algorithm doesn't converge") as isize;
+            let q = reverse[modulation.unsigned_abs()];
             *modulation = if modulation.is_negative() { -q } else { q };
         }
     }
@@ -237,13 +239,15 @@ impl Dct2PfaIndexer {
 }
 
 pub(crate) struct Dct2Coprime<T> {
-    width_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
-    height_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    width_dct: SpectralExecutor<T>,
+    height_dct: SpectralExecutor<T>,
     transposition: Arc<dyn Transposition<T> + Send + Sync>,
     width: usize,
     execution_length: usize,
     indexer: Dct2PfaIndexer,
     remapper: Arc<dyn Dct2OutputRemapper<T> + Send + Sync>,
+    width_dct_scratch: usize,
+    height_dct_scratch: usize,
 }
 
 impl<T: DctSample + Dct2RemapperFactory> Dct2Coprime<T>
@@ -251,8 +255,8 @@ where
     f64: AsPrimitive<T>,
 {
     pub(crate) fn new(
-        mut width_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
-        mut height_dct: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+        mut width_dct: SpectralExecutor<T>,
+        mut height_dct: SpectralExecutor<T>,
     ) -> Result<Self, PxdctError> {
         if height_dct.length() > width_dct.length() {
             std::mem::swap(&mut width_dct, &mut height_dct);
@@ -267,6 +271,8 @@ where
         let total_length = width * height;
 
         Ok(Self {
+            width_dct_scratch: width_dct.scratch_size(),
+            height_dct_scratch: height_dct.scratch_size(),
             width_dct,
             height_dct,
             width,
@@ -340,9 +346,11 @@ impl<T: DctSample> Dct2OutputRemapper<T> for DefaultRemapper {
             let q_modulations = &modulation[1..];
 
             for ((address, gain), modulation) in q_indices
-                .chunks_exact(4)
-                .zip(q_gains.chunks_exact(4))
-                .zip(q_modulations.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(q_gains.as_chunks::<4>().0.iter())
+                .zip(q_modulations.as_chunks::<4>().0.iter())
             {
                 let g0 = gain[0];
                 let m0 = modulation[0];
@@ -377,9 +385,9 @@ impl<T: DctSample> Dct2OutputRemapper<T> for DefaultRemapper {
                 }
             }
 
-            let q_indices = address.chunks_exact(4).remainder();
-            let q_gains = gain.chunks_exact(4).remainder();
-            let q_modulations = modulation.chunks_exact(4).remainder();
+            let q_indices = address.as_chunks::<4>().1;
+            let q_gains = gain.as_chunks::<4>().1;
+            let q_modulations = modulation.as_chunks::<4>().1;
 
             for ((&address, &gain), &modulation) in q_indices
                 .iter()
@@ -525,9 +533,9 @@ where
 
         let full_scratch = validate_scratch!(scratch, self.scratch_size());
         let (left, right) = full_scratch.split_at_mut(self.execution_length * 2);
-        let (height_dct_scratch, width_dct_scratch) =
-            right.split_at_mut(self.height_dct.scratch_size());
         let (scratch0, scratch1) = left.split_at_mut(self.execution_length);
+        let dct_scratch_size = self.height_dct_scratch.max(self.width_dct_scratch);
+        let dct_scratch = &mut right[..dct_scratch_size];
 
         for (src, dst) in input
             .chunks_exact(self.execution_length)
@@ -535,10 +543,9 @@ where
         {
             self.remap_input(src, scratch0);
             self.height_dct
-                .execute_with_scratch(scratch0, height_dct_scratch)?;
+                .execute_with_scratch(scratch0, dct_scratch)?;
             self.transposition.transpose(scratch0, scratch1);
-            self.width_dct
-                .execute_with_scratch(scratch1, width_dct_scratch)?;
+            self.width_dct.execute_with_scratch(scratch1, dct_scratch)?;
             self.remap_output(scratch1, dst);
         }
         Ok(())
@@ -549,7 +556,7 @@ where
     }
 
     fn scratch_size(&self) -> usize {
-        self.execution_length * 2 + self.height_dct.scratch_size() + self.width_dct.scratch_size()
+        self.execution_length * 2 + self.height_dct_scratch.max(self.width_dct_scratch)
     }
 }
 

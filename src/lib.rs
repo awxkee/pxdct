@@ -1319,7 +1319,7 @@ mod tests {
         result
     }
 
-    pub fn naive_dct3(input: &[f64]) -> Vec<f64> {
+    pub(crate) fn naive_dct3(input: &[f64]) -> Vec<f64> {
         let mut result = Vec::new();
 
         for output_index in 0..input.len() {
@@ -1338,7 +1338,7 @@ mod tests {
         result
     }
 
-    pub fn naive_dct3_f32(input: &[f32]) -> Vec<f32> {
+    pub(crate) fn naive_dct3_f32(input: &[f32]) -> Vec<f32> {
         let mut result = Vec::new();
 
         for output_index in 0..input.len() {
@@ -1357,7 +1357,7 @@ mod tests {
         result
     }
 
-    pub fn naive_dst3(input: &[f64]) -> Vec<f64> {
+    pub(crate) fn naive_dst3(input: &[f64]) -> Vec<f64> {
         let mut result = Vec::new();
         for output_index in 0..input.len() {
             let mut entry = 0.0;
@@ -1378,7 +1378,7 @@ mod tests {
         result
     }
 
-    pub fn naive_dct4(input: &[f64]) -> Vec<f64> {
+    pub(crate) fn naive_dct4(input: &[f64]) -> Vec<f64> {
         let mut result = Vec::new();
 
         for output_index in 0..input.len() {
@@ -1552,7 +1552,7 @@ mod tests {
 
     #[test]
     fn dct2_roundtrip_f64() {
-        for i in 1..250 {
+        for i in 1..300 {
             let mut array = vec![0f64; i];
             for i in 1..i + 1 {
                 array[i - 1] = i as f64;
@@ -1576,7 +1576,7 @@ mod tests {
 
     #[test]
     fn dct2_roundtrip_oof_f64() {
-        for i in 1..250 {
+        for i in 1..300 {
             let mut array = vec![0f64; i];
             for i in 1..i + 1 {
                 array[i - 1] = i as f64;
@@ -1606,7 +1606,7 @@ mod tests {
 
     #[test]
     fn dst2_roundtrip() {
-        for i in 1..250 {
+        for i in 1..300 {
             let mut array = vec![0f32; i];
             for i in 1..i + 1 {
                 array[i - 1] = i as f32;
