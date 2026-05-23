@@ -28,6 +28,7 @@
  */
 mod bf_f2;
 mod butterflies;
+mod coprime;
 pub mod fft;
 mod identity;
 mod mixed_radix3;
@@ -46,6 +47,7 @@ pub(crate) use butterflies::{
     Dct3Butterfly15, Dct3Butterfly18, Dct3Butterfly20, Dct3Butterfly21, Dct3Butterfly24,
     Dct3Butterfly26, Dct3Butterfly28, Dct3Butterfly30, Dct3Butterfly35, Dct3Butterfly36,
 };
+pub(crate) use coprime::Dct3Coprime;
 pub(crate) use fft::Dct3Fft;
 pub(crate) use identity::Dct3Identity;
 #[allow(unused_imports)]

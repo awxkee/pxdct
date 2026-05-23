@@ -449,6 +449,10 @@ impl Pxdct {
             );
         }
 
+        if length == 15 * 17 {
+            return T::dct3_relatively_prime(Pxdct::dct3_strategy(15)?, Pxdct::dct3_strategy(17)?);
+        }
+
         T::dct3_fft(length)
     }
 
