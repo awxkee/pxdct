@@ -549,7 +549,7 @@ impl DctPlan2D {
     /// ----------
     /// data : numpy.ndarray
     ///     1-D array of length ``width * height``, row-major (C order).
-    fn execute<'py>(&self, _py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<()> {
+    fn execute<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<()> {
         let expected = self.width * self.height;
         match &self.executor {
             Dct2DInner::F32(exec) => {
@@ -567,7 +567,7 @@ impl DctPlan2D {
                 }
                 let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(buf).map_err(pxdct_err_to_py)
+                py.detach(|| exec.execute(buf).map_err(pxdct_err_to_py))
             }
             Dct2DInner::F64(exec) => {
                 let arr = data
@@ -584,7 +584,7 @@ impl DctPlan2D {
                 }
                 let buf = unsafe { arr.as_slice_mut() }
                     .map_err(|_| PyRuntimeError::new_err("Array must be C-contiguous"))?;
-                exec.execute(buf).map_err(pxdct_err_to_py)
+                py.detach(|| exec.execute(buf).map_err(pxdct_err_to_py))
             }
         }
     }
@@ -636,19 +636,23 @@ fn dct<'py>(
                 }
                 let exec = build_executor_f32(key, in_len / 2, Scaling::None)?;
                 let mut buf_out = vec![0f32; in_len / 2];
-                exec.execute_into(&buf_in, &mut buf_out)
-                    .map_err(pxdct_err_to_py)?;
+                py.detach(|| {
+                    exec.execute_into(&buf_in, &mut buf_out)
+                        .map_err(pxdct_err_to_py)
+                })?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else if is_imdct {
                 let exec = build_executor_f32(key, in_len, Scaling::None)?;
                 let mut buf_out = vec![0f32; in_len * 2];
-                exec.execute_into(&buf_in, &mut buf_out)
-                    .map_err(pxdct_err_to_py)?;
+                py.detach(|| {
+                    exec.execute_into(&buf_in, &mut buf_out)
+                        .map_err(pxdct_err_to_py)
+                })?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else {
                 let exec = build_executor_f32(key, in_len, sc)?;
                 let mut buf = buf_in;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
+                py.detach(|| exec.execute(&mut buf).map_err(pxdct_err_to_py))?;
                 Ok(PyArray1::from_vec(py, buf).into_any())
             }
         }
@@ -666,19 +670,23 @@ fn dct<'py>(
                 }
                 let exec = build_executor_f64(key, in_len / 2, Scaling::None)?;
                 let mut buf_out = vec![0f64; in_len / 2];
-                exec.execute_into(&buf_in, &mut buf_out)
-                    .map_err(pxdct_err_to_py)?;
+                py.detach(|| {
+                    exec.execute_into(&buf_in, &mut buf_out)
+                        .map_err(pxdct_err_to_py)
+                })?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else if is_imdct {
                 let exec = build_executor_f64(key, in_len, Scaling::None)?;
                 let mut buf_out = vec![0f64; in_len * 2];
-                exec.execute_into(&buf_in, &mut buf_out)
-                    .map_err(pxdct_err_to_py)?;
+                py.detach(|| {
+                    exec.execute_into(&buf_in, &mut buf_out)
+                        .map_err(pxdct_err_to_py)
+                })?;
                 Ok(PyArray1::from_vec(py, buf_out).into_any())
             } else {
                 let exec = build_executor_f64(key, in_len, sc)?;
                 let mut buf = buf_in;
-                exec.execute(&mut buf).map_err(pxdct_err_to_py)?;
+                py.detach(|| exec.execute(&mut buf).map_err(pxdct_err_to_py))?;
                 Ok(PyArray1::from_vec(py, buf).into_any())
             }
         }
