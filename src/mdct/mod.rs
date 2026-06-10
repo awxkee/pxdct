@@ -27,10 +27,12 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 mod imdct_fft;
+mod mdct_dct4;
 mod mdct_fft;
 mod windowed_mdct;
 
 pub(crate) use imdct_fft::ImdctFft;
+pub(crate) use mdct_dct4::MdctDct4;
 pub(crate) use mdct_fft::MdctFft;
 pub(crate) use windowed_mdct::{ImdctOverlapAdd, MdctOverlapAdd};
 pub use windowed_mdct::{MdctChoiceWindow, MdctWindow, TransformOverlapAdd};

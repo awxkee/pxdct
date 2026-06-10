@@ -981,8 +981,8 @@ impl Pxdct {
         if !length.is_multiple_of(2) {
             return Err(PxdctError::OnlyEvenTransform(length));
         }
-        use crate::mdct::MdctFft;
-        Ok(Arc::new(MdctFft::new(length)?))
+        use crate::mdct::MdctDct4;
+        Ok(Arc::new(MdctDct4::new(Pxdct::strategy_dct4(length)?)?))
     }
 
     /// Creates a double-precision (f64) MDCT executor.
@@ -993,8 +993,8 @@ impl Pxdct {
         if !length.is_multiple_of(2) {
             return Err(PxdctError::OnlyEvenTransform(length));
         }
-        use crate::mdct::MdctFft;
-        Ok(Arc::new(MdctFft::new(length)?))
+        use crate::mdct::MdctDct4;
+        Ok(Arc::new(MdctDct4::new(Pxdct::strategy_dct4(length)?)?))
     }
 
     /// Creates a single-precision (f32) IMDCT executor.
