@@ -112,9 +112,11 @@ impl AvxPfaDct2Remapper {
             let q_modulations = &modulation[1..];
 
             for ((address, gain), modulation) in q_indices
-                .chunks_exact(4)
-                .zip(q_gains.chunks_exact(4))
-                .zip(q_modulations.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(q_gains.as_chunks::<4>().0.iter())
+                .zip(q_modulations.as_chunks::<4>().0.iter())
             {
                 unsafe {
                     let g0g1 = _mm_loadu_si128(gain.as_ptr().cast());
@@ -162,9 +164,9 @@ impl AvxPfaDct2Remapper {
                 }
             }
 
-            let q_indices = address.chunks_exact(4).remainder();
-            let q_gains = gain.chunks_exact(4).remainder();
-            let q_modulations = modulation.chunks_exact(4).remainder();
+            let q_indices = address.as_chunks::<4>().1;
+            let q_gains = gain.as_chunks::<4>().1;
+            let q_modulations = modulation.as_chunks::<4>().1;
 
             for ((&address, &gain), &modulation) in q_indices
                 .iter()

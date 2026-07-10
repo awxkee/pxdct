@@ -34,6 +34,7 @@ pub enum PxdctError {
     OutOfMemory(usize),
     CantCreateUnderlyingFft(String),
     InvalidSizeMultiplier(usize, usize),
+    SizeOverflow(usize, usize),
     FftError(String),
     ZeroSizedDct,
     ScratchBufferIsTooSmall(usize, usize),
@@ -54,6 +55,9 @@ impl Display for PxdctError {
             }
             PxdctError::InvalidSizeMultiplier(s0, s1) => f.write_fmt(format_args!(
                 "Size {s0} is assumed to be multiplier of {s1} to execute many DFT, but it wasn't"
+            )),
+            PxdctError::SizeOverflow(a, b) => f.write_fmt(format_args!(
+                "Transform size calculation overflowed for {a} and {b}"
             )),
             PxdctError::FftError(s) => f.write_fmt(format_args!("Underlying fft error {s}")),
             PxdctError::ZeroSizedDct => f.write_str("Zero sized DCT is not allowed"),

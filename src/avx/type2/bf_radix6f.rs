@@ -537,7 +537,7 @@ impl AvxDct2Butterfly216f {
 
         let mut scratch = [f32::default(); 216];
 
-        for chunk in data.chunks_exact_mut(216) {
+        for chunk in data.as_chunks_mut::<216>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk), &mut scratch);
         }
         Ok(())

@@ -93,7 +93,7 @@ impl<const SCALED: bool> NeonSplitRadixDct2fImpl<SCALED> {
 
         let conj_odd = NeonStoreF::set_values(0.0, -0.0, 0.0, -0.0);
 
-        for (i, twiddle_pack) in self.twiddles.chunks_exact(2).enumerate() {
+        for (i, twiddle_pack) in self.twiddles.as_chunks::<2>().0.iter().enumerate() {
             let twiddle_re = twiddle_pack[0];
             let twiddle_im = twiddle_pack[1];
             let input_bottom = NeonStoreF::load(data.slice_from(i * 4..));
@@ -345,7 +345,7 @@ impl PxdctExecutor<f32> for NeonSplitRadixDst2f {
         let scratch = validate_scratch!(scratch, self.scratch_size());
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
-            for dst in chunk.chunks_exact_mut(2) {
+            for dst in chunk.as_chunks_mut::<2>().0.iter_mut() {
                 dst[1] = dst[1].neg();
             }
 

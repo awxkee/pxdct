@@ -263,7 +263,7 @@ impl AvxDct2Butterfly25f {
         let mut c_buffer = [f32::zero(); 10];
         let mut s_buffer = [f32::zero(); 10];
 
-        for chunk in data.chunks_exact_mut(25) {
+        for chunk in data.as_chunks_mut::<25>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
@@ -284,7 +284,12 @@ impl AvxDct2Butterfly25f {
         let mut s_buffer = [f32::zero(); 10];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(25).zip(output.chunks_exact_mut(25)) {
+        for (src, dst) in input
+            .as_chunks::<25>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<25>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut a_buffer,

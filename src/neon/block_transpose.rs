@@ -28,7 +28,7 @@
  */
 use crate::neon::transpose::transpose_4x4;
 use crate::neon::util::NeonStoreF;
-use crate::transpose::Transposition;
+use crate::transpose::{Transposition, validate_transpose_buffers};
 use std::arch::aarch64::{float32x4x4_t, vdupq_n_f32};
 
 #[inline(always)]
@@ -351,6 +351,8 @@ macro_rules! define_transpose_oddf {
 
         impl Transposition<$complex_type> for $rule_name {
             fn transpose(&self, input: &[$complex_type], output: &mut [$complex_type]) {
+                validate_transpose_buffers(input, output, self.width, self.height);
+
                 const R: usize = ($block_height as usize).div_ceil(4) * 4;
                 transpose_height_block_executor2_f32_odd::<
                     $block_width,

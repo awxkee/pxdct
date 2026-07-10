@@ -26,7 +26,9 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use ::pxdct::{Pxdct, PxdctError, PxdctExecutor, Scaling, TransformKind};
+use ::pxdct::{
+    MultidimensionalDctExecutor, Pxdct, PxdctError, PxdctExecutor, Scaling, TransformKind,
+};
 use numpy::{PyArray1, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -505,10 +507,16 @@ impl DctPlan2D {
 
         let executor = match (&width_plan.executor, &height_plan.executor) {
             (Executor::F32(w), Executor::F32(h)) => {
-                Dct2DInner::F32(Pxdct::make_2d_dct_f32(w.clone(), h.clone()))
+                Dct2DInner::F32(match Pxdct::make_2d_dct_f32(w.clone(), h.clone()) {
+                    Ok(v) => v,
+                    Err(e) => return Err(PyValueError::new_err(e.to_string())),
+                })
             }
             (Executor::F64(w), Executor::F64(h)) => {
-                Dct2DInner::F64(Pxdct::make_2d_dct_f64(w.clone(), h.clone()))
+                Dct2DInner::F64(match Pxdct::make_2d_dct_f64(w.clone(), h.clone()) {
+                    Ok(v) => v,
+                    Err(e) => return Err(PyValueError::new_err(e.to_string())),
+                })
             }
             _ => unreachable!("dtype mismatch already checked"),
         };

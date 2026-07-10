@@ -26,49 +26,191 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/// Return the prime factors of `n` as a Vec with multiplicity.
-/// For example: `prime_factors(360) -> [2,2,2,3,3,5]`.
-/// Special cases:
-///  - n == 0 -> returns empty vec (undefined factorization)
-///  - n == 1 -> returns empty vec
+
+/// Return the prime factors of `n` as a sorted `Vec` with multiplicity.
+/// For example: `prime_factors(360) -> [2, 2, 2, 3, 3, 5]`.
 pub(crate) fn prime_factors(mut n: u64) -> Vec<u64> {
-    let mut res = Vec::new();
+    static SMALL_PRIMES: [u64; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+
+    let mut factors = Vec::new();
     if n < 2 {
-        return res;
+        return factors;
     }
 
-    // factor out 2s
-    while (n & 1) == 0 {
-        res.push(2);
-        n >>= 1;
-    }
-
-    // factor out 3s
-    while n.is_multiple_of(3) {
-        res.push(3);
-        n /= 3;
-    }
-
-    // trial divide by 6k - 1 and 6k + 1
-    let mut p: u64 = 5;
-    while (p as u128) * (p as u128) <= n as u128 {
-        while n.is_multiple_of(p) {
-            res.push(p);
-            n /= p;
+    for prime in SMALL_PRIMES {
+        while n.is_multiple_of(prime) {
+            factors.push(prime);
+            n /= prime;
         }
-        let q = p + 2; // p = 6k-1, q = 6k+1
-        while n.is_multiple_of(q) {
-            res.push(q);
-            n /= q;
-        }
-        p += 6;
     }
 
-    // if remaining n > 1 it's prime
+    let mut pending = Vec::new();
     if n > 1 {
-        res.push(n);
+        pending.push(n);
     }
-    res
+
+    while let Some(value) = pending.pop() {
+        if is_prime_u64(value) {
+            factors.push(value);
+            continue;
+        }
+
+        let divisor = pollard_brent(value);
+        pending.push(divisor);
+        pending.push(value / divisor);
+    }
+
+    factors.sort_unstable();
+    factors
+}
+
+#[inline]
+fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    a
+}
+
+#[inline]
+fn mul_mod_u64(a: u64, b: u64, modulus: u64) -> u64 {
+    ((a as u128 * b as u128) % modulus as u128) as u64
+}
+
+#[inline]
+fn rho_step(value: u64, constant: u64, modulus: u64) -> u64 {
+    ((mul_mod_u64(value, value, modulus) as u128 + constant as u128) % modulus as u128) as u64
+}
+
+#[inline]
+fn pow_mod_u64(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
+    let mut result = 1u64;
+    base %= modulus;
+
+    while exponent != 0 {
+        if exponent & 1 != 0 {
+            result = mul_mod_u64(result, base, modulus);
+        }
+        exponent >>= 1;
+        base = mul_mod_u64(base, base, modulus);
+    }
+
+    result
+}
+
+/// Deterministic Miller-Rabin primality test for the complete `u64` domain.
+fn is_prime_u64(n: u64) -> bool {
+    static SMALL_PRIMES: [u64; 12] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+    static WITNESSES: [u64; 7] = [2, 325, 9_375, 28_178, 450_775, 9_780_504, 1_795_265_022];
+
+    if n < 2 {
+        return false;
+    }
+
+    for prime in SMALL_PRIMES {
+        if n.is_multiple_of(prime) {
+            return n == prime;
+        }
+    }
+
+    let powers_of_two = (n - 1).trailing_zeros();
+    let odd_part = (n - 1) >> powers_of_two;
+
+    'witness: for witness in WITNESSES {
+        let base = witness % n;
+        if base == 0 {
+            continue;
+        }
+
+        let mut value = pow_mod_u64(base, odd_part, n);
+        if value == 1 || value == n - 1 {
+            continue;
+        }
+
+        for _ in 1..powers_of_two {
+            value = mul_mod_u64(value, value, n);
+            if value == n - 1 {
+                continue 'witness;
+            }
+        }
+
+        return false;
+    }
+
+    true
+}
+
+#[inline]
+fn splitmix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    let mut value = *state;
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
+}
+
+/// Pollard's rho using Brent cycle detection and batched GCDs.
+///
+/// The caller supplies an odd composite with no factor at most 37.
+fn pollard_brent(n: u64) -> u64 {
+    const GCD_BATCH: usize = 128;
+
+    debug_assert!(n > 1 && !n.is_multiple_of(2) && !is_prime_u64(n));
+
+    let mut state = n ^ 0x243f_6a88_85a3_08d3;
+    loop {
+        // Deterministic, decorrelated retries avoid adding a random-number dependency.
+        let mut y = 2 + splitmix64(&mut state) % (n - 3);
+        let constant = 1 + splitmix64(&mut state) % (n - 1);
+        let mut cycle_length = 1usize;
+        let mut divisor = 1u64;
+        let mut x = 0u64;
+        let mut saved_y = 0u64;
+
+        while divisor == 1 {
+            x = y;
+            for _ in 0..cycle_length {
+                y = rho_step(y, constant, n);
+            }
+
+            let mut offset = 0usize;
+            while offset < cycle_length && divisor == 1 {
+                saved_y = y;
+                let batch_length = (cycle_length - offset).min(GCD_BATCH);
+                let mut product = 1u64;
+
+                for _ in 0..batch_length {
+                    y = rho_step(y, constant, n);
+                    product = mul_mod_u64(product, x.abs_diff(y), n);
+                }
+
+                divisor = gcd_u64(product, n);
+                offset += batch_length;
+            }
+
+            let Some(next_cycle_length) = cycle_length.checked_mul(2) else {
+                divisor = n;
+                break;
+            };
+            cycle_length = next_cycle_length;
+        }
+
+        if divisor == n {
+            loop {
+                saved_y = rho_step(saved_y, constant, n);
+                divisor = gcd_u64(x.abs_diff(saved_y), n);
+                if divisor != 1 {
+                    break;
+                }
+            }
+        }
+
+        if divisor != n {
+            return divisor;
+        }
+    }
 }
 
 /// Return the prime factorization as (prime, exponent) pairs.
@@ -152,6 +294,29 @@ mod tests {
         assert_eq!(prime_factorization(1200), vec![(2, 4), (3, 1), (5, 2)]);
         assert_eq!(prime_factorization(1295), vec![(5, 1), (7, 1), (37, 1)]);
         assert_eq!(prime_factorization(1859), vec![(11, 1), (13, 2)]);
+    }
+
+    #[test]
+    fn test_full_u64_domain() {
+        let largest_u64_prime = 18_446_744_073_709_551_557u64;
+        assert_eq!(prime_factors(largest_u64_prime), vec![largest_u64_prime]);
+
+        let p = 4_294_967_291u64;
+        let q = 4_294_967_279u64;
+        assert_eq!(prime_factors(p * q), vec![q, p]);
+
+        assert_eq!(
+            prime_factors(u64::MAX),
+            vec![3, 5, 17, 257, 641, 65_537, 6_700_417]
+        );
+    }
+
+    #[test]
+    fn rejects_strong_pseudoprime() {
+        assert_eq!(
+            prime_factors(341_550_071_728_321),
+            vec![10_670_053, 32_010_157]
+        );
     }
 
     #[test]

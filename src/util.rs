@@ -43,7 +43,7 @@ where
     f64: AsPrimitive<T>,
 {
     let mut inner_layer = [Complex::<T>::default(); N];
-    for (i, layer) in inner_layer.chunks_exact_mut(2).enumerate() {
+    for (i, layer) in inner_layer.as_chunks_mut::<2>().0.iter_mut().enumerate() {
         layer[0] = mixed_radix_inner_twiddle(2f64.as_() * (i as f64).as_() + 1f64.as_(), len);
         layer[0].im *= T::SQRT_3;
         layer[1] = mixed_radix_inner_twiddle(

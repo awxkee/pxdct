@@ -159,7 +159,7 @@ where
         // Precompute rotation twiddles for k≥1
         // Format: [m0_k1, m1_k1, m0_k2, m1_k2, ...]
         let mut rotation_layer = try_vec![Complex::<T>::zero(); 2 * (q_modules - 1)];
-        for (k, rotation_layer) in rotation_layer.chunks_exact_mut(2).enumerate() {
+        for (k, rotation_layer) in rotation_layer.as_chunks_mut::<2>().0.iter_mut().enumerate() {
             for (m, layer) in rotation_layer.iter_mut().enumerate() {
                 *layer =
                     radixq_rotation_twiddle(5, m, (k + 1).as_(), (q_modules - (k + 1)).as_(), len);
@@ -169,7 +169,7 @@ where
         // Precompute cosine twiddles for even components
         // Stored as Complex{re: even_twiddle, im: odd_twiddle} for cache efficiency
         let mut cos_twiddles = try_vec![Complex::<T>::zero(); (q_modules - 1) * inner_groups];
-        for (k, k_layer) in cos_twiddles.chunks_exact_mut(inner_groups).enumerate() {
+        for (k, k_layer) in cos_twiddles.as_chunks_mut::<2>().0.iter_mut().enumerate() {
             for (m, m_layer) in k_layer.iter_mut().enumerate() {
                 let k = k + 1;
                 let even = radixq_cos_twiddle(5, m, k.as_(), len);

@@ -400,7 +400,7 @@ where
         if !data.len().is_multiple_of(11) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
-        for chunk in data.chunks_exact_mut(11) {
+        for chunk in data.as_chunks_mut::<11>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk));
         }
         Ok(())
@@ -423,7 +423,12 @@ where
         use crate::util::validate_oof_sizes;
         validate_oof_sizes!(input, output, 11);
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(11).zip(output.chunks_exact_mut(11)) {
+        for (src, dst) in input
+            .as_chunks::<11>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<11>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())
@@ -3103,7 +3108,7 @@ where
         if !data.len().is_multiple_of(31) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
-        for chunk in data.chunks_exact_mut(31) {
+        for chunk in data.as_chunks_mut::<31>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk));
         }
         Ok(())
@@ -3126,7 +3131,12 @@ where
         use crate::util::validate_oof_sizes;
         validate_oof_sizes!(input, output, 31);
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(31).zip(output.chunks_exact_mut(31)) {
+        for (src, dst) in input
+            .as_chunks::<31>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<31>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())
@@ -4108,7 +4118,7 @@ where
         if !data.len().is_multiple_of(37) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
-        for chunk in data.chunks_exact_mut(37) {
+        for chunk in data.as_chunks_mut::<37>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk));
         }
         Ok(())
@@ -4131,7 +4141,12 @@ where
         use crate::util::validate_oof_sizes;
         validate_oof_sizes!(input, output, 37);
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(37).zip(output.chunks_exact_mut(37)) {
+        for (src, dst) in input
+            .as_chunks::<37>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<37>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())

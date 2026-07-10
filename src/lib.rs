@@ -84,7 +84,6 @@ use crate::mdct::{ImdctOverlapAdd, MdctOverlapAdd};
 pub use crate::mdct::{MdctChoiceWindow, MdctWindow, TransformOverlapAdd};
 use crate::prime_factors::PrimeFactors;
 use crate::scaling::wrap_with_scaling;
-use crate::transpose::TransposeFactory;
 use crate::two_dims::TwoDimensionalDct;
 use crate::type2::Dct2Fft;
 use crate::type3::SplitRadixDst3;
@@ -1037,23 +1036,17 @@ impl Pxdct {
     ///
     /// Do **not** mix the output of this executor with code that assumes W×H coefficient
     /// layout without a manual transpose.
+    ///
+    /// # Errors
+    /// Returns [`PxdctError::ZeroSizedDct`] for a zero dimension or
+    /// [`PxdctError::SizeOverflow`] when the combined data or scratch size cannot be represented.
     pub fn make_2d_dct_f32(
         width_dct: SpectralExecutor<f32>,
         height_dct: SpectralExecutor<f32>,
-    ) -> Arc<dyn MultidimensionalDctExecutor<f32> + Send + Sync> {
-        let width = width_dct.length();
-        let height = height_dct.length();
-        let width_scratch_size = width_dct.scratch_size();
-        let height_scratch_size = height_dct.scratch_size();
-        Arc::new(TwoDimensionalDct {
-            width,
-            height,
-            height_executor: height_dct,
-            width_executor: width_dct,
-            transpose_width_to_height: f32::make_transpose(width, height),
-            width_scratch_size,
-            height_scratch_size,
-        })
+    ) -> Result<Arc<dyn MultidimensionalDctExecutor<f32> + Send + Sync>, PxdctError> {
+        let executor: Arc<dyn MultidimensionalDctExecutor<f32> + Send + Sync> =
+            Arc::new(TwoDimensionalDct::new(width_dct, height_dct)?);
+        Ok(executor)
     }
 
     /// Creates 2D DCT executor.
@@ -1072,23 +1065,17 @@ impl Pxdct {
     ///
     /// Do **not** mix the output of this executor with code that assumes W×H coefficient
     /// layout without a manual transpose.
+    ///
+    /// # Errors
+    /// Returns [`PxdctError::ZeroSizedDct`] for a zero dimension or
+    /// [`PxdctError::SizeOverflow`] when the combined data or scratch size cannot be represented.
     pub fn make_2d_dct_f64(
         width_dct: SpectralExecutor<f64>,
         height_dct: SpectralExecutor<f64>,
-    ) -> Arc<dyn MultidimensionalDctExecutor<f64> + Send + Sync> {
-        let width = width_dct.length();
-        let height = height_dct.length();
-        let width_scratch_size = width_dct.scratch_size();
-        let height_scratch_size = height_dct.scratch_size();
-        Arc::new(TwoDimensionalDct {
-            width,
-            height,
-            height_executor: height_dct,
-            width_executor: width_dct,
-            transpose_width_to_height: f64::make_transpose(width, height),
-            width_scratch_size,
-            height_scratch_size,
-        })
+    ) -> Result<Arc<dyn MultidimensionalDctExecutor<f64> + Send + Sync>, PxdctError> {
+        let executor: Arc<dyn MultidimensionalDctExecutor<f64> + Send + Sync> =
+            Arc::new(TwoDimensionalDct::new(width_dct, height_dct)?);
+        Ok(executor)
     }
 
     /// Creates a single-precision (f32) executor for any supported transform type

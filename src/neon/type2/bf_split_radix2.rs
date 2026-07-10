@@ -213,7 +213,7 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly32fImpl<SCALED>
         let mut input_dct4_even = [f32::zero(); 8];
         let mut input_dct4_odd = [f32::zero(); 8];
 
-        for chunk in data.chunks_exact_mut(32) {
+        for chunk in data.as_chunks_mut::<32>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
@@ -246,7 +246,12 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly32fImpl<SCALED>
         let mut input_dct4_odd = [f32::zero(); 8];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(32).zip(output.chunks_exact_mut(32)) {
+        for (src, dst) in input
+            .as_chunks::<32>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<32>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut input_dct2,
@@ -398,7 +403,7 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly64fImpl<SCALED>
         let mut input_dct4_even1 = [f32::zero(); 8];
         let mut input_dct4_odd1 = [f32::zero(); 8];
 
-        for chunk in data.chunks_exact_mut(64) {
+        for chunk in data.as_chunks_mut::<64>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
@@ -438,7 +443,12 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly64fImpl<SCALED>
         let mut input_dct4_odd1 = [f32::zero(); 8];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(64).zip(output.chunks_exact_mut(64)) {
+        for (src, dst) in input
+            .as_chunks::<64>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<64>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut input_dct2,
@@ -640,7 +650,7 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly128fImpl<SCALED
         let mut input_dct2 = [f32::zero(); 64];
         let mut input_dct4 = [f32::zero(); 64];
 
-        for chunk in data.chunks_exact_mut(128) {
+        for chunk in data.as_chunks_mut::<128>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
@@ -667,7 +677,12 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly128fImpl<SCALED
         let mut input_dct4 = [f32::zero(); 64];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(128).zip(output.chunks_exact_mut(128)) {
+        for (src, dst) in input
+            .as_chunks::<128>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<128>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut input_dct2,
@@ -864,7 +879,7 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly256fImpl<SCALED
         let mut input_dct2 = [f32::zero(); 128];
         let mut input_dct4 = [f32::zero(); 128];
 
-        for chunk in data.chunks_exact_mut(256) {
+        for chunk in data.as_chunks_mut::<256>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
@@ -891,7 +906,12 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly256fImpl<SCALED
         let mut input_dct4 = [f32::zero(); 128];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(256).zip(output.chunks_exact_mut(256)) {
+        for (src, dst) in input
+            .as_chunks::<256>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<256>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut input_dct2,
@@ -1088,7 +1108,7 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly512fImpl<SCALED
         let mut input_dct2 = [f32::zero(); 256];
         let mut input_dct4 = [f32::zero(); 256];
 
-        for chunk in data.chunks_exact_mut(512) {
+        for chunk in data.as_chunks_mut::<512>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut input_dct2,
@@ -1115,7 +1135,12 @@ impl<const SCALED: bool> PxdctExecutor<f32> for NeonDct2Butterfly512fImpl<SCALED
         let mut input_dct4 = [f32::zero(); 256];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(512).zip(output.chunks_exact_mut(512)) {
+        for (src, dst) in input
+            .as_chunks::<512>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<512>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut input_dct2,

@@ -387,7 +387,9 @@ fn accumulate_f32(a_buffer: &[f32], b_buffer: &mut [f32], output: &mut [f32]) {
     let b_buffer = &b_buffer[j..];
 
     for ((dst, &even), &odd) in chunk
-        .chunks_exact_mut(2)
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
         .zip(a_buffer.iter())
         .zip(b_buffer.iter())
     {
@@ -447,7 +449,9 @@ fn accumulate_f64(a_buffer: &[f64], b_buffer: &mut [f64], output: &mut [f64]) {
     let b_buffer = &b_buffer[j..];
 
     for ((dst, &even), &odd) in chunk
-        .chunks_exact_mut(2)
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
         .zip(a_buffer.iter())
         .zip(b_buffer.iter())
     {

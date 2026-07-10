@@ -261,7 +261,7 @@ impl AvxSplitRadixDst2f {
         let scratch = validate_scratch!(scratch, self.scratch_size());
 
         for chunk in data.chunks_exact_mut(self.execution_length) {
-            for dst in chunk.chunks_exact_mut(2) {
+            for dst in chunk.as_chunks_mut::<2>().0.iter_mut() {
                 dst[1] = dst[1].neg();
             }
 

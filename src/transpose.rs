@@ -36,6 +36,23 @@ pub(crate) trait TransposeFactory: Sized {
     fn make_transpose(width: usize, height: usize) -> Arc<dyn Transposition<Self> + Send + Sync>;
 }
 
+#[inline]
+pub(crate) fn validate_transpose_buffers<T>(src: &[T], dst: &[T], width: usize, height: usize) {
+    let required = width
+        .checked_mul(height)
+        .expect("validated transpose dimensions must not overflow");
+    assert!(
+        src.len() >= required,
+        "transpose source has {} elements, but {required} are required",
+        src.len()
+    );
+    assert!(
+        dst.len() >= required,
+        "transpose destination has {} elements, but {required} are required",
+        dst.len()
+    );
+}
+
 pub(crate) struct TransposeTiny {
     pub(crate) width: usize,
     pub(crate) height: usize,
@@ -43,6 +60,8 @@ pub(crate) struct TransposeTiny {
 
 impl<T: Copy> Transposition<T> for TransposeTiny {
     fn transpose(&self, src: &[T], dst: &mut [T]) {
+        validate_transpose_buffers(src, dst, self.width, self.height);
+
         for x in 0..self.width {
             for y in 0..self.height {
                 let input_index = x + y * self.width;

@@ -138,10 +138,10 @@ impl DctSpectrumMul<f32> for FcmaDctSpectrumMulF32 {
             }
         }
 
-        let a = a.chunks_exact(8).remainder();
-        let b = b.chunks_exact(8).remainder();
+        let a = a.as_chunks::<8>().1;
+        let b = b.as_chunks::<8>().1;
 
-        for (fft, twiddle) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
+        for (fft, twiddle) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0.iter()) {
             unsafe {
                 let a = vld1q_f32(fft.as_ptr().cast());
                 let b = vld1q_f32(twiddle.as_ptr().cast());
@@ -164,8 +164,8 @@ impl DctSpectrumMul<f32> for FcmaDctSpectrumMulF32 {
             }
         }
 
-        let a = a.chunks_exact(4).remainder();
-        let b = b.chunks_exact(4).remainder();
+        let a = a.as_chunks::<4>().1;
+        let b = b.as_chunks::<4>().1;
 
         for (fft, twiddle) in a.iter().zip(b.iter()) {
             unsafe {

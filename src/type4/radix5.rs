@@ -62,7 +62,7 @@ where
         );
 
         let mut twiddles = try_vec![Complex::<T>::default(); len / 5 * 2];
-        for (k, dst) in twiddles.chunks_exact_mut(2).enumerate() {
+        for (k, dst) in twiddles.as_chunks_mut::<2>().0.iter_mut().enumerate() {
             dst[0] = radixq_dct4_rotation_twiddle(5, 0, k, len);
             dst[1] = radixq_dct4_rotation_twiddle(5, 1, k, len);
         }
