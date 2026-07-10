@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::transpose::Transposition;
+use crate::transpose::{TransposeFactory, Transposition};
 use crate::util::{DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use std::sync::Arc;
@@ -62,6 +62,43 @@ pub(crate) struct TwoDimensionalDct<T> {
     pub(crate) height: usize,
     pub(crate) width_scratch_size: usize,
     pub(crate) height_scratch_size: usize,
+    pub(crate) full_size: usize,
+    pub(crate) scratch_size: usize,
+}
+
+impl<T: DctSample + TransposeFactory> TwoDimensionalDct<T> {
+    pub(crate) fn new(
+        width_executor: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+        height_executor: Arc<dyn PxdctExecutor<T> + Send + Sync>,
+    ) -> Result<Self, PxdctError> {
+        let width = width_executor.length();
+        let height = height_executor.length();
+        if width == 0 || height == 0 {
+            return Err(PxdctError::ZeroSizedDct);
+        }
+
+        let full_size = width
+            .checked_mul(height)
+            .ok_or(PxdctError::SizeOverflow(width, height))?;
+        let width_scratch_size = width_executor.scratch_size();
+        let height_scratch_size = height_executor.scratch_size();
+        let transform_scratch_size = width_scratch_size.max(height_scratch_size);
+        let scratch_size = full_size
+            .checked_add(transform_scratch_size)
+            .ok_or(PxdctError::SizeOverflow(full_size, transform_scratch_size))?;
+
+        Ok(Self {
+            width_executor,
+            height_executor,
+            transpose_width_to_height: T::make_transpose(width, height),
+            width,
+            height,
+            width_scratch_size,
+            height_scratch_size,
+            full_size,
+            scratch_size,
+        })
+    }
 }
 
 impl<T: DctSample> MultidimensionalDctExecutor<T> for TwoDimensionalDct<T> {
@@ -71,15 +108,17 @@ impl<T: DctSample> MultidimensionalDctExecutor<T> for TwoDimensionalDct<T> {
     }
 
     fn execute_with_scratch(&self, data: &mut [T], scratch: &mut [T]) -> Result<(), PxdctError> {
-        let full_size = self.width * self.height;
-        if !data.len().is_multiple_of(full_size) {
-            return Err(PxdctError::InvalidSizeMultiplier(data.len(), full_size));
+        if !data.len().is_multiple_of(self.full_size) {
+            return Err(PxdctError::InvalidSizeMultiplier(
+                data.len(),
+                self.full_size,
+            ));
         }
 
         let scratch = validate_scratch!(scratch, self.scratch_size());
-        let (scratch, rem_scratch) = scratch.split_at_mut(full_size);
+        let (scratch, rem_scratch) = scratch.split_at_mut(self.full_size);
 
-        for chunk in data.chunks_exact_mut(full_size) {
+        for chunk in data.chunks_exact_mut(self.full_size) {
             let (width_scratch, _) = rem_scratch.split_at_mut(self.width_scratch_size);
             self.width_executor
                 .execute_into_with_scratch(chunk, scratch, width_scratch)?;
@@ -105,6 +144,76 @@ impl<T: DctSample> MultidimensionalDctExecutor<T> for TwoDimensionalDct<T> {
 
     #[inline]
     fn scratch_size(&self) -> usize {
-        self.width * self.height + self.width_scratch_size.max(self.height_scratch_size)
+        self.scratch_size
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FakeExecutor {
+        length: usize,
+        scratch_size: usize,
+    }
+
+    impl PxdctExecutor<f64> for FakeExecutor {
+        fn execute(&self, _data: &mut [f64]) -> Result<(), PxdctError> {
+            Ok(())
+        }
+
+        fn execute_with_scratch(
+            &self,
+            _data: &mut [f64],
+            _scratch: &mut [f64],
+        ) -> Result<(), PxdctError> {
+            Ok(())
+        }
+
+        fn execute_into(&self, _input: &[f64], _output: &mut [f64]) -> Result<(), PxdctError> {
+            Ok(())
+        }
+
+        fn execute_into_with_scratch(
+            &self,
+            _input: &[f64],
+            _output: &mut [f64],
+            _scratch: &mut [f64],
+        ) -> Result<(), PxdctError> {
+            Ok(())
+        }
+
+        fn length(&self) -> usize {
+            self.length
+        }
+
+        fn scratch_size(&self) -> usize {
+            self.scratch_size
+        }
+    }
+
+    fn fake(length: usize, scratch_size: usize) -> Arc<dyn PxdctExecutor<f64> + Send + Sync> {
+        Arc::new(FakeExecutor {
+            length,
+            scratch_size,
+        })
+    }
+
+    #[test]
+    fn rejects_dimension_product_overflow() {
+        let result = TwoDimensionalDct::<f64>::new(fake(usize::MAX, 0), fake(usize::MAX, 0));
+        assert!(matches!(result, Err(PxdctError::SizeOverflow(_, _))));
+    }
+
+    #[test]
+    fn rejects_scratch_size_overflow() {
+        let result = TwoDimensionalDct::<f64>::new(fake(usize::MAX, 1), fake(1, 0));
+        assert!(matches!(result, Err(PxdctError::SizeOverflow(_, _))));
+    }
+
+    #[test]
+    fn rejects_zero_dimension() {
+        let result = TwoDimensionalDct::<f64>::new(fake(0, 0), fake(1, 0));
+        assert!(matches!(result, Err(PxdctError::ZeroSizedDct)));
     }
 }

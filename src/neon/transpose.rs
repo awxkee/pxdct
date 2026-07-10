@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::neon::util::NeonStoreF;
-use crate::transpose::Transposition;
+use crate::transpose::{Transposition, validate_transpose_buffers};
 use std::arch::aarch64::*;
 
 #[inline(always)]
@@ -228,6 +228,8 @@ impl NeonTranspose4x4 {
 
 impl Transposition<f32> for NeonTranspose4x4 {
     fn transpose(&self, src: &[f32], dst: &mut [f32]) {
+        validate_transpose_buffers(src, dst, self.width, self.height);
+
         const BLOCK_SIZE_Y: usize = 4;
         let mut y = 0usize;
 

@@ -28,7 +28,7 @@
  */
 use crate::avx::storef::AvxStoreF;
 use crate::avx::util::shuffle;
-use crate::transpose::Transposition;
+use crate::transpose::{Transposition, validate_transpose_buffers};
 use std::arch::x86_64::*;
 
 #[inline]
@@ -412,6 +412,8 @@ impl AvxTransposeFReal4x4 {
 
 impl Transposition<f32> for AvxTransposeFReal4x4 {
     fn transpose(&self, input: &[f32], output: &mut [f32]) {
+        validate_transpose_buffers(input, output, self.width, self.height);
+
         const BLOCK_SIZE_Y: usize = 8;
         let mut y = 0usize;
 

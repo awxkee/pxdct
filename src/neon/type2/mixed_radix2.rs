@@ -334,7 +334,9 @@ impl MixedRadix2Differences<f32> for f32 {
         let b_buffer = &b_buffer[j..];
 
         for ((dst, &even), &odd) in chunk
-            .chunks_exact_mut(2)
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
             .zip(a_buffer.iter())
             .zip(b_buffer.iter())
         {
@@ -352,7 +354,9 @@ impl MixedRadix2Differences<f64> for f64 {
         let mut last_odd = 0.;
 
         for ((dst, &even), &odd) in chunk
-            .chunks_exact_mut(2)
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
             .zip(a_buffer.iter())
             .zip(b_buffer.iter())
         {

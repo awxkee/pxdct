@@ -159,7 +159,7 @@ impl PxdctExecutor<f32> for NeonDct4Butterfly27f {
 
         use crate::bidirectional::InPlaceStore;
 
-        for chunk in data.chunks_exact_mut(27) {
+        for chunk in data.as_chunks_mut::<27>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk));
         }
         Ok(())
@@ -182,7 +182,12 @@ impl PxdctExecutor<f32> for NeonDct4Butterfly27f {
         use crate::util::validate_oof_sizes;
         validate_oof_sizes!(input, output, 27);
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(27).zip(output.chunks_exact_mut(27)) {
+        for (src, dst) in input
+            .as_chunks::<27>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<27>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())

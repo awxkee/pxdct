@@ -63,7 +63,7 @@ macro_rules! define_avx_butterfly {
                 if !data.len().is_multiple_of($length) {
                     return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
                 }
-                for chunk in data.chunks_exact_mut($length) {
+                for chunk in data.as_chunks_mut::<$length>().0.iter_mut() {
                     self.exec(&mut InPlaceStore::new(chunk));
                 }
                 Ok(())
@@ -75,8 +75,10 @@ macro_rules! define_avx_butterfly {
                 validate_oof_sizes!(input, output, $length);
                 use crate::bidirectional::BiStore;
                 for (src, dst) in input
-                    .chunks_exact($length)
-                    .zip(output.chunks_exact_mut($length))
+                    .as_chunks::<$length>()
+                    .0
+                    .iter()
+                    .zip(output.as_chunks_mut::<$length>().0.iter_mut())
                 {
                     self.exec(&mut BiStore::new(src, dst));
                 }

@@ -61,7 +61,7 @@ where
         );
         let inner_layer_groups = sixth_dct.length();
         let mut inner_layer = vec![Complex::<T>::zero(); inner_layer_groups * 4];
-        for (i, layer) in inner_layer.chunks_exact_mut(4).enumerate() {
+        for (i, layer) in inner_layer.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let angle = (2. * i as f64 + 1.).as_();
             layer[0] = mixed_radix_inner_twiddle(angle, len);
             layer[0].im *= T::SQRT_3;
@@ -107,7 +107,7 @@ where
         let (e_buffer, rem) = rem.split_at_mut(self.sixth_length);
         let (f_buffer, _) = rem.split_at_mut(self.sixth_length);
 
-        for (i, inner_layer) in self.inner_layer.chunks_exact(4).enumerate() {
+        for (i, inner_layer) in self.inner_layer.as_chunks::<4>().0.iter().enumerate() {
             let ai = data[i];
             let bi = data[s_n - i - 1];
             let ci = data[s_n + i];

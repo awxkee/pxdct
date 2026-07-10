@@ -49,7 +49,7 @@ where
 {
     fn default() -> Self {
         let mut inner_layer = [Complex::<T>::default(); 4];
-        for (i, layer) in inner_layer.chunks_exact_mut(4).enumerate() {
+        for (i, layer) in inner_layer.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let angle = (2. * i as f64 + 1.).as_();
             layer[0] = mixed_radix_inner_twiddle(angle, 6);
             layer[0].im *= T::SQRT_3;
@@ -823,7 +823,7 @@ where
         if !data.len().is_multiple_of(22) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
-        for chunk in data.chunks_exact_mut(22) {
+        for chunk in data.as_chunks_mut::<22>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk));
         }
         Ok(())
@@ -846,7 +846,12 @@ where
         use crate::util::validate_oof_sizes;
         validate_oof_sizes!(input, output, 22);
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(22).zip(output.chunks_exact_mut(22)) {
+        for (src, dst) in input
+            .as_chunks::<22>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<22>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())
@@ -1150,7 +1155,7 @@ where
         let mut b_buffer = [T::zero(); 9];
         let mut c_buffer = [T::zero(); 9];
 
-        for chunk in data.chunks_exact_mut(27) {
+        for chunk in data.as_chunks_mut::<27>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
@@ -1183,7 +1188,12 @@ where
         let mut c_buffer = [T::zero(); 9];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(27).zip(output.chunks_exact_mut(27)) {
+        for (src, dst) in input
+            .as_chunks::<27>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<27>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut a_buffer,
@@ -1419,7 +1429,7 @@ where
 {
     fn default() -> Self {
         let mut inner_layer = [Complex::<T>::default(); 6 * 4];
-        for (i, layer) in inner_layer.chunks_exact_mut(4).enumerate() {
+        for (i, layer) in inner_layer.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let angle = (2. * i as f64 + 1.).as_();
             layer[0] = mixed_radix_inner_twiddle(angle, 36);
             layer[0].im *= T::SQRT_3;
@@ -1569,7 +1579,7 @@ where
         let mut e_buffer = [T::default(); 6];
         let mut f_buffer = [T::default(); 6];
 
-        for chunk in data.chunks_exact_mut(36) {
+        for chunk in data.as_chunks_mut::<36>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
@@ -1608,7 +1618,12 @@ where
         let mut f_buffer = [T::default(); 6];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(36).zip(output.chunks_exact_mut(36)) {
+        for (src, dst) in input
+            .as_chunks::<36>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<36>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut a_buffer,
@@ -1980,7 +1995,7 @@ where
         let mut b_buffer1 = [T::default(); 9];
         let mut c_buffer1 = [T::default(); 9];
 
-        for chunk in data.chunks_exact_mut(81) {
+        for chunk in data.as_chunks_mut::<81>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
@@ -2020,7 +2035,12 @@ where
         let mut c_buffer1 = [T::default(); 9];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(81).zip(output.chunks_exact_mut(81)) {
+        for (src, dst) in input
+            .as_chunks::<81>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<81>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut a_buffer,
@@ -2057,7 +2077,7 @@ where
 {
     fn default() -> Self {
         let mut inner_layer = [Complex::<T>::default(); 144];
-        for (i, layer) in inner_layer.chunks_exact_mut(4).enumerate() {
+        for (i, layer) in inner_layer.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let angle = (2. * i as f64 + 1.).as_();
             layer[0] = mixed_radix_inner_twiddle(angle, 216);
             layer[0].im *= T::SQRT_3;
@@ -2211,7 +2231,7 @@ where
 
         let scratch: &mut [T; 216] = (&mut full_scratch[..216]).try_into().unwrap();
 
-        for chunk in data.chunks_exact_mut(216) {
+        for chunk in data.as_chunks_mut::<216>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk), scratch);
         }
         Ok(())
@@ -2233,7 +2253,12 @@ where
         let mut scratch = [T::default(); 216];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(216).zip(output.chunks_exact_mut(216)) {
+        for (src, dst) in input
+            .as_chunks::<216>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<216>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst), &mut scratch);
         }
         Ok(())
@@ -2379,7 +2404,7 @@ where
         let mut b_buffer = [T::zero(); 81];
         let mut c_buffer = [T::zero(); 81];
 
-        for chunk in data.chunks_exact_mut(243) {
+        for chunk in data.as_chunks_mut::<243>().0.iter_mut() {
             self.exec(
                 &mut InPlaceStore::new(chunk),
                 &mut a_buffer,
@@ -2408,7 +2433,12 @@ where
         let mut c_buffer = [T::zero(); 81];
 
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(243).zip(output.chunks_exact_mut(243)) {
+        for (src, dst) in input
+            .as_chunks::<243>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<243>().0.iter_mut())
+        {
             self.exec(
                 &mut BiStore::new(src, dst),
                 &mut a_buffer,

@@ -637,7 +637,7 @@ where
         if !data.len().is_multiple_of(22) {
             return Err(PxdctError::InvalidSizeMultiplier(data.len(), self.length()));
         }
-        for chunk in data.chunks_exact_mut(22) {
+        for chunk in data.as_chunks_mut::<22>().0.iter_mut() {
             self.exec(&mut InPlaceStore::new(chunk));
         }
         Ok(())
@@ -660,7 +660,12 @@ where
         use crate::util::validate_oof_sizes;
         validate_oof_sizes!(input, output, 22);
         use crate::bidirectional::BiStore;
-        for (src, dst) in input.chunks_exact(22).zip(output.chunks_exact_mut(22)) {
+        for (src, dst) in input
+            .as_chunks::<22>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<22>().0.iter_mut())
+        {
             self.exec(&mut BiStore::new(src, dst));
         }
         Ok(())
