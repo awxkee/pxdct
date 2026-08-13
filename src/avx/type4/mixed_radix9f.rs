@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::storef::AvxStoreF;
+use crate::avx::storef::{AvxFullF, AvxLanesF, AvxStoreF, AvxTailF};
 use crate::avx::type4::mixed_radix3f::dct4_radix_n_rotation_twiddles_avxf;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
@@ -74,7 +74,7 @@ boring_avx_mixed_radix!(AvxDct4MixedRadix9f, f32);
 impl AvxDct4MixedRadix9f {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn exec_block<S: BidirectionalStore<f32>, const N: usize>(
+    fn exec_block<S: BidirectionalStore<f32>, L: AvxLanesF>(
         &self,
         data: &mut S,
         a_buffer: &[f32],
@@ -82,29 +82,39 @@ impl AvxDct4MixedRadix9f {
         c_buffer: &[f32],
         uk: usize,
         k: usize,
+        access: L,
     ) {
-        let c_v0 = AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
-        let s_v0 =
-            AvxStoreF::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules - N - k..) })
-                .reverse_n::<N>();
-        let a_v0 = AvxStoreF::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let lanes = access.len();
+        let c_v0 = AvxStoreF::load_lanes(access, unsafe { c_buffer.get_unchecked(k..) });
+        let s_v0 = AvxStoreF::load_lanes(access, unsafe {
+            s_buffer.get_unchecked(self.q_modules - lanes - k..)
+        })
+        .reverse_lanes(access);
+        let a_v0 = AvxStoreF::load_lanes(access, unsafe { a_buffer.get_unchecked(k..) });
 
-        let c_v1 = AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules + k..) });
-        let s_v1 =
-            AvxStoreF::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 2 - N - k..) })
-                .reverse_n::<N>();
+        let c_v1 = AvxStoreF::load_lanes(access, unsafe {
+            c_buffer.get_unchecked(self.q_modules + k..)
+        });
+        let s_v1 = AvxStoreF::load_lanes(access, unsafe {
+            s_buffer.get_unchecked(self.q_modules * 2 - lanes - k..)
+        })
+        .reverse_lanes(access);
 
-        let c_v2 =
-            AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 2 + k..) });
-        let s_v2 =
-            AvxStoreF::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 3 - N - k..) })
-                .reverse_n::<N>();
+        let c_v2 = AvxStoreF::load_lanes(access, unsafe {
+            c_buffer.get_unchecked(self.q_modules * 2 + k..)
+        });
+        let s_v2 = AvxStoreF::load_lanes(access, unsafe {
+            s_buffer.get_unchecked(self.q_modules * 3 - lanes - k..)
+        })
+        .reverse_lanes(access);
 
-        let c_v3 =
-            AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules * 3 + k..) });
-        let s_v3 =
-            AvxStoreF::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules * 4 - N - k..) })
-                .reverse_n::<N>();
+        let c_v3 = AvxStoreF::load_lanes(access, unsafe {
+            c_buffer.get_unchecked(self.q_modules * 3 + k..)
+        });
+        let s_v3 = AvxStoreF::load_lanes(access, unsafe {
+            s_buffer.get_unchecked(self.q_modules * 4 - lanes - k..)
+        })
+        .reverse_lanes(access);
 
         let twiddle0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
         let twiddle0_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
@@ -187,19 +197,19 @@ impl AvxDct4MixedRadix9f {
         let uc6 = u4 - v4;
         let uc7 = u4 + v4;
 
-        u0.write_n::<N>(data.slice_from_mut(k..));
-        uc1.write_n::<N>(data.slice_from_mut(self.s + k..));
-        uc0.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(self.s - N - k..));
-        uc2.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(2 * self.s - N - k..));
-        uc3.write_n::<N>(data.slice_from_mut(2 * self.s + k..));
-        uc4.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(3 * self.s - N - k..));
-        uc5.write_n::<N>(data.slice_from_mut(3 * self.s + k..));
-        uc6.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(4 * self.s - N - k..));
-        uc7.write_n::<N>(data.slice_from_mut(4 * self.s + k..));
+        u0.write_lanes(access, data.slice_from_mut(k..));
+        uc1.write_lanes(access, data.slice_from_mut(self.s + k..));
+        uc0.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(self.s - lanes - k..));
+        uc2.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(2 * self.s - lanes - k..));
+        uc3.write_lanes(access, data.slice_from_mut(2 * self.s + k..));
+        uc4.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(3 * self.s - lanes - k..));
+        uc5.write_lanes(access, data.slice_from_mut(3 * self.s + k..));
+        uc6.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(4 * self.s - lanes - k..));
+        uc7.write_lanes(access, data.slice_from_mut(4 * self.s + k..));
     }
 
     #[target_feature(enable = "avx2", enable = "fma")]
@@ -248,27 +258,16 @@ impl AvxDct4MixedRadix9f {
         let mut k = 0usize;
 
         while k + 8 <= q_modules {
-            self.exec_block::<S, 8>(data, a_buffer, s_buffer, c_buffer, uk, k);
+            self.exec_block::<S, _>(data, a_buffer, s_buffer, c_buffer, uk, k, AvxFullF);
 
             uk += 8;
             k += 8;
         }
 
         let remainder = q_modules - k;
-        if remainder == 7 {
-            self.exec_block::<S, 7>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 6 {
-            self.exec_block::<S, 6>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 5 {
-            self.exec_block::<S, 5>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 4 {
-            self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 3 {
-            self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 2 {
-            self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 1 {
-            self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
+        if remainder != 0 {
+            let tail = AvxTailF::new(remainder);
+            self.exec_block::<S, _>(data, a_buffer, s_buffer, c_buffer, uk, k, tail);
         }
         Ok(())
     }

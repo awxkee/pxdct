@@ -37,6 +37,110 @@ pub(crate) struct AvxStoreD {
     pub(crate) v: __m256d,
 }
 
+#[derive(Copy, Clone)]
+pub(crate) struct AvxMaskD {
+    load_store: __m256i,
+    reverse: __m256i,
+    len: usize,
+}
+
+impl AvxMaskD {
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn new(len: usize) -> Self {
+        debug_assert!(len <= 4, "AVX f64 mask length must be <= 4, got {len}");
+        let last = 2 * (len as i32 - 1);
+        Self {
+            load_store: _mm256_cmpgt_epi64(
+                _mm256_set1_epi64x(len as i64),
+                _mm256_setr_epi64x(0, 1, 2, 3),
+            ),
+            reverse: _mm256_setr_epi32(
+                last,
+                last + 1,
+                last - 2,
+                last - 1,
+                last - 4,
+                last - 3,
+                last - 6,
+                last - 5,
+            ),
+            len,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn len(self) -> usize {
+        self.len
+    }
+}
+
+pub(crate) trait AvxLanesD: Copy {
+    fn len(self) -> usize;
+    fn load(self, ptr: &[f64]) -> AvxStoreD;
+    fn write(self, value: AvxStoreD, ptr: &mut [f64]);
+    fn reverse(self, value: AvxStoreD) -> AvxStoreD;
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct AvxFullD;
+
+#[derive(Copy, Clone)]
+pub(crate) struct AvxTailD(AvxMaskD);
+
+impl AvxTailD {
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn new(len: usize) -> Self {
+        debug_assert!(len < 4, "full-width blocks must use AvxFullD");
+        Self(AvxMaskD::new(len))
+    }
+}
+
+impl AvxLanesD for AvxFullD {
+    #[inline(always)]
+    fn len(self) -> usize {
+        4
+    }
+
+    #[inline(always)]
+    fn load(self, ptr: &[f64]) -> AvxStoreD {
+        unsafe { AvxStoreD::load(ptr) }
+    }
+
+    #[inline(always)]
+    fn write(self, value: AvxStoreD, ptr: &mut [f64]) {
+        unsafe { value.write(ptr) }
+    }
+
+    #[inline(always)]
+    fn reverse(self, value: AvxStoreD) -> AvxStoreD {
+        value.reverse()
+    }
+}
+
+impl AvxLanesD for AvxTailD {
+    #[inline(always)]
+    fn len(self) -> usize {
+        self.0.len()
+    }
+
+    #[inline(always)]
+    fn load(self, ptr: &[f64]) -> AvxStoreD {
+        unsafe { AvxStoreD::load_masked(self.0, ptr) }
+    }
+
+    #[inline(always)]
+    fn write(self, value: AvxStoreD, ptr: &mut [f64]) {
+        unsafe { value.write_masked(self.0, ptr) }
+    }
+
+    #[inline(always)]
+    fn reverse(self, value: AvxStoreD) -> AvxStoreD {
+        unsafe { value.reverse_masked(self.0) }
+    }
+}
+
 #[repr(C, align(32))]
 pub(crate) struct AvxAlignedF64(pub(crate) [f64; 4]);
 
@@ -75,6 +179,20 @@ impl AvxStoreD {
         AvxStoreD::raw(unsafe { _mm256_loadu_pd(ptr.as_ptr()) })
     }
 
+    /// Loads the active lanes without accessing memory beyond the mask length.
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn load_masked(mask: AvxMaskD, ptr: &[f64]) -> Self {
+        debug_assert!(ptr.len() >= mask.len());
+        Self::raw(unsafe { _mm256_maskload_pd(ptr.as_ptr(), mask.load_store) })
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn load_lanes<L: AvxLanesD>(lanes: L, ptr: &[f64]) -> Self {
+        lanes.load(ptr)
+    }
+
     #[inline]
     #[target_feature(enable = "avx2")]
     pub(crate) fn load3(ptr: &[f64]) -> Self {
@@ -105,50 +223,22 @@ impl AvxStoreD {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    pub(crate) fn load_n<const N: usize>(ptr: &[f64]) -> Self {
-        const {
-            assert!(N <= 4, "N must be <= 4");
-        }
-        match N {
-            4 => Self::load(ptr),
-            3 => Self::load3(ptr),
-            2 => Self::load2(ptr),
-            _ => Self::load1(ptr),
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn reverse_n<const N: usize>(self) -> Self {
-        const {
-            assert!(N <= 4, "N must be <= 4");
-        }
-        match N {
-            4 => self.reverse(),
-            3 => self.reverse3(),
-            2 => self.reverse2(),
-            _ => self,
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn write_n<const N: usize>(self, ptr: &mut [f64]) {
-        const {
-            assert!(N <= 4, "N must be <= 4");
-        }
-        match N {
-            4 => self.write(ptr),
-            3 => self.write3(ptr),
-            2 => self.write2(ptr),
-            _ => self.write1(ptr),
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     pub(crate) fn write(self, ptr: &mut [f64]) {
         unsafe { _mm256_storeu_pd(ptr.as_mut_ptr(), self.v) }
+    }
+
+    /// Stores the active lanes without touching later elements.
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn write_masked(self, mask: AvxMaskD, ptr: &mut [f64]) {
+        debug_assert!(ptr.len() >= mask.len());
+        unsafe { _mm256_maskstore_pd(ptr.as_mut_ptr(), mask.load_store, self.v) }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn write_lanes<L: AvxLanesD>(self, lanes: L, ptr: &mut [f64]) {
+        lanes.write(self, ptr)
     }
 
     #[inline]
@@ -227,6 +317,23 @@ impl AvxStoreD {
     #[inline(always)]
     pub(crate) fn reverse(self) -> Self {
         unsafe { AvxStoreD::raw(_mm256_permute4x64_pd::<{ shuffle(0, 1, 2, 3) }>(self.v)) }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn reverse_masked(self, mask: AvxMaskD) -> Self {
+        // AVX2 has a variable 32-bit permutation but no variable 64-bit one,
+        // so the precomputed permutation moves pairs of words together.
+        Self::raw(_mm256_castsi256_pd(_mm256_permutevar8x32_epi32(
+            _mm256_castpd_si256(self.v),
+            mask.reverse,
+        )))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn reverse_lanes<L: AvxLanesD>(self, lanes: L) -> Self {
+        lanes.reverse(self)
     }
 
     #[inline(always)]
@@ -330,5 +437,39 @@ impl AvxStoreD {
     #[target_feature(enable = "avx2")]
     pub(crate) fn mul_f64_add(p0: AvxStoreD, p1: f64, p2: AvxStoreD) -> AvxStoreD {
         unsafe { AvxStoreD::raw(_mm256_fmadd_pd(p0.v, _mm256_set1_pd(p1), p2.v)) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_partial_load_reverse_store() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        let src = [1., 2., 3., 4.];
+        for len in 0..=4 {
+            let mask = unsafe { AvxMaskD::new(len) };
+            let loaded = unsafe { AvxStoreD::load_masked(mask, &src[..len]) };
+            let mut loaded_array = [0.; 4];
+            unsafe { _mm256_storeu_pd(loaded_array.as_mut_ptr(), loaded.v) };
+            assert_eq!(&loaded_array[..len], &src[..len]);
+            assert!(loaded_array[len..].iter().all(|&x| x == 0.));
+
+            let mut dst = [99.; 6];
+            unsafe {
+                loaded.reverse_masked(mask).write_masked(mask, &mut dst);
+            }
+            assert!(
+                dst[..len]
+                    .iter()
+                    .zip(src[..len].iter().rev())
+                    .all(|(&actual, &expected)| actual == expected)
+            );
+            assert!(dst[len..].iter().all(|&x| x == 99.));
+        }
     }
 }

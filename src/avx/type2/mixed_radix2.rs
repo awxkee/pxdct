@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::avx::stored::AvxStoreD;
-use crate::avx::storef::AvxStoreF;
+use crate::avx::storef::{AvxMaskF, AvxStoreF};
 use crate::util::{DctConstants, DctSample, try_vec, validate_scratch};
 use crate::{PxdctError, PxdctExecutor};
 use num_traits::AsPrimitive;
@@ -119,93 +119,20 @@ fn avx_modulate_input_f32(
     let rem = total_length - j;
     assert!(rem < 8);
 
-    match rem {
-        7 => unsafe {
-            let a0 = AvxStoreF::load7(left.get_unchecked(j..));
-            let mut b0 = AvxStoreF::load7(right.get_unchecked(total_length - j - 7..));
-            let tw0 = AvxStoreF::load7(twiddles.get_unchecked(j..));
-            b0 = b0.reverse7();
+    if rem > 0 {
+        unsafe {
+            let mask = AvxMaskF::new(rem);
+            let a0 = AvxStoreF::load_masked(mask, left.get_unchecked(j..));
+            let b0 = AvxStoreF::load_masked(mask, right.get_unchecked(total_length - j - rem..))
+                .reverse_masked(mask);
+            let tw0 = AvxStoreF::load_masked(mask, twiddles.get_unchecked(j..));
 
             let s0 = a0 + b0;
             let d0 = (a0 - b0) * tw0;
 
-            s0.write7(a_buffer.get_unchecked_mut(j..));
-            d0.write7(b_buffer.get_unchecked_mut(j..));
-        },
-        6 => unsafe {
-            let a0 = AvxStoreF::load6(left.get_unchecked(j..));
-            let mut b0 = AvxStoreF::load6(right.get_unchecked(total_length - j - 6..));
-            let tw0 = AvxStoreF::load6(twiddles.get_unchecked(j..));
-            b0 = b0.reverse6();
-
-            let s0 = a0 + b0;
-            let d0 = (a0 - b0) * tw0;
-
-            s0.write6(a_buffer.get_unchecked_mut(j..));
-            d0.write6(b_buffer.get_unchecked_mut(j..));
-        },
-        5 => unsafe {
-            let a0 = AvxStoreF::load5(left.get_unchecked(j..));
-            let mut b0 = AvxStoreF::load5(right.get_unchecked(total_length - j - 5..));
-            let tw0 = AvxStoreF::load5(twiddles.get_unchecked(j..));
-            b0 = b0.reverse5();
-
-            let s0 = a0 + b0;
-            let d0 = (a0 - b0) * tw0;
-
-            s0.write5(a_buffer.get_unchecked_mut(j..));
-            d0.write5(b_buffer.get_unchecked_mut(j..));
-        },
-        4 => unsafe {
-            let a0 = AvxStoreF::load4(left.get_unchecked(j..));
-            let mut b0 = AvxStoreF::load4(right.get_unchecked(total_length - j - 4..));
-            let tw0 = AvxStoreF::load4(twiddles.get_unchecked(j..));
-            b0 = b0.reverse4();
-
-            let s0 = a0 + b0;
-            let d0 = (a0 - b0) * tw0;
-
-            s0.write4(a_buffer.get_unchecked_mut(j..));
-            d0.write4(b_buffer.get_unchecked_mut(j..));
-        },
-        3 => unsafe {
-            let a0 = AvxStoreF::load3(left.get_unchecked(j..));
-            let mut b0 = AvxStoreF::load3(right.get_unchecked(total_length - j - 3..));
-            let tw0 = AvxStoreF::load3(twiddles.get_unchecked(j..));
-
-            b0 = b0.reverse3();
-
-            let s0 = a0 + b0;
-            let d0 = (a0 - b0) * tw0;
-
-            s0.write3(a_buffer.get_unchecked_mut(j..));
-            d0.write3(b_buffer.get_unchecked_mut(j..));
-        },
-        2 => unsafe {
-            let a0 = AvxStoreF::load2(left.get_unchecked(j..));
-            let mut b0 = AvxStoreF::load2(right.get_unchecked(total_length - j - 2..));
-            let tw0 = AvxStoreF::load2(twiddles.get_unchecked(j..));
-
-            b0 = b0.reverse2();
-
-            let s0 = a0 + b0;
-            let d0 = (a0 - b0) * tw0;
-
-            s0.write2(a_buffer.get_unchecked_mut(j..));
-            d0.write2(b_buffer.get_unchecked_mut(j..));
-        },
-        1 => unsafe {
-            let a0 = AvxStoreF::load1(left.get_unchecked(j..));
-            let b0 = AvxStoreF::load1(right.get_unchecked(total_length - j - 1..));
-            let tw0 = AvxStoreF::load1(twiddles.get_unchecked(j..));
-
-            let s0 = a0 + b0;
-            let d0 = (a0 - b0) * tw0;
-
-            s0.write1(a_buffer.get_unchecked_mut(j..));
-            d0.write1(b_buffer.get_unchecked_mut(j..));
-        },
-        _ => {}
+            s0.write_masked(mask, a_buffer.get_unchecked_mut(j..));
+            d0.write_masked(mask, b_buffer.get_unchecked_mut(j..));
+        }
     }
 }
 

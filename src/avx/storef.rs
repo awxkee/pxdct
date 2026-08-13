@@ -56,6 +56,98 @@ pub(crate) struct AvxStoreF {
     pub(crate) v: __m256,
 }
 
+#[derive(Copy, Clone)]
+pub(crate) struct AvxMaskF {
+    load_store: __m256i,
+    reverse: __m256i,
+    len: usize,
+}
+
+impl AvxMaskF {
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn new(len: usize) -> Self {
+        debug_assert!(len <= 8, "AVX f32 mask length must be <= 8, got {len}");
+        let lanes = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+        Self {
+            load_store: _mm256_cmpgt_epi32(_mm256_set1_epi32(len as i32), lanes),
+            reverse: _mm256_sub_epi32(_mm256_set1_epi32(len as i32 - 1), lanes),
+            len,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn len(self) -> usize {
+        self.len
+    }
+}
+
+pub(crate) trait AvxLanesF: Copy {
+    fn len(self) -> usize;
+    fn load(self, ptr: &[f32]) -> AvxStoreF;
+    fn write(self, value: AvxStoreF, ptr: &mut [f32]);
+    fn reverse(self, value: AvxStoreF) -> AvxStoreF;
+}
+
+#[derive(Copy, Clone)]
+pub(crate) struct AvxFullF;
+
+#[derive(Copy, Clone)]
+pub(crate) struct AvxTailF(AvxMaskF);
+
+impl AvxTailF {
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn new(len: usize) -> Self {
+        debug_assert!(len < 8, "full-width blocks must use AvxFullF");
+        Self(AvxMaskF::new(len))
+    }
+}
+
+impl AvxLanesF for AvxFullF {
+    #[inline(always)]
+    fn len(self) -> usize {
+        8
+    }
+
+    #[inline(always)]
+    fn load(self, ptr: &[f32]) -> AvxStoreF {
+        unsafe { AvxStoreF::load(ptr) }
+    }
+
+    #[inline(always)]
+    fn write(self, value: AvxStoreF, ptr: &mut [f32]) {
+        unsafe { value.write(ptr) }
+    }
+
+    #[inline(always)]
+    fn reverse(self, value: AvxStoreF) -> AvxStoreF {
+        value.reverse()
+    }
+}
+
+impl AvxLanesF for AvxTailF {
+    #[inline(always)]
+    fn len(self) -> usize {
+        self.0.len()
+    }
+
+    #[inline(always)]
+    fn load(self, ptr: &[f32]) -> AvxStoreF {
+        unsafe { AvxStoreF::load_masked(self.0, ptr) }
+    }
+
+    #[inline(always)]
+    fn write(self, value: AvxStoreF, ptr: &mut [f32]) {
+        unsafe { value.write_masked(self.0, ptr) }
+    }
+
+    #[inline(always)]
+    fn reverse(self, value: AvxStoreF) -> AvxStoreF {
+        unsafe { value.reverse_masked(self.0) }
+    }
+}
+
 #[repr(C, align(32))]
 pub(crate) struct AvxAlignedF32(pub(crate) [f32; 8]);
 
@@ -167,6 +259,20 @@ impl AvxStoreF {
         AvxStoreF::raw(unsafe { _mm256_loadu_ps(ptr.as_ptr()) })
     }
 
+    /// Loads the active lanes without accessing memory beyond the mask length.
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn load_masked(mask: AvxMaskF, ptr: &[f32]) -> Self {
+        debug_assert!(ptr.len() >= mask.len());
+        Self::raw(unsafe { _mm256_maskload_ps(ptr.as_ptr(), mask.load_store) })
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn load_lanes<L: AvxLanesF>(lanes: L, ptr: &[f32]) -> Self {
+        lanes.load(ptr)
+    }
+
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
     pub(crate) fn mul_by_complex_unpack_real(
@@ -226,16 +332,6 @@ impl AvxStoreF {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    pub(crate) fn load5(ptr: &[f32]) -> Self {
-        unsafe {
-            let q0 = _mm_loadu_ps(ptr.as_ptr().cast());
-            let q1 = _mm_load_ss(ptr.get_unchecked(4..).as_ptr().cast());
-            AvxStoreF::raw(_mm256_setr_m128(q0, q1))
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     pub(crate) fn load4(ptr: &[f32]) -> Self {
         unsafe { AvxStoreF::raw(_mm256_castps128_ps256(_mm_loadu_ps(ptr.as_ptr().cast()))) }
     }
@@ -271,62 +367,22 @@ impl AvxStoreF {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    pub(crate) fn load_n<const N: usize>(ptr: &[f32]) -> Self {
-        const {
-            assert!(N <= 8, "N must be <= 8");
-        }
-        match N {
-            8 => Self::load(ptr),
-            7 => Self::load7(ptr),
-            6 => Self::load6(ptr),
-            5 => Self::load5(ptr),
-            4 => Self::load4(ptr),
-            3 => Self::load3(ptr),
-            2 => Self::load2(ptr),
-            _ => Self::load1(ptr),
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn reverse_n<const N: usize>(self) -> Self {
-        const {
-            assert!(N <= 8, "N must be <= 8");
-        }
-        match N {
-            8 => self.reverse(),
-            7 => self.reverse7(),
-            6 => self.reverse6(),
-            5 => self.reverse5(),
-            4 => self.reverse4(),
-            3 => self.reverse3(),
-            2 => self.reverse2(),
-            _ => self,
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn write_n<const N: usize>(self, ptr: &mut [f32]) {
-        const {
-            assert!(N <= 8, "N must be <= 8");
-        }
-        match N {
-            8 => self.write(ptr),
-            7 => self.write7(ptr),
-            6 => self.write6(ptr),
-            5 => self.write5(ptr),
-            4 => self.write4(ptr),
-            3 => self.write3(ptr),
-            2 => self.write2(ptr),
-            _ => self.write1(ptr),
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     pub(crate) fn write(self, ptr: &mut [f32]) {
         unsafe { _mm256_storeu_ps(ptr.as_mut_ptr(), self.v) }
+    }
+
+    /// Stores the active lanes without touching later elements.
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn write_masked(self, mask: AvxMaskF, ptr: &mut [f32]) {
+        debug_assert!(ptr.len() >= mask.len());
+        unsafe { _mm256_maskstore_ps(ptr.as_mut_ptr(), mask.load_store, self.v) }
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn write_lanes<L: AvxLanesF>(self, lanes: L, ptr: &mut [f32]) {
+        lanes.write(self, ptr)
     }
 
     #[inline]
@@ -342,33 +398,6 @@ impl AvxStoreF {
             _mm_storel_pd(
                 ptr.get_unchecked_mut(4..).as_mut_ptr().cast(),
                 _mm_castps_pd(_mm256_extractf128_ps::<1>(self.v)),
-            );
-            _mm_storeu_ps(ptr.as_mut_ptr(), _mm256_castps256_ps128(self.v));
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn write7(self, ptr: &mut [f32]) {
-        let hi_part = _mm256_extractf128_ps::<1>(self.v);
-        unsafe {
-            _mm_storel_pd(
-                ptr.get_unchecked_mut(4..).as_mut_ptr().cast(),
-                _mm_castps_pd(hi_part),
-            );
-            let hilo = _mm_unpackhilo_ps64(hi_part, hi_part);
-            _mm_store_ss(ptr.get_unchecked_mut(6..).as_mut_ptr(), hilo);
-            _mm_storeu_ps(ptr.as_mut_ptr(), _mm256_castps256_ps128(self.v));
-        }
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn write5(self, ptr: &mut [f32]) {
-        unsafe {
-            _mm_store_ss(
-                ptr.get_unchecked_mut(4..).as_mut_ptr(),
-                _mm256_extractf128_ps::<1>(self.v),
             );
             _mm_storeu_ps(ptr.as_mut_ptr(), _mm256_castps256_ps128(self.v));
         }
@@ -427,6 +456,18 @@ impl AvxStoreF {
 
     #[inline]
     #[target_feature(enable = "avx2")]
+    pub(crate) fn reverse_masked(self, mask: AvxMaskF) -> Self {
+        Self::raw(_mm256_permutevar8x32_ps(self.v, mask.reverse))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    pub(crate) fn reverse_lanes<L: AvxLanesF>(self, lanes: L) -> Self {
+        lanes.reverse(self)
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
     pub(crate) fn reverse7(self) -> Self {
         AvxStoreF::raw(_mm256_permutevar8x32_ps(
             self.v,
@@ -440,15 +481,6 @@ impl AvxStoreF {
         AvxStoreF::raw(_mm256_permutevar8x32_ps(
             self.v,
             _mm256_setr_epi32(5, 4, 3, 2, 1, 0, 0, 0),
-        ))
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
-    pub(crate) fn reverse5(self) -> Self {
-        AvxStoreF::raw(_mm256_permutevar8x32_ps(
-            self.v,
-            _mm256_setr_epi32(4, 3, 2, 1, 0, 0, 0, 0),
         ))
     }
 
@@ -595,6 +627,34 @@ mod tests {
     }
 
     #[test]
+    fn test_partial_load_reverse_store() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        let src = [1., 2., 3., 4., 5., 6., 7., 8.];
+        for len in 0..=8 {
+            let mask = unsafe { AvxMaskF::new(len) };
+            let loaded = unsafe { AvxStoreF::load_masked(mask, &src[..len]) };
+            let loaded_array = to_array(loaded);
+            assert_eq!(&loaded_array[..len], &src[..len]);
+            assert!(loaded_array[len..].iter().all(|&x| x == 0.));
+
+            let mut dst = [99.; 10];
+            unsafe {
+                loaded.reverse_masked(mask).write_masked(mask, &mut dst);
+            }
+            assert!(
+                dst[..len]
+                    .iter()
+                    .zip(src[..len].iter().rev())
+                    .all(|(&actual, &expected)| actual == expected)
+            );
+            assert!(dst[len..].iter().all(|&x| x == 99.));
+        }
+    }
+
+    #[test]
     fn test_reverse() {
         if !std::arch::is_x86_feature_detected!("avx2") {
             return;
@@ -633,21 +693,6 @@ mod tests {
 
             let rev = v.reverse6();
             let expected = [6., 5., 4., 3., 2., 1., 1., 1.];
-            assert_eq!(to_array(rev), expected);
-        }
-    }
-
-    #[test]
-    fn test_reverse5() {
-        unsafe {
-            if !std::arch::is_x86_feature_detected!("avx2") {
-                return;
-            }
-            let src = [1., 2., 3., 4., 5., 6., 7., 8.];
-            let v = from_array(src);
-
-            let rev = v.reverse5();
-            let expected = [5., 4., 3., 2., 1., 1., 1., 1.];
             assert_eq!(to_array(rev), expected);
         }
     }
