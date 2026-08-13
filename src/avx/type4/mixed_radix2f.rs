@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::storef::AvxStoreF;
+use crate::avx::storef::{AvxMaskF, AvxStoreF};
 use crate::avx::type4::radix2f::dct4_radix2f_rotation_twiddles_avx;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
@@ -124,17 +124,17 @@ impl AvxDct4MixedRadix2f {
         }
 
         let rem = inner_len - k;
-        if rem == 7 {
-            const S: usize = 7;
-            let front = AvxStoreF::load7(data.slice_from(k..));
-            let back = AvxStoreF::load7(data.slice_from(len - k - S..)).reverse7();
-
+        if rem > 0 {
+            let mask = AvxMaskF::new(rem);
+            let front = AvxStoreF::load_masked(mask, data.slice_from(k..));
+            let back =
+                AvxStoreF::load_masked(mask, data.slice_from(len - k - rem..)).reverse_masked(mask);
             let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
             let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
 
             let ll = fma(twiddle_re, front, twiddle_im * back);
             unsafe {
-                ll.write7(left.get_unchecked_mut(k..));
+                ll.write_masked(mask, left.get_unchecked_mut(k..));
             }
             let rr = fma(
                 twiddle_re.xor(signs_re),
@@ -142,133 +142,8 @@ impl AvxDct4MixedRadix2f {
                 twiddle_im.xor(signs_im) * front,
             );
             unsafe {
-                rr.reverse7()
-                    .write7(right.get_unchecked_mut(half_len - k - S..));
-            }
-        } else if rem == 6 {
-            const S: usize = 6;
-            let front = AvxStoreF::load6(data.slice_from(k..));
-            let back = AvxStoreF::load6(data.slice_from(len - k - S..)).reverse6();
-
-            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-            let ll = fma(twiddle_re, front, twiddle_im * back);
-            unsafe {
-                ll.write6(left.get_unchecked_mut(k..));
-            }
-            let rr = fma(
-                twiddle_re.xor(signs_re),
-                back,
-                twiddle_im.xor(signs_im) * front,
-            );
-            unsafe {
-                rr.reverse6()
-                    .write6(right.get_unchecked_mut(half_len - k - S..));
-            }
-        } else if rem == 5 {
-            const S: usize = 5;
-            let front = AvxStoreF::load5(data.slice_from(k..));
-            let back = AvxStoreF::load5(data.slice_from(len - k - S..)).reverse5();
-
-            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-            let ll = fma(twiddle_re, front, twiddle_im * back);
-            unsafe {
-                ll.write5(left.get_unchecked_mut(k..));
-            }
-            let rr = fma(
-                twiddle_re.xor(signs_re),
-                back,
-                twiddle_im.xor(signs_im) * front,
-            );
-            unsafe {
-                rr.reverse5()
-                    .write5(right.get_unchecked_mut(half_len - k - S..));
-            }
-        } else if rem == 4 {
-            const S: usize = 4;
-            let front = AvxStoreF::load4(data.slice_from(k..));
-            let back = AvxStoreF::load4(data.slice_from(len - k - S..)).reverse4();
-
-            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-            let ll = fma(twiddle_re, front, twiddle_im * back);
-            unsafe {
-                ll.write4(left.get_unchecked_mut(k..));
-            }
-            let rr = fma(
-                twiddle_re.xor(signs_re),
-                back,
-                twiddle_im.xor(signs_im) * front,
-            );
-            unsafe {
-                rr.reverse4()
-                    .write4(right.get_unchecked_mut(half_len - k - S..));
-            }
-        } else if rem == 3 {
-            const S: usize = 3;
-            let front = AvxStoreF::load3(data.slice_from(k..));
-            let back = AvxStoreF::load3(data.slice_from(len - k - S..)).reverse3();
-
-            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-            let ll = fma(twiddle_re, front, twiddle_im * back);
-            unsafe {
-                ll.write3(left.get_unchecked_mut(k..));
-            }
-            let rr = fma(
-                twiddle_re.xor(signs_re),
-                back,
-                twiddle_im.xor(signs_im) * front,
-            );
-            unsafe {
-                rr.reverse3()
-                    .write3(right.get_unchecked_mut(half_len - k - S..));
-            }
-        } else if rem == 2 {
-            const S: usize = 2;
-            let front = AvxStoreF::load2(data.slice_from(k..));
-            let back = AvxStoreF::load2(data.slice_from(len - k - S..)).reverse2();
-
-            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-            let ll = fma(twiddle_re, front, twiddle_im * back);
-            unsafe {
-                ll.write2(left.get_unchecked_mut(k..));
-            }
-            let rr = fma(
-                twiddle_re.xor(signs_re),
-                back,
-                twiddle_im.xor(signs_im) * front,
-            );
-            unsafe {
-                rr.reverse2()
-                    .write2(right.get_unchecked_mut(half_len - k - S..));
-            }
-        } else if rem == 1 {
-            const S: usize = 1;
-            let front = AvxStoreF::load1(data.slice_from(k..));
-            let back = AvxStoreF::load1(data.slice_from(len - k - S..));
-
-            let twiddle_re = unsafe { *self.twiddles.get_unchecked(tk) };
-            let twiddle_im = unsafe { *self.twiddles.get_unchecked(tk + 1) };
-
-            let ll = fma(twiddle_re, front, twiddle_im * back);
-            unsafe {
-                ll.write1(left.get_unchecked_mut(k..));
-            }
-            let rr = fma(
-                twiddle_re.xor(signs_re),
-                back,
-                twiddle_im.xor(signs_im) * front,
-            );
-            unsafe {
-                rr.write1(right.get_unchecked_mut(half_len - k - S..));
+                rr.reverse_masked(mask)
+                    .write_masked(mask, right.get_unchecked_mut(half_len - k - rem..));
             }
         }
 

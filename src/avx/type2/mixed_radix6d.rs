@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::stored::AvxStoreD;
+use crate::avx::stored::{AvxFullD, AvxLanesD, AvxStoreD, AvxTailD};
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
 use crate::util::{DctConstants, mixed_radix_inner_twiddle, try_vec, validate_scratch};
@@ -116,7 +116,7 @@ boring_avx_mixed_radix!(AvxDct2MixedRadix6d, f64);
 impl AvxDct2MixedRadix6d {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn exec_block<S: BidirectionalStore<f64>, const N: usize>(
+    fn exec_block<S: BidirectionalStore<f64>, L: AvxLanesD>(
         &self,
         data: &mut S,
         a_buffer: &mut [f64],
@@ -130,17 +130,19 @@ impl AvxDct2MixedRadix6d {
         s_n: usize,
         s_2n: usize,
         len: usize,
+        access: L,
     ) {
-        let ai = AvxStoreD::load_n::<N>(data.slice_from(j..));
-        let mut bi = AvxStoreD::load_n::<N>(data.slice_from(s_n - j - N..));
-        let ci = AvxStoreD::load_n::<N>(data.slice_from(s_n + j..));
-        let mut di = AvxStoreD::load_n::<N>(data.slice_from(s_2n - j - N..));
-        let ei = AvxStoreD::load_n::<N>(data.slice_from(s_2n + j..));
-        let mut fi = AvxStoreD::load_n::<N>(data.slice_from(len - j - N..));
+        let lanes = access.len();
+        let ai = AvxStoreD::load_lanes(access, data.slice_from(j..));
+        let mut bi = AvxStoreD::load_lanes(access, data.slice_from(s_n - j - lanes..));
+        let ci = AvxStoreD::load_lanes(access, data.slice_from(s_n + j..));
+        let mut di = AvxStoreD::load_lanes(access, data.slice_from(s_2n - j - lanes..));
+        let ei = AvxStoreD::load_lanes(access, data.slice_from(s_2n + j..));
+        let mut fi = AvxStoreD::load_lanes(access, data.slice_from(len - j - lanes..));
 
-        bi = bi.reverse_n::<N>();
-        di = di.reverse_n::<N>();
-        fi = fi.reverse_n::<N>();
+        bi = bi.reverse_lanes(access);
+        di = di.reverse_lanes(access);
+        fi = fi.reverse_lanes(access);
 
         let cos_sin_ai_re = unsafe { *self.inner_layer.get_unchecked(twiddle_idx) };
         let cos_sin_ai_im = unsafe { *self.inner_layer.get_unchecked(twiddle_idx + 1) };
@@ -179,12 +181,14 @@ impl AvxDct2MixedRadix6d {
         );
 
         unsafe {
-            a_comp.write_n::<N>(a_buffer.get_unchecked_mut(j..));
-            fma(ai2dbedcd, cos_sin_ai_re, b_zet).write_n::<N>(b_buffer.get_unchecked_mut(j..));
-            fma(c_comp, cos_sin_2ai_re, c_zet).write_n::<N>(c_buffer.get_unchecked_mut(j..));
-            (d_comp * cos_sin_3ai_re).write_n::<N>(d_buffer.get_unchecked_mut(j..));
-            e_comp.write_n::<N>(e_buffer.get_unchecked_mut(j..));
-            fma(ai2dbedcd, cos_sin_5ai_re, f_zet).write_n::<N>(f_buffer.get_unchecked_mut(j..));
+            a_comp.write_lanes(access, a_buffer.get_unchecked_mut(j..));
+            fma(ai2dbedcd, cos_sin_ai_re, b_zet)
+                .write_lanes(access, b_buffer.get_unchecked_mut(j..));
+            fma(c_comp, cos_sin_2ai_re, c_zet).write_lanes(access, c_buffer.get_unchecked_mut(j..));
+            (d_comp * cos_sin_3ai_re).write_lanes(access, d_buffer.get_unchecked_mut(j..));
+            e_comp.write_lanes(access, e_buffer.get_unchecked_mut(j..));
+            fma(ai2dbedcd, cos_sin_5ai_re, f_zet)
+                .write_lanes(access, f_buffer.get_unchecked_mut(j..));
         }
     }
 
@@ -213,7 +217,7 @@ impl AvxDct2MixedRadix6d {
         let mut twiddle_idx = 0usize;
 
         while j + 4 <= sixth_length {
-            self.exec_block::<S, 4>(
+            self.exec_block::<S, _>(
                 data,
                 a_buffer,
                 b_buffer,
@@ -226,62 +230,30 @@ impl AvxDct2MixedRadix6d {
                 s_n,
                 s_2n,
                 len,
+                AvxFullD,
             );
             j += 4;
             twiddle_idx += 7;
         }
 
-        let rem = sixth_length - j;
-        match rem {
-            3 => {
-                self.exec_block::<S, 3>(
-                    data,
-                    a_buffer,
-                    b_buffer,
-                    c_buffer,
-                    d_buffer,
-                    e_buffer,
-                    f_buffer,
-                    twiddle_idx,
-                    j,
-                    s_n,
-                    s_2n,
-                    len,
-                );
-            }
-            2 => {
-                self.exec_block::<S, 2>(
-                    data,
-                    a_buffer,
-                    b_buffer,
-                    c_buffer,
-                    d_buffer,
-                    e_buffer,
-                    f_buffer,
-                    twiddle_idx,
-                    j,
-                    s_n,
-                    s_2n,
-                    len,
-                );
-            }
-            1 => {
-                self.exec_block::<S, 1>(
-                    data,
-                    a_buffer,
-                    b_buffer,
-                    c_buffer,
-                    d_buffer,
-                    e_buffer,
-                    f_buffer,
-                    twiddle_idx,
-                    j,
-                    s_n,
-                    s_2n,
-                    len,
-                );
-            }
-            _ => {}
+        let remainder = sixth_length - j;
+        if remainder != 0 {
+            let tail = AvxTailD::new(remainder);
+            self.exec_block::<S, _>(
+                data,
+                a_buffer,
+                b_buffer,
+                c_buffer,
+                d_buffer,
+                e_buffer,
+                f_buffer,
+                twiddle_idx,
+                j,
+                s_n,
+                s_2n,
+                len,
+                tail,
+            );
         }
 
         if a_buffer.len() > 1 {

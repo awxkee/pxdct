@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-use crate::avx::stored::AvxStoreD;
+use crate::avx::stored::{AvxFullD, AvxLanesD, AvxStoreD, AvxTailD};
 use crate::avx::type3::mixed_radix3d::dct3_radix_n_rotation_twiddles_avx_d;
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
@@ -79,7 +79,7 @@ impl AvxDct3MixedRadix9d {
 impl AvxDct3MixedRadix9d {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn exec_stage1<S: BidirectionalStore<f64>, const N: usize>(
+    fn exec_stage1<S: BidirectionalStore<f64>, L: AvxLanesD>(
         &self,
         data: &S,
         a_buffer: &mut [f64],
@@ -87,19 +87,25 @@ impl AvxDct3MixedRadix9d {
         w_buffer: &mut [f64],
         uk: usize,
         k: usize,
+        access: L,
     ) {
+        let lanes = access.len();
         let p = self.p;
         let half = AvxStoreD::dup(0.5_f64);
 
-        let xk = AvxStoreD::load_n::<N>(data.slice_from(k..));
-        let xp_1 = AvxStoreD::load_n::<N>(data.slice_from(2 * p + k..));
-        let xm_1 = AvxStoreD::load_n::<N>(data.slice_from(2 * p - N - k + 1..)).reverse_n::<N>();
-        let xp_2 = AvxStoreD::load_n::<N>(data.slice_from(4 * p + k..));
-        let xm_2 = AvxStoreD::load_n::<N>(data.slice_from(4 * p - N - k + 1..)).reverse_n::<N>();
-        let xp_3 = AvxStoreD::load_n::<N>(data.slice_from(6 * p + k..));
-        let xm_3 = AvxStoreD::load_n::<N>(data.slice_from(6 * p - N - k + 1..)).reverse_n::<N>();
-        let xp_4 = AvxStoreD::load_n::<N>(data.slice_from(8 * p + k..));
-        let xm_4 = AvxStoreD::load_n::<N>(data.slice_from(8 * p - N - k + 1..)).reverse_n::<N>();
+        let xk = AvxStoreD::load_lanes(access, data.slice_from(k..));
+        let xp_1 = AvxStoreD::load_lanes(access, data.slice_from(2 * p + k..));
+        let xm_1 = AvxStoreD::load_lanes(access, data.slice_from(2 * p - lanes - k + 1..))
+            .reverse_lanes(access);
+        let xp_2 = AvxStoreD::load_lanes(access, data.slice_from(4 * p + k..));
+        let xm_2 = AvxStoreD::load_lanes(access, data.slice_from(4 * p - lanes - k + 1..))
+            .reverse_lanes(access);
+        let xp_3 = AvxStoreD::load_lanes(access, data.slice_from(6 * p + k..));
+        let xm_3 = AvxStoreD::load_lanes(access, data.slice_from(6 * p - lanes - k + 1..))
+            .reverse_lanes(access);
+        let xp_4 = AvxStoreD::load_lanes(access, data.slice_from(8 * p + k..));
+        let xm_4 = AvxStoreD::load_lanes(access, data.slice_from(8 * p - lanes - k + 1..))
+            .reverse_lanes(access);
 
         let s_1 = xp_1 + xm_1;
         let t_1 = xp_1 - xm_1;
@@ -112,7 +118,7 @@ impl AvxDct3MixedRadix9d {
 
         let a_v = xk - s_1 + s_2 - s_3 + s_4;
         unsafe {
-            a_v.write_n::<N>(a_buffer.get_unchecked_mut(k..));
+            a_v.write_lanes(access, a_buffer.get_unchecked_mut(k..));
         }
 
         let tw0_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
@@ -136,10 +142,10 @@ impl AvxDct3MixedRadix9d {
         let v_val0 = fma(c_acc0, tw0_re, -s_acc0 * tw0_im);
         let w_val0 = fma(c_acc0, tw0_im, s_acc0 * tw0_re);
         unsafe {
-            v_val0.write_n::<N>(v_buffer.get_unchecked_mut(k..));
+            v_val0.write_lanes(access, v_buffer.get_unchecked_mut(k..));
             w_val0
-                .reverse_n::<N>()
-                .write_n::<N>(w_buffer.get_unchecked_mut(p - N - k + 1..));
+                .reverse_lanes(access)
+                .write_lanes(access, w_buffer.get_unchecked_mut(p - lanes - k + 1..));
         }
 
         let mut c_acc1 = xk;
@@ -154,10 +160,11 @@ impl AvxDct3MixedRadix9d {
         let v_val1 = fma(c_acc1, tw1_re, -s_acc1 * tw1_im);
         let w_val1 = fma(c_acc1, tw1_im, s_acc1 * tw1_re);
         unsafe {
-            v_val1.write_n::<N>(v_buffer.get_unchecked_mut(p + k..));
-            w_val1
-                .reverse_n::<N>()
-                .write_n::<N>(w_buffer.get_unchecked_mut(p + (p - N - k + 1)..));
+            v_val1.write_lanes(access, v_buffer.get_unchecked_mut(p + k..));
+            w_val1.reverse_lanes(access).write_lanes(
+                access,
+                w_buffer.get_unchecked_mut(p + (p - lanes - k + 1)..),
+            );
         }
 
         let mut c_acc2 = xk;
@@ -173,10 +180,11 @@ impl AvxDct3MixedRadix9d {
         let v_val2 = fma(c_acc2, tw2_re, -s_acc2 * tw2_im);
         let w_val2 = fma(c_acc2, tw2_im, s_acc2 * tw2_re);
         unsafe {
-            v_val2.write_n::<N>(v_buffer.get_unchecked_mut(2 * p + k..));
-            w_val2
-                .reverse_n::<N>()
-                .write_n::<N>(w_buffer.get_unchecked_mut(2 * p + (p - N - k + 1)..));
+            v_val2.write_lanes(access, v_buffer.get_unchecked_mut(2 * p + k..));
+            w_val2.reverse_lanes(access).write_lanes(
+                access,
+                w_buffer.get_unchecked_mut(2 * p + (p - lanes - k + 1)..),
+            );
         }
 
         let mut c_acc3 = xk;
@@ -192,16 +200,17 @@ impl AvxDct3MixedRadix9d {
         let v_val3 = fma(c_acc3, tw3_re, -s_acc3 * tw3_im);
         let w_val3 = fma(c_acc3, tw3_im, s_acc3 * tw3_re);
         unsafe {
-            v_val3.write_n::<N>(v_buffer.get_unchecked_mut(3 * p + k..));
-            w_val3
-                .reverse_n::<N>()
-                .write_n::<N>(w_buffer.get_unchecked_mut(3 * p + (p - N - k + 1)..));
+            v_val3.write_lanes(access, v_buffer.get_unchecked_mut(3 * p + k..));
+            w_val3.reverse_lanes(access).write_lanes(
+                access,
+                w_buffer.get_unchecked_mut(3 * p + (p - lanes - k + 1)..),
+            );
         }
     }
 
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn exec_stage3<S: BidirectionalStore<f64>, const N: usize>(
+    fn exec_stage3<S: BidirectionalStore<f64>, L: AvxLanesD>(
         &self,
         data: &mut S,
         a_buffer: &[f64],
@@ -218,36 +227,38 @@ impl AvxDct3MixedRadix9d {
         w0_m3_v: AvxStoreD,
         sign_v: AvxStoreD,
         n: usize,
+        access: L,
     ) {
+        let lanes = access.len();
         let p = self.p;
 
         // Center (9n+4)
-        let a_v = AvxStoreD::load_n::<N>(unsafe { a_buffer.get_unchecked(n..) });
+        let a_v = AvxStoreD::load_lanes(access, unsafe { a_buffer.get_unchecked(n..) });
         let center = a_v + dc_adjust_a_v;
 
-        let f_v0 = AvxStoreD::load_n::<N>(unsafe { v_buffer.get_unchecked(n..) });
-        let g_raw0 = AvxStoreD::load_n::<N>(unsafe { w_buffer.get_unchecked(n..) });
+        let f_v0 = AvxStoreD::load_lanes(access, unsafe { v_buffer.get_unchecked(n..) });
+        let g_raw0 = AvxStoreD::load_lanes(access, unsafe { w_buffer.get_unchecked(n..) });
         let g_v0 = fma(g_raw0, sign_v, w0_m0_v * sign_v);
         let f_dc0 = f_v0 + dc_v0;
         let out0 = f_dc0 + g_v0;
         let out8 = f_dc0 - g_v0;
 
-        let f_v1 = AvxStoreD::load_n::<N>(unsafe { v_buffer.get_unchecked(p + n..) });
-        let g_raw1 = AvxStoreD::load_n::<N>(unsafe { w_buffer.get_unchecked(p + n..) });
+        let f_v1 = AvxStoreD::load_lanes(access, unsafe { v_buffer.get_unchecked(p + n..) });
+        let g_raw1 = AvxStoreD::load_lanes(access, unsafe { w_buffer.get_unchecked(p + n..) });
         let g_v1 = fma(g_raw1, sign_v, w0_m1_v * sign_v);
         let f_dc1 = f_v1 + dc_v1;
         let out1 = f_dc1 + g_v1;
         let out7 = f_dc1 - g_v1;
 
-        let f_v2 = AvxStoreD::load_n::<N>(unsafe { v_buffer.get_unchecked(2 * p + n..) });
-        let g_raw2 = AvxStoreD::load_n::<N>(unsafe { w_buffer.get_unchecked(2 * p + n..) });
+        let f_v2 = AvxStoreD::load_lanes(access, unsafe { v_buffer.get_unchecked(2 * p + n..) });
+        let g_raw2 = AvxStoreD::load_lanes(access, unsafe { w_buffer.get_unchecked(2 * p + n..) });
         let g_v2 = fma(g_raw2, sign_v, w0_m2_v * sign_v);
         let f_dc2 = f_v2 + dc_v2;
         let out2 = f_dc2 + g_v2;
         let out6 = f_dc2 - g_v2;
 
-        let f_v3 = AvxStoreD::load_n::<N>(unsafe { v_buffer.get_unchecked(3 * p + n..) });
-        let g_raw3 = AvxStoreD::load_n::<N>(unsafe { w_buffer.get_unchecked(3 * p + n..) });
+        let f_v3 = AvxStoreD::load_lanes(access, unsafe { v_buffer.get_unchecked(3 * p + n..) });
+        let g_raw3 = AvxStoreD::load_lanes(access, unsafe { w_buffer.get_unchecked(3 * p + n..) });
         let g_v3 = fma(g_raw3, sign_v, w0_m3_v * sign_v);
         let f_dc3 = f_v3 + dc_v3;
         let out3 = f_dc3 + g_v3;
@@ -263,7 +274,7 @@ impl AvxDct3MixedRadix9d {
         let out6_a = out6.to_array();
         let out7_a = out7.to_array();
         let out8_a = out8.to_array();
-        for i in 0..N {
+        for i in 0..lanes {
             let base = 9 * (n + i);
             data[base] = out0_a[i];
             data[base + 1] = out1_a[i];
@@ -355,18 +366,15 @@ impl AvxDct3MixedRadix9d {
         let mut uk = 0usize;
         let mut k = 1usize;
         while k + 4 <= p {
-            self.exec_stage1::<S, 4>(data, a_buffer, v_buffer, w_buffer, uk, k);
+            self.exec_stage1::<S, _>(data, a_buffer, v_buffer, w_buffer, uk, k, AvxFullD);
             uk += 8; // 4 inner groups × 2 (re + im)
             k += 4;
         }
 
-        let rem = p - k;
-        if rem == 3 {
-            self.exec_stage1::<S, 3>(data, a_buffer, v_buffer, w_buffer, uk, k);
-        } else if rem == 2 {
-            self.exec_stage1::<S, 2>(data, a_buffer, v_buffer, w_buffer, uk, k);
-        } else if rem == 1 {
-            self.exec_stage1::<S, 1>(data, a_buffer, v_buffer, w_buffer, uk, k);
+        let remainder = p - k;
+        if remainder != 0 {
+            let tail = AvxTailD::new(remainder);
+            self.exec_stage1::<S, _>(data, a_buffer, v_buffer, w_buffer, uk, k, tail);
         }
 
         let x0_half = data[0] * 0.5;
@@ -399,7 +407,7 @@ impl AvxDct3MixedRadix9d {
 
         let mut n = 0usize;
         while n + 4 <= p {
-            self.exec_stage3::<S, 4>(
+            self.exec_stage3::<S, _>(
                 data,
                 a_buffer,
                 v_buffer,
@@ -415,14 +423,15 @@ impl AvxDct3MixedRadix9d {
                 w0_m3_v,
                 sign_even,
                 n,
+                AvxFullD,
             );
             n += 4;
         }
 
-        let rem = p - n;
-        if rem == 3 {
-            let sign_v = AvxStoreD::load(&[1.0_f64, -1.0, 1.0, 0.0]);
-            self.exec_stage3::<S, 3>(
+        let remainder = p - n;
+        if remainder != 0 {
+            let tail = AvxTailD::new(remainder);
+            self.exec_stage3::<S, _>(
                 data,
                 a_buffer,
                 v_buffer,
@@ -436,46 +445,9 @@ impl AvxDct3MixedRadix9d {
                 w0_m1_v,
                 w0_m2_v,
                 w0_m3_v,
-                sign_v,
+                sign_even,
                 n,
-            );
-        } else if rem == 2 {
-            let sign_v = AvxStoreD::load(&[1.0_f64, -1.0, 0.0, 0.0]);
-            self.exec_stage3::<S, 2>(
-                data,
-                a_buffer,
-                v_buffer,
-                w_buffer,
-                dc_adjust_a_v,
-                dc_v0,
-                dc_v1,
-                dc_v2,
-                dc_v3,
-                w0_m0_v,
-                w0_m1_v,
-                w0_m2_v,
-                w0_m3_v,
-                sign_v,
-                n,
-            );
-        } else if rem == 1 {
-            let sign_v = AvxStoreD::load(&[1.0_f64, 0.0, 0.0, 0.0]);
-            self.exec_stage3::<S, 1>(
-                data,
-                a_buffer,
-                v_buffer,
-                w_buffer,
-                dc_adjust_a_v,
-                dc_v0,
-                dc_v1,
-                dc_v2,
-                dc_v3,
-                w0_m0_v,
-                w0_m1_v,
-                w0_m2_v,
-                w0_m3_v,
-                sign_v,
-                n,
+                tail,
             );
         }
 
@@ -498,14 +470,14 @@ mod tests {
         if !has_valid_avx() {
             return;
         }
-        const N: usize = 9 * 9;
-        let mut input = vec![0.0_f64; N];
+        const LENGTH: usize = 9 * 9;
+        let mut input = vec![0.0_f64; LENGTH];
         for z in input.iter_mut() {
             *z = rand::rng().random_range(1.0..2.0);
         }
         let reference = naive_dct3(&input);
 
-        let bf = AvxDct3MixedRadix9d::new(N, Arc::new(Dct3Butterfly9::default())).unwrap();
+        let bf = AvxDct3MixedRadix9d::new(LENGTH, Arc::new(Dct3Butterfly9::default())).unwrap();
         bf.execute(&mut input).unwrap();
         for (i, (&a, &b)) in input.iter().zip(reference.iter()).enumerate() {
             assert!((a - b).abs() < 1e-1, "mismatch at {i}: {a} vs {b}");

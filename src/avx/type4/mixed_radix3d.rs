@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::stored::AvxStoreD;
+use crate::avx::stored::{AvxFullD, AvxLanesD, AvxStoreD, AvxTailD};
 use crate::avx::util::{boring_avx_mixed_radix, fma};
 use crate::bidirectional::BidirectionalStore;
 use crate::type4::radixq_dct4_rotation_twiddle;
@@ -128,7 +128,7 @@ boring_avx_mixed_radix!(AvxDct4MixedRadix3d, f64);
 impl AvxDct4MixedRadix3d {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn exec_block<S: BidirectionalStore<f64>, const N: usize>(
+    fn exec_block<S: BidirectionalStore<f64>, L: AvxLanesD>(
         &self,
         data: &mut S,
         a_buffer: &[f64],
@@ -136,12 +136,15 @@ impl AvxDct4MixedRadix3d {
         c_buffer: &[f64],
         uk: usize,
         k: usize,
+        access: L,
     ) {
-        let c_v = AvxStoreD::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
-        let s_v =
-            AvxStoreD::load_n::<N>(unsafe { s_buffer.get_unchecked(self.q_modules - k - N..) })
-                .reverse_n::<N>();
-        let a_v = AvxStoreD::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let lanes = access.len();
+        let c_v = AvxStoreD::load_lanes(access, unsafe { c_buffer.get_unchecked(k..) });
+        let s_v = AvxStoreD::load_lanes(access, unsafe {
+            s_buffer.get_unchecked(self.q_modules - k - lanes..)
+        })
+        .reverse_lanes(access);
+        let a_v = AvxStoreD::load_lanes(access, unsafe { a_buffer.get_unchecked(k..) });
 
         let twiddle_re = unsafe { *self.rotation_twiddles.get_unchecked(uk) };
         let twiddle_im = unsafe { *self.rotation_twiddles.get_unchecked(uk + 1) };
@@ -158,10 +161,10 @@ impl AvxDct4MixedRadix3d {
         let uc0 = u1 - v0;
         let uc1 = u1 + v0;
 
-        u0.write_n::<N>(data.slice_from_mut(k..));
-        uc1.write_n::<N>(data.slice_from_mut(self.s + k..));
-        uc0.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(self.s - N - k..));
+        u0.write_lanes(access, data.slice_from_mut(k..));
+        uc1.write_lanes(access, data.slice_from_mut(self.s + k..));
+        uc0.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(self.s - lanes - k..));
     }
 
     #[inline]
@@ -211,18 +214,15 @@ impl AvxDct4MixedRadix3d {
         let mut uk = 0usize;
 
         while k + 4 <= q_modules {
-            self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
+            self.exec_block::<S, _>(data, a_buffer, s_buffer, c_buffer, uk, k, AvxFullD);
             k += 4;
             uk += 2;
         }
 
         let remainder = q_modules - k;
-        if remainder == 3 {
-            self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 2 {
-            self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
-        } else if remainder == 1 {
-            self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
+        if remainder > 0 {
+            let tail = AvxTailD::new(remainder);
+            self.exec_block::<S, _>(data, a_buffer, s_buffer, c_buffer, uk, k, tail);
         }
         Ok(())
     }

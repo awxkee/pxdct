@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::storef::AvxStoreF;
+use crate::avx::storef::{AvxFullF, AvxLanesF, AvxStoreF, AvxTailF};
 use crate::avx::util::shuffle;
 use crate::transpose::{Transposition, validate_transpose_buffers};
 use std::arch::x86_64::*;
@@ -86,326 +86,77 @@ pub(crate) struct AvxTransposeFReal4x4 {
 
 impl AvxTransposeFReal4x4 {
     #[target_feature(enable = "avx2")]
-    fn transpose_y<const REMAINDER_Y: usize>(
+    fn transpose_block<R: AvxLanesF, C: AvxLanesF>(
+        &self,
+        src: &[f32],
+        dst: &mut [f32],
+        y: usize,
+        x: usize,
+        width: usize,
+        height: usize,
+        rows: R,
+        columns: C,
+    ) {
+        let input_stride = width;
+        let output_stride = height;
+        let row_count = rows.len();
+        let column_count = columns.len();
+
+        debug_assert!(y + row_count <= height);
+        debug_assert!(x + column_count <= width);
+
+        let src = unsafe { src.get_unchecked(input_stride * y..) };
+        let block_src = unsafe { src.get_unchecked(x..) };
+        let block_dst = unsafe { dst.get_unchecked_mut(y + output_stride * x..) };
+
+        let zbuffer = std::array::from_fn(|row| {
+            if row < row_count {
+                AvxStoreF::load_lanes(columns, unsafe {
+                    block_src.get_unchecked(row * input_stride..)
+                })
+            } else {
+                AvxStoreF::zero()
+            }
+        });
+        let transposed = transpose_8x8_f32(zbuffer);
+
+        for (column, value) in transposed.into_iter().take(column_count).enumerate() {
+            value.write_lanes(rows, unsafe {
+                block_dst.get_unchecked_mut(output_stride * column..)
+            });
+        }
+    }
+
+    #[target_feature(enable = "avx2")]
+    fn transpose_y<R: AvxLanesF>(
         &self,
         src: &[f32],
         dst: &mut [f32],
         y: usize,
         width: usize,
         height: usize,
+        rows: R,
     ) {
         const BLOCK_SIZE_X: usize = 8;
-        let input_y = y;
-
-        let input_stride = width;
-        let output_stride = height;
-
-        let src = unsafe { src.get_unchecked(input_stride * input_y..) };
-
         let mut x = 0usize;
 
         while x + BLOCK_SIZE_X <= width {
-            let output_x = x;
-
-            let src = unsafe { src.get_unchecked(x..) };
-            let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-            let mut zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                if x < REMAINDER_Y {
-                    AvxStoreF::load(unsafe { src.get_unchecked(x * input_stride..) })
-                } else {
-                    AvxStoreF::zero()
-                }
-            });
-
-            zbuffer = transpose_8x8_f32(zbuffer);
-
-            for i in 0..8 {
-                let v0 = zbuffer[i];
-                if REMAINDER_Y == 8 {
-                    v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 7 {
-                    v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 6 {
-                    v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 5 {
-                    v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 4 {
-                    v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 3 {
-                    v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 2 {
-                    v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 1 {
-                    v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                }
-            }
-
+            self.transpose_block(src, dst, y, x, width, height, rows, AvxFullF);
             x += BLOCK_SIZE_X;
         }
 
-        let rem = width - x;
-
-        match rem {
-            1 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let mut zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load1(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                zbuffer = transpose_8x8_f32(zbuffer);
-
-                let i = 0;
-                let v0 = zbuffer[i];
-                if REMAINDER_Y == 8 {
-                    v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 7 {
-                    v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 6 {
-                    v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 5 {
-                    v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 4 {
-                    v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 3 {
-                    v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 2 {
-                    v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                } else if REMAINDER_Y == 1 {
-                    v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                }
-            }
-            2 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load2(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                let buffer = transpose_8x8_f32(zbuffer);
-
-                for i in 0..2 {
-                    let v0 = buffer[i];
-                    if REMAINDER_Y == 8 {
-                        v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 7 {
-                        v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 6 {
-                        v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 5 {
-                        v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 4 {
-                        v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 3 {
-                        v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 2 {
-                        v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 1 {
-                        v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    }
-                }
-            }
-            3 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load3(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                let buffer = transpose_8x8_f32(zbuffer);
-
-                for i in 0..3 {
-                    let v0 = buffer[i];
-                    if REMAINDER_Y == 8 {
-                        v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 7 {
-                        v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 6 {
-                        v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 5 {
-                        v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 4 {
-                        v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 3 {
-                        v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 2 {
-                        v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 1 {
-                        v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    }
-                }
-            }
-            4 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load4(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                let buffer = transpose_8x8_f32(zbuffer);
-
-                for i in 0..4 {
-                    let v0 = buffer[i];
-                    if REMAINDER_Y == 8 {
-                        v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 7 {
-                        v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 6 {
-                        v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 5 {
-                        v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 4 {
-                        v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 3 {
-                        v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 2 {
-                        v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 1 {
-                        v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    }
-                }
-            }
-            5 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load5(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                let buffer = transpose_8x8_f32(zbuffer);
-
-                for i in 0..5 {
-                    let v0 = buffer[i];
-                    if REMAINDER_Y == 8 {
-                        v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 7 {
-                        v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 6 {
-                        v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 5 {
-                        v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 4 {
-                        v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 3 {
-                        v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 2 {
-                        v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 1 {
-                        v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    }
-                }
-            }
-            6 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load6(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                let buffer = transpose_8x8_f32(zbuffer);
-
-                for i in 0..6 {
-                    let v0 = buffer[i];
-                    if REMAINDER_Y == 8 {
-                        v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 7 {
-                        v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 6 {
-                        v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 5 {
-                        v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 4 {
-                        v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 3 {
-                        v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 2 {
-                        v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 1 {
-                        v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    }
-                }
-            }
-            7 => {
-                let output_x = x;
-
-                let src = unsafe { src.get_unchecked(x..) };
-                let dst = unsafe { dst.get_unchecked_mut(y + output_stride * output_x..) };
-
-                let zbuffer: [AvxStoreF; 8] = std::array::from_fn(|x| {
-                    if x < REMAINDER_Y {
-                        AvxStoreF::load7(unsafe { src.get_unchecked(x * input_stride..) })
-                    } else {
-                        AvxStoreF::zero()
-                    }
-                });
-
-                let buffer = transpose_8x8_f32(zbuffer);
-
-                for i in 0..7 {
-                    let v0 = buffer[i];
-                    if REMAINDER_Y == 8 {
-                        v0.write(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 7 {
-                        v0.write7(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 6 {
-                        v0.write6(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 5 {
-                        v0.write5(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 4 {
-                        v0.write4(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 3 {
-                        v0.write3(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 2 {
-                        v0.write2(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    } else if REMAINDER_Y == 1 {
-                        v0.write1(unsafe { dst.get_unchecked_mut(output_stride * i..) });
-                    }
-                }
-            }
-            _ => {}
+        let remainder = width - x;
+        if remainder != 0 {
+            self.transpose_block(
+                src,
+                dst,
+                y,
+                x,
+                width,
+                height,
+                rows,
+                AvxTailF::new(remainder),
+            );
         }
     }
 }
@@ -419,21 +170,45 @@ impl Transposition<f32> for AvxTransposeFReal4x4 {
 
         unsafe {
             while y + BLOCK_SIZE_Y <= self.height {
-                self.transpose_y::<8>(input, output, y, self.width, self.height);
+                self.transpose_y(input, output, y, self.width, self.height, AvxFullF);
                 y += BLOCK_SIZE_Y;
             }
 
             let rem_y = self.height - y;
             if rem_y > 0 {
-                match rem_y {
-                    1 => self.transpose_y::<1>(input, output, y, self.width, self.height),
-                    2 => self.transpose_y::<2>(input, output, y, self.width, self.height),
-                    3 => self.transpose_y::<3>(input, output, y, self.width, self.height),
-                    4 => self.transpose_y::<4>(input, output, y, self.width, self.height),
-                    5 => self.transpose_y::<5>(input, output, y, self.width, self.height),
-                    6 => self.transpose_y::<6>(input, output, y, self.width, self.height),
-                    7 => self.transpose_y::<7>(input, output, y, self.width, self.height),
-                    _ => {}
+                self.transpose_y(
+                    input,
+                    output,
+                    y,
+                    self.width,
+                    self.height,
+                    AvxTailF::new(rem_y),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transpose_handles_every_avx_tail_width() {
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        for height in 1..=17 {
+            for width in 1..=17 {
+                let input: Vec<f32> = (0..width * height).map(|x| x as f32).collect();
+                let mut output = vec![-1.; input.len()];
+                AvxTransposeFReal4x4 { width, height }.transpose(&input, &mut output);
+
+                for y in 0..height {
+                    for x in 0..width {
+                        assert_eq!(output[x * height + y], input[y * width + x]);
+                    }
                 }
             }
         }

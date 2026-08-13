@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::avx::storef::AvxStoreF;
+use crate::avx::storef::{AvxFullF, AvxLanesF, AvxStoreF, AvxTailF};
 use crate::avx::type2::mixed_radix3f::{
     dct2_radix_n_cos_twiddles_avx_f, dct2_radix_n_rotation_twiddles_avx_f,
 };
@@ -90,7 +90,7 @@ boring_avx_mixed_radix!(AvxDct2MixedRadix5f, f32);
 impl AvxDct2MixedRadix5f {
     #[inline]
     #[target_feature(enable = "avx2", enable = "fma")]
-    fn exec_block<S: BidirectionalStore<f32>, const N: usize>(
+    fn exec_block<S: BidirectionalStore<f32>, L: AvxLanesF>(
         &self,
         data: &mut S,
         a_buffer: &[f32],
@@ -98,15 +98,17 @@ impl AvxDct2MixedRadix5f {
         c_buffer: &[f32],
         uk: usize,
         k: usize,
+        access: L,
     ) {
+        let lanes = access.len();
         let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk) };
         let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 1) };
 
-        let c_forward = AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(k..) });
-        let s_forward = AvxStoreF::load_n::<N>(unsafe {
-            s_buffer.get_unchecked(self.q_modules - k - (N - 1)..)
+        let c_forward = AvxStoreF::load_lanes(access, unsafe { c_buffer.get_unchecked(k..) });
+        let s_forward = AvxStoreF::load_lanes(access, unsafe {
+            s_buffer.get_unchecked(self.q_modules - k - (lanes - 1)..)
         })
-        .reverse_n::<N>();
+        .reverse_lanes(access);
 
         let rotated_dc = fma(s_forward, rotation_twiddle_re, c_forward);
 
@@ -127,12 +129,13 @@ impl AvxDct2MixedRadix5f {
         let mut ds3 = twiddled_ds * f32::R5_SIN_ODD1_M0;
 
         {
-            let c_forward =
-                AvxStoreF::load_n::<N>(unsafe { c_buffer.get_unchecked(self.q_modules + k..) });
-            let s_forward = AvxStoreF::load_n::<N>(unsafe {
-                s_buffer.get_unchecked(self.q_modules * 2 - k - (N - 1)..)
+            let c_forward = AvxStoreF::load_lanes(access, unsafe {
+                c_buffer.get_unchecked(self.q_modules + k..)
+            });
+            let s_forward = AvxStoreF::load_lanes(access, unsafe {
+                s_buffer.get_unchecked(self.q_modules * 2 - k - (lanes - 1)..)
             })
-            .reverse_n::<N>();
+            .reverse_lanes(access);
 
             let rotation_twiddle_re = unsafe { *self.rotation_layer.get_unchecked(uk + 2) };
             let rotation_twiddle_im = unsafe { *self.rotation_layer.get_unchecked(uk + 3) };
@@ -154,30 +157,30 @@ impl AvxDct2MixedRadix5f {
             ds3 = AvxStoreF::f32_mul_add(f32::R5_SIN_ODD_M0, twiddled_ds, ds3);
         }
 
-        let a0 = AvxStoreF::load_n::<N>(unsafe { a_buffer.get_unchecked(k..) });
+        let a0 = AvxStoreF::load_lanes(access, unsafe { a_buffer.get_unchecked(k..) });
         let dc = dc0 + a0;
-        dc.write_n::<N>(data.slice_from_mut(k..));
+        dc.write_lanes(access, data.slice_from_mut(k..));
 
         let dss1 = AvxStoreF::f32_mul_add(2., ds1, -dc);
-        let idx = self.q_modules * 2 - k - (N - 1);
-        dss1.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(idx..));
+        let idx = self.q_modules * 2 - k - (lanes - 1);
+        dss1.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(idx..));
 
         dc2 = -(dc2 + a0); // negated 2j
         dc2 = AvxStoreF::f32_mul_add(2., dc2, -dss1);
         let idx1 = self.q_modules * 2 + k;
-        dc2.write_n::<N>(data.slice_from_mut(idx1..));
+        dc2.write_lanes(access, data.slice_from_mut(idx1..));
 
         let dss3 = AvxStoreF::f32_mul_add(2., -ds3, -dc2);
-        let idx = self.q_modules * 4 - k - (N - 1);
-        dss3.reverse_n::<N>()
-            .write_n::<N>(data.slice_from_mut(idx..));
+        let idx = self.q_modules * 4 - k - (lanes - 1);
+        dss3.reverse_lanes(access)
+            .write_lanes(access, data.slice_from_mut(idx..));
 
         dc4 += a0;
 
         let idx1 = self.q_modules * 4 + k;
         let uq = AvxStoreF::f32_mul_add(2., dc4, -dss3);
-        uq.write_n::<N>(data.slice_from_mut(idx1..));
+        uq.write_lanes(access, data.slice_from_mut(idx1..));
     }
 
     #[inline]
@@ -268,27 +271,15 @@ impl AvxDct2MixedRadix5f {
             let mut uk = 0usize;
 
             while k + 8 <= q_modules {
-                self.exec_block::<S, 8>(data, a_buffer, s_buffer, c_buffer, uk, k);
+                self.exec_block::<S, _>(data, a_buffer, s_buffer, c_buffer, uk, k, AvxFullF);
                 k += 8;
                 uk += 4;
             }
 
-            let rem = q_modules - k;
-            // handle remainder
-            if rem == 7 {
-                self.exec_block::<S, 7>(data, a_buffer, s_buffer, c_buffer, uk, k);
-            } else if rem == 6 {
-                self.exec_block::<S, 6>(data, a_buffer, s_buffer, c_buffer, uk, k);
-            } else if rem == 5 {
-                self.exec_block::<S, 5>(data, a_buffer, s_buffer, c_buffer, uk, k);
-            } else if rem == 4 {
-                self.exec_block::<S, 4>(data, a_buffer, s_buffer, c_buffer, uk, k);
-            } else if rem == 3 {
-                self.exec_block::<S, 3>(data, a_buffer, s_buffer, c_buffer, uk, k);
-            } else if rem == 2 {
-                self.exec_block::<S, 2>(data, a_buffer, s_buffer, c_buffer, uk, k);
-            } else if rem == 1 {
-                self.exec_block::<S, 1>(data, a_buffer, s_buffer, c_buffer, uk, k);
+            let remainder = q_modules - k;
+            if remainder != 0 {
+                let tail = AvxTailF::new(remainder);
+                self.exec_block::<S, _>(data, a_buffer, s_buffer, c_buffer, uk, k, tail);
             }
         }
         Ok(())
